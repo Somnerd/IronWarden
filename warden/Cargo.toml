@@ -1,0 +1,9 @@
+[package]
+name = "warden"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iw_core = { path = "../core" }
+aho-corasick = "1.0"
+regex = "1.10"
