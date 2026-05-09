@@ -1,0 +1,36 @@
+rules:
+  - id: "us_ssn"
+    pattern: '\d{3}-\d{2}-\d{4}'
+    type: "Regex"
+  
+  - id: "euro_iban"
+    pattern: '[A-Z]{2}\d{2}[A-Z0-9]{11,30}'
+    type: "Regex"
+
+  - id: "client_names"
+    pattern: "Alice"
+    type: "Dictionary"
+
+  - id: "internal_projects"
+    pattern: "Project Alpha"
+    type: "Dictionary"
+
+  - id: "company_secrets"
+    pattern: "Acme Corp"
+    type: "Dictionary"
+
+  - id: "credit_card"
+    pattern: '\d{4}-\d{4}-\d{4}-\d{4}'
+    type: "Regex"
+
+  - id: "email_address"
+    pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    type: "Regex"
+
+  - id: "phone_number"
+    pattern: '\d{3}-\d{4}'
+    type: "Regex"
+
+  - id: "test_secrets"
+    pattern: "Secret[A-Z]"
+    type: "Regex"

@@ -13,8 +13,14 @@ pub struct OpenAIGateway {
 impl OpenAIGateway {
     /// Creates a new OpenAIGateway instance.
     pub fn new(api_key: String, base_url: String) -> Self {
+        let client = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("Failed to build reqwest client");
+
         Self {
-            client: Client::new(),
+            client,
             api_key,
             base_url,
         }
@@ -24,11 +30,7 @@ impl OpenAIGateway {
 #[async_trait]
 impl InferenceGateway for OpenAIGateway {
     async fn route_prompt(&self, prompt: &str, context: &[String]) -> Result<String, SovereignError> {
-        // --- MOCK MODE FOR SIMULATION ---
-        if std::env::var("IRONWARDEN_MOCK").is_ok() {
-            tracing::info!("[MOCK LOG] Routing prompt to Mock LLM: {}", prompt);
-            return Ok(format!("Mock LLM Response: I acknowledge the prompt for {} and context (found {} docs).", prompt, context.len()));
-        }
+        // --- INTEGRITY FIX: Removed IRONWARDEN_MOCK simulation path ---
 
         // Construct the grounding instruction from the provided context strings
         let system_context = context.join("\n");

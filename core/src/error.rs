@@ -14,8 +14,20 @@ pub enum SovereignError {
     #[error("Storage Error: {0}")]
     StorageError(String),
 
+    #[error("Database Busy: {0}")]
+    DatabaseBusy(String),
+
     #[error("Unauthorized Access: {0}")]
     UnauthorizedAccess(String),
+
+    #[error("Configuration Error: {0}")]
+    ConfigError(String),
+
+    #[error("Audit Integrity Failure: {0}")]
+    AuditError(String),
+
+    #[error("Normalization Failure: {0}")]
+    NormalizationError(String),
 
     #[error("Internal Error: {0}")]
     InternalError(String),

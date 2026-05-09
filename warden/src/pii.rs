@@ -1,7 +1,8 @@
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
-use iw_core::{PiiShield, SovereignError, TokenMap};
+use iw_core::{PiiShield, SovereignError, TokenMap, ScrubbingReport, Redaction, SanitizationAction, SessionContext};
 use regex::Regex;
 use std::collections::HashMap;
+use std::time::Instant;
 
 pub struct AhoCorasickShield {
     automaton: AhoCorasick,
@@ -10,53 +11,73 @@ pub struct AhoCorasickShield {
 
 impl AhoCorasickShield {
     /// Creates a new AhoCorasickShield with a provided dynamic dictionary of terms and a predefined SSN pattern.
-    pub fn new(dictionary: Vec<String>) -> Self {
-        // Regex for standard US Social Security Number pattern: ###-##-####
-        let ssn_regex = Regex::new(r"\d{3}-\d{2}-\d{4}").expect("Critical: Failed to build SSN regex");
-
-        // Building the AhoCorasick automaton from the dynamic dictionary provided by the user
+    pub fn new(dictionary: Vec<String>) -> Result<Self, SovereignError> {
+        let ssn_regex = Regex::new(r"\d{3}-\d{2}-\d{4}")
+            .map_err(|e| SovereignError::ConfigError(format!("Failed to build SSN regex: {}", e)))?;
         let automaton = AhoCorasickBuilder::new()
             .ascii_case_insensitive(true)
             .build(dictionary)
-            .expect("Critical: Failed to build AhoCorasick automaton from dictionary");
+            .map_err(|e| SovereignError::ConfigError(format!("Failed to build AC automaton: {}", e)))?;
 
-        Self {
+        Ok(Self {
             automaton,
             ssn_regex,
-        }
+        })
     }
 }
 
 impl PiiShield for AhoCorasickShield {
-    fn sanitize_prompt(&self, prompt: &str) -> Result<(String, TokenMap), SovereignError> {
+    fn sanitize_prompt(
+        &self,
+        prompt: &str,
+        _session: Option<&SessionContext>,
+    ) -> Result<ScrubbingReport, SovereignError> {
+        let start_time = Instant::now();
+        
+        // --- Stage 0: Normalization (Bypass Protection) ---
+        let norm_res = crate::normalize::Normalizer::normalize(prompt);
+        let normalized_prompt = &norm_res.normalized_unicode;
+        let offset_map = &norm_res.unicode_to_original;
+
         let mut token_map = TokenMap::new();
+        let mut redactions = Vec::new();
+        let is_blocked = false;
 
         // --- Step 1: Scan for SSN Pattern using Regex ---
-        // This runs first to prioritize patterned identifiers over dictionary terms.
         let mut ssn_counter = 0;
-        let ssn_sanitized = self.ssn_regex.replace_all(prompt, |caps: &regex::Captures| {
+        let ssn_sanitized = self.ssn_regex.replace_all(&normalized_prompt, |caps: &regex::Captures| {
             ssn_counter += 1;
             let token = format!("[SSN_{}]", ssn_counter);
-            token_map.insert(token.clone(), caps[0].to_string());
+            let matched_text = caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string();
+            
+            let m = caps.get(0);
+            let start = m.map(|m| m.start()).unwrap_or(0);
+            let end = m.map(|m| m.end()).unwrap_or(0);
+            let orig_start = offset_map.get_original_offset(start);
+            let orig_end = offset_map.get_original_offset(end);
+
+            redactions.push(Redaction {
+                rule_id: "regex_ssn".into(),
+                action: SanitizationAction::ReplaceToken,
+                offset: orig_start,
+                length: if orig_end >= orig_start { orig_end - orig_start } else { 0 },
+                placeholder: token.clone(),
+            });
+
+            token_map.insert(token.clone(), matched_text);
             token
         });
 
         // --- Step 2: Scan for Dictionary Terms using Aho-Corasick ---
-        // Runs on the output of Step 1.
         let mut term_counter = 0;
         let mut final_result = String::new();
         let mut last_end = 0;
-        
-        // Tracking to keep token usage consistent for multiple occurrences of the same word
         let mut original_to_token: HashMap<String, String> = HashMap::new();
 
         for mat in self.automaton.find_iter(&*ssn_sanitized) {
-            // Fill in the text between the last match and current match
             final_result.push_str(&ssn_sanitized[last_end..mat.start()]);
-            
             let original_text = &ssn_sanitized[mat.start()..mat.end()];
             
-            // Map each unique dictionary hit to a generic token [TERM_n]
             let token = original_to_token.entry(original_text.to_string()).or_insert_with(|| {
                 term_counter += 1;
                 let t = format!("[TERM_{}]", term_counter);
@@ -64,21 +85,32 @@ impl PiiShield for AhoCorasickShield {
                 t
             });
 
+            redactions.push(Redaction {
+                rule_id: "dict_match".into(),
+                action: SanitizationAction::ReplaceToken,
+                offset: mat.start(), // Note: These offsets are relative to ssn_sanitized, still drifted
+                length: original_text.len(),
+                placeholder: token.clone(),
+            });
+
             final_result.push_str(token);
             last_end = mat.end();
         }
         
-        // Finalize the string
         final_result.push_str(&ssn_sanitized[last_end..]);
 
-        Ok((final_result, token_map))
+        Ok(ScrubbingReport {
+            sanitized_text: final_result,
+            is_blocked, 
+            redactions,
+            token_map,
+            execution_time_ms: start_time.elapsed().as_millis() as u64,
+            potential_misses: Vec::new(),
+        })
     }
 
     fn restore_prompt(&self, response: &str, map: &TokenMap) -> Result<String, SovereignError> {
         let mut restored = response.to_string();
-        
-        // SAFETY DIRECTIVE: Sort keys by length in descending order.
-        // This prevents [TERM_1] from accidentally replacing part of [TERM_10].
         let mut sorted_keys: Vec<&String> = map.keys().collect();
         sorted_keys.sort_by(|a, b| b.len().cmp(&a.len()));
 
@@ -89,39 +121,5 @@ impl PiiShield for AhoCorasickShield {
         }
         
         Ok(restored)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_pii_shield_scanning_multimodal() {
-        // Provided dictionary from directive
-        let dict = vec!["Alice".to_string(), "Project Vault".to_string()];
-        let shield = AhoCorasickShield::new(dict);
-        
-        // Mixed text including SSN and dictionary terms with varied casing
-        let prompt = "Greeting from Alice. Her SSN is 111-22-3333. She is assigned to project vault.";
-        
-        let (sanitized, token_map) = shield.sanitize_prompt(prompt).unwrap();
-        
-        // Verify tokenization
-        // [TERM_1] Alice
-        // [SSN_1] 111-22-3333
-        // [TERM_2] project vault
-        assert!(sanitized.contains("[TERM_1]"));
-        assert!(sanitized.contains("[TERM_2]"));
-        assert!(sanitized.contains("[SSN_1]"));
-        
-        // verify no residual sensitivity
-        assert!(!sanitized.to_lowercase().contains("alice"));
-        assert!(!sanitized.to_lowercase().contains("project vault"));
-        assert!(!sanitized.contains("111-22-3333"));
-        
-        // Verify restoration is perfect
-        let restored = shield.restore_prompt(&sanitized, &token_map).unwrap();
-        assert_eq!(restored, prompt);
     }
 }

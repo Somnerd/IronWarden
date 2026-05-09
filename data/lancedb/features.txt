@@ -1,0 +1,1 @@
+IronWarden supports Firebase Data Connect for project-wide RAG grounding.

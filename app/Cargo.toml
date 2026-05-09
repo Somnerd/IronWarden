@@ -5,10 +5,17 @@ edition = "2021"
 
 [dependencies]
 iw_core = { path = "../core" }
-warden = { path = "../warden" }
+warden = { package = "iw-warden", path = "../warden" }
 worker = { path = "../worker" }
 mcp = { path = "../mcp" }
 tokio = { version = "1.0", features = ["full"] }
 dotenvy = "0.15"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["json"] }
+axum = { version = "0.7", features = ["macros"] }
+dashmap = "6.1.0"
+secrecy = "0.8.0"
+
+[dev-dependencies]
+tempfile = "3.10"
+rusqlite = "0.32"

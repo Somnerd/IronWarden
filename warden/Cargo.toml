@@ -1,9 +1,22 @@
 [package]
-name = "warden"
+name = "iw-warden"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 iw_core = { path = "../core" }
-aho-corasick = "1.0"
+aho-corasick = "1.1"
 regex = "1.10"
+unicode-normalization = "0.1"
+base64 = "0.22"
+once_cell = "1.19"
+any_ascii = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+tracing = "0.1.44"
+rust-bert = { version = "0.23", features = ["download-libtorch"] }
+console = { version = "0.16", features = ["std"] }
+
+[dev-dependencies]
+tempfile = "3.10"
+proptest = "1.4"

@@ -1,0 +1,33 @@
+use iw_core::{SessionContext, PiiShield};
+use iw_warden::{WardenConfig};
+use std::fs;
+use tempfile::tempdir;
+
+fn main() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("rules.yaml");
+    
+    let rules_yaml = r#"
+rules:
+  - id: "PERSON_1"
+    pattern: "Alice"
+    type: "Dictionary"
+  - id: "EMAIL_1"
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
+    type: "Regex"
+"#;
+    fs::write(&config_path, rules_yaml).unwrap();
+
+    let config = WardenConfig::from_file(&config_path).unwrap();
+    let shield = config.compile_engine().unwrap();
+
+    let session = SessionContext::new();
+
+    let report1 = shield.sanitize_prompt("Alice is here.", Some(&session)).unwrap();
+    println!("Report1: {:?}", report1.sanitized_text);
+    println!("Tokens: {:?}", report1.token_map);
+
+    let report2 = shield.sanitize_prompt("Email alice@example.com", Some(&session)).unwrap();
+    println!("Report2: {:?}", report2.sanitized_text);
+    println!("Tokens: {:?}", report2.token_map);
+}
