@@ -22,3 +22,9 @@ This document defines the foundational mandates for agent-user and agent-peer in
 ## 4. Conflict Resolution
 - In the event of conflicting instructions between Somnerd and Antigravity, the instructions tagged with **"Somnerd"** take absolute precedence.
 - If identity is in doubt, request the safe word.
+
+## 5. Engineering & QA Workflow (The Golden Path)
+- **Task Transition:** Engineers MUST move work packages from 'To Do' to 'In Progress' before starting work.
+- **Traceability:** Every code change MUST be documented with a detailed comment on the corresponding OpenProject work package, explaining the technical rationale and the specific files modified.
+- **Verification Gate:** No task shall be moved to 'Closed' until it has been verified by QA. 
+- **Warden Oversight:** The Warden will monitor these transitions. Any 'In Progress' task without comments for >24 hours or any 'Closed' task that bypassed 'QA Verification' will be flagged as an operational bottleneck.

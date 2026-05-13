@@ -1,13 +1,11 @@
+use regex::Regex;
+
 fn main() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
-        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        std::thread::spawn(move || {
-            let _tx = tx;
-            panic!("disk error");
-        });
-        
-        let res = rx.await;
-        println!("Result: {:?}", res);
-    });
+    let re = Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+(?:\s+(?:[a-z]{1,3}\s+)*[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+)+\b").unwrap();
+    let text = "Geia sou Nikolaos Papadopoulos";
+    if let Some(mat) = re.find(text) {
+        println!("Match: '{}'", mat.as_str());
+    } else {
+        println!("No match");
+    }
 }

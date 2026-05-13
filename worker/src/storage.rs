@@ -1,17 +1,18 @@
 use async_trait::async_trait;
-use iw_core::{SovereignError, StorageProvider, ScrubbingReport};
+use iw_core::{SovereignError, StorageProvider, ScrubbingReport, ComplianceReport};
 use crate::audit::AsyncAuditor;
 use crate::searchboost::SearchBoostQueue;
 use crate::librarian::LocalLibrarian;
 use rusqlite::{Connection, ErrorCode};
 use std::sync::Arc;
 use secrecy::SecretVec;
+use tracing::info;
 
 /// The "Librarian" aggregator that provides the full StorageProvider trait implementation.
 pub struct WorkerStorage {
     auditor: AsyncAuditor,
     sb_queue: Option<SearchBoostQueue>,
-    librarian: LocalLibrarian,
+    librarian: Arc<LocalLibrarian>,
     db_path: String,
     conn: Arc<std::sync::Mutex<Connection>>,
 }
@@ -37,13 +38,20 @@ impl WorkerStorage {
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
             .map_err(|e| SovereignError::StorageError(format!("Failed to set PRAGMAs: {}", e)))?;
 
-        Ok(Self { 
+        let storage = Self { 
             auditor,
-            sb_queue,
-            librarian,
+            sb_queue: sb_queue.clone(),
+            librarian: Arc::new(librarian),
             db_path: audit_db_path.to_string(),
             conn: Arc::new(std::sync::Mutex::new(conn)),
-        })
+        };
+
+        if let Some(queue) = sb_queue {
+            queue.spawn_worker(storage.librarian.clone());
+            info!("SearchBoost background worker ignited.");
+        }
+
+        Ok(storage)
     }
 
     pub async fn validate_thread_access(&self, thread_id: &str, username: &str) -> Result<bool, SovereignError> {
@@ -121,5 +129,30 @@ impl StorageProvider for WorkerStorage {
         }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
 
         Ok(exists)
+    }
+
+    async fn check_health(&self) -> Result<(), SovereignError> {
+        let conn_arc = self.conn.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
+            conn.query_row("SELECT 1", [], |_| Ok(())).map_err(|e| SovereignError::StorageError(e.to_string()))
+        }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
+
+        self.librarian.check_health().await
+            .map_err(|e| SovereignError::StorageError(format!("Librarian Unhealthy: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn get_compliance_report(&self) -> Result<ComplianceReport, SovereignError> {
+        let stats = self.auditor.get_compliance_stats()?;
+        Ok(ComplianceReport {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            total_redactions: stats.0,
+            total_blocks: stats.1,
+            period_start: stats.2,
+            period_end: stats.3,
+            integrity_hash: stats.4,
+        })
     }
 }

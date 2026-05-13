@@ -1,5 +1,5 @@
 use iw_core::{PiiShield};
-use std::sync::Arc;
+use iw_core::traits::{EnforcementAction, PiiCategory};
 use tempfile::tempdir;
 
 #[tokio::test]
@@ -8,7 +8,7 @@ async fn test_leak_proof_librarian_flow() {
     
     // 1. Setup a direct engine with the rule we want
     let dictionary_rules = Vec::new();
-    let patterns_rules = vec![("confidential_project".to_string(), "(?i)Project (Alpha|Omega|Zion)".to_string(), iw_warden::config::SanitizationAction::Redact)];
+    let patterns_rules = vec![("confidential_project".to_string(), "(?i)Project (Alpha|Omega|Zion)".to_string(), EnforcementAction::Redact, PiiCategory::Other)];
     let heuristics = Vec::new();
     
     let engine = iw_warden::WardenEngine::new(

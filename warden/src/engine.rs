@@ -1,48 +1,57 @@
-use iw_core::{ScrubbingReport, Redaction, SanitizationAction as CoreAction, TokenMap, SovereignError, PiiShield, SessionContext, PotentialMiss};
+use iw_core::{ScrubbingReport, Redaction, EnforcementAction, TokenMap, SovereignError, PiiShield, SessionContext, PotentialMiss, PiiCategory};
 use crate::normalize::Normalizer;
 use crate::shadow_ner::ShadowNer;
-use crate::config::SanitizationAction;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+const SEMANTIC_CACHE_THRESHOLD: f64 = 0.95;
+
 pub struct WardenEngine {
     dictionary_automaton: AhoCorasick,
     pattern_regex: Regex,
     rule_ids: Vec<String>,
-    rule_actions: Vec<SanitizationAction>,
+    rule_actions: Vec<EnforcementAction>,
+    rule_categories: Vec<PiiCategory>,
     shadow_ner: ShadowNer,
     dict_pattern_count: usize,
-    ai: Option<std::sync::Mutex<crate::ai::HybridNer>>,
+    ai: Option<crate::ai::HybridNerPool>,
     confidence_threshold: f64,
 }
 
-impl WardenEngine {
+    impl WardenEngine {
     pub fn new(
-        dictionary_rules: Vec<(String, String, SanitizationAction)>, 
-        patterns_rules: Vec<(String, String, SanitizationAction)>,
+        dictionary_rules: Vec<(String, String, EnforcementAction, PiiCategory)>,
+        patterns_rules: Vec<(String, String, EnforcementAction, PiiCategory)>,
         heuristics: Vec<crate::config::HeuristicConfig>,
-        ai: Option<crate::ai::HybridNer>,
+        ai: Option<crate::ai::HybridNerPool>,
         confidence_threshold: f64,
     ) -> Result<Self, SovereignError> {
+
         let mut dict_patterns = Vec::new();
         let mut dict_ids = Vec::new();
         let mut dict_actions = Vec::new();
-        for (id, pat, action) in dictionary_rules {
+        let mut dict_categories = Vec::new();
+        for (id, pat, action, category) in dictionary_rules {
             dict_ids.push(id);
-            dict_patterns.push(pat);
+            // --- SECURITY FIX (V-13): Normalize dictionary patterns ---
+            let norm = Normalizer::normalize(&pat);
+            dict_patterns.push(norm.normalized_ascii);
             dict_actions.push(action);
+            dict_categories.push(category);
         }
 
         let mut regex_patterns = Vec::new();
         let mut regex_ids = Vec::new();
         let mut regex_actions = Vec::new();
-        for (id, pat, action) in patterns_rules {
+        let mut regex_categories = Vec::new();
+        for (id, pat, action, category) in patterns_rules {
             regex_ids.push(id);
             regex_patterns.push(format!("(?P<r_{}>{})", regex_patterns.len(), pat));
             regex_actions.push(action);
+            regex_categories.push(category);
         }
 
         let dict_pattern_count = dict_patterns.len();
@@ -65,9 +74,10 @@ impl WardenEngine {
             pattern_regex,
             rule_ids: [dict_ids, regex_ids].concat(),
             rule_actions: [dict_actions, regex_actions].concat(),
+            rule_categories: [dict_categories, regex_categories].concat(),
             shadow_ner: ShadowNer::new(heuristics),
             dict_pattern_count,
-            ai: ai.map(std::sync::Mutex::new),
+            ai,
             confidence_threshold,
         })
     }
@@ -80,7 +90,8 @@ struct UnifiedMatch {
     text: String,
     rule_id: String,
     is_confirmed: bool,
-    action: SanitizationAction,
+    action: EnforcementAction,
+    category: PiiCategory,
 }
 
 fn is_standalone_word(text: &str, sub: &str) -> bool {
@@ -115,7 +126,7 @@ impl PiiShield for WardenEngine {
         let mut all_potentials: Vec<UnifiedMatch> = Vec::new();
 
         // 1. Collect Dictionary Matches (on ASCII for homoglyphs)
-        for mat in self.dictionary_automaton.find_iter(&norm_res.normalized_ascii) {
+        for mat in self.dictionary_automaton.find_overlapping_iter(&norm_res.normalized_ascii) {
             // Word boundary enforcement for dictionary matches
             let before_ok = mat.start() == 0 || !norm_res.normalized_ascii[..mat.start()].chars().last().unwrap().is_alphanumeric();
             let after_ok = mat.end() == norm_res.normalized_ascii.len() || !norm_res.normalized_ascii[mat.end()..].chars().next().unwrap().is_alphanumeric();
@@ -124,7 +135,7 @@ impl PiiShield for WardenEngine {
             }
 
             let idx = mat.pattern().as_usize();
-            if let (Some(id), Some(action)) = (self.rule_ids.get(idx), self.rule_actions.get(idx)) {
+            if let (Some(id), Some(action), Some(category)) = (self.rule_ids.get(idx), self.rule_actions.get(idx), self.rule_categories.get(idx)) {
                 // Map ASCII offsets to Original, then to Unicode
                 let orig_start = norm_res.ascii_to_original.get_original_offset(mat.start());
                 let orig_end = norm_res.ascii_to_original.get_original_offset(mat.end());
@@ -139,106 +150,213 @@ impl PiiShield for WardenEngine {
                     rule_id: id.clone(),
                     is_confirmed: true,
                     action: *action,
+                    category: *category,
                 });
             }
         }
 
         // 2. Collect Regex Pattern Matches (on Unicode for accuracy)
-        for caps in self.pattern_regex.captures_iter(normalized) {
-            if let Some(full_match) = caps.get(0) {
-                for (idx, id) in self.rule_ids[self.dict_pattern_count..].iter().enumerate() {
-                    if caps.name(&format!("r_{}", idx)).is_some() {
-                        let absolute_idx = self.dict_pattern_count + idx;
-                        let action = self.rule_actions[absolute_idx];
-                        all_confirmed.push(UnifiedMatch {
-                            start: full_match.start(),
-                            end: full_match.end(),
-                            text: full_match.as_str().to_string(),
-                            rule_id: id.clone(),
-                            is_confirmed: true,
-                            action,
-                        });
-                        break;
-                    }
+        // --- SECURITY FIX (V-12): Overlapping Regex Scan ---
+        for (idx, re) in self.individual_regexes.iter().enumerate() {
+            let absolute_idx = self.dict_pattern_count + idx;
+            let id = &self.rule_ids[absolute_idx];
+            let action = self.rule_actions[absolute_idx];
+            let category = self.rule_categories[absolute_idx];
+
+            for mat in re.find_iter(normalized) {
+                all_confirmed.push(UnifiedMatch {
+                    start: mat.start(),
+                    end: mat.end(),
+                    text: mat.as_str().to_string(),
+                    rule_id: id.clone(),
+                    is_confirmed: true,
+                    action,
+                    category,
+                });
+            }
+        }
+
+        // 2b. Collect Regex Pattern Matches (on ASCII for homoglyph bypasses)
+        // --- SECURITY FIX (V-12 & V-15): Overlapping ASCII Regex Scan ---
+        for (idx, re) in self.individual_regexes.iter().enumerate() {
+            let absolute_idx = self.dict_pattern_count + idx;
+            let id = &self.rule_ids[absolute_idx];
+            let action = self.rule_actions[absolute_idx];
+            let category = self.rule_categories[absolute_idx];
+
+            for mat in re.find_iter(&norm_res.normalized_ascii) {
+                // Map ASCII offsets to Original, then to Unicode for consistent internal state
+                let orig_start = norm_res.ascii_to_original.get_original_offset(mat.start());
+                let orig_end = norm_res.ascii_to_original.get_original_offset(mat.end());
+                
+                let unicode_start = norm_res.original_to_unicode[orig_start];
+                let unicode_end = norm_res.original_to_unicode[orig_end];
+
+                // --- SECURITY FIX: Deduplicate against Unicode pass ---
+                let is_duplicate = all_confirmed.iter().any(|m| {
+                    m.start == unicode_start && m.end == unicode_end && m.rule_id == *id
+                });
+                
+                if !is_duplicate {
+                    all_confirmed.push(UnifiedMatch {
+                        start: unicode_start,
+                        end: unicode_end,
+                        text: normalized[unicode_start..unicode_end].to_string(),
+                        rule_id: format!("{}_ascii", id),
+                        is_confirmed: true,
+                        action,
+                        category,
+                    });
                 }
             }
         }
 
-        // 3. Shadow NER Pass
-        let shadow_matches = self.shadow_ner.analyze(&normalized);
+        // 3. Shadow NER Pass (Dual track: ASCII for homoglyph resilience, Unicode for script awareness)
+        let shadow_matches = self.shadow_ner.analyze(&norm_res.normalized_unicode, &norm_res.normalized_ascii);
         
-        if let Some(ai_mutex) = &self.ai {
-            if let Ok(ai_guard) = ai_mutex.lock() {
-                for shadow in shadow_matches {
-                    let is_covered = all_confirmed.iter().any(|m| {
-                        shadow.start < m.end && shadow.end > m.start
-                    });
-                    if is_covered { continue; }
+        for shadow in shadow_matches {
+            // Map offsets to Original, then to Unicode
+            let (orig_start, orig_end) = if shadow.is_ascii {
+                (norm_res.ascii_to_original.get_original_offset(shadow.start),
+                 norm_res.ascii_to_original.get_original_offset(shadow.end))
+            } else {
+                (norm_res.unicode_to_original.get_original_offset(shadow.start),
+                 norm_res.unicode_to_original.get_original_offset(shadow.end))
+            };
+            
+            let unicode_start = norm_res.original_to_unicode[orig_start];
+            let unicode_end = norm_res.original_to_unicode[orig_end];
 
-                    let miss = PotentialMiss {
-                        text: normalized[shadow.start..shadow.end].to_string(),
-                        offset: offset_map.get_original_offset(shadow.start),
-                        label: shadow.label.clone(),
-                    };
+            let is_covered = all_confirmed.iter().any(|m| {
+                unicode_start < m.end && unicode_end > m.start
+            });
+            if is_covered { continue; }
 
-                    let should_force_promote = shadow.label == "POTENTIAL_GLOBAL_NAME" || shadow.label == "POTENTIAL_GREEK_NAME";
+            // ASCII equivalent for caching
+            let ascii_start = norm_res.original_to_ascii[orig_start];
+            let ascii_end = norm_res.original_to_ascii[orig_end];
+            let ascii_text = norm_res.normalized_ascii[ascii_start..ascii_end].to_string();
 
-                    if let Some(ai_entity) = ai_guard.validate_miss(&miss, &normalized, session) {
+            let miss = PotentialMiss {
+                text: normalized[unicode_start..unicode_end].to_string(),
+                offset: orig_start,
+                label: shadow.label.clone(),
+            };
+
+            // --- WP #77: SEMANTIC CACHE CHECK (0.1ms bypass) ---
+            let mut cache_hit = None;
+            if let Some(ctx) = session {
+                let cache_key = ascii_text.to_lowercase();
+                if let Some((label, score)) = ctx.semantic_cache.get(&cache_key) {
+                    if score >= SEMANTIC_CACHE_THRESHOLD {
+                        cache_hit = Some((label, score));
+                    }
+                }
+            }
+
+            if let Some((label, _score)) = cache_hit {
+                all_confirmed.push(UnifiedMatch {
+                    start: unicode_start,
+                    end: unicode_end,
+                    text: miss.text,
+                    rule_id: format!("ai_cache_{}", label),
+                    is_confirmed: true,
+                    action: shadow.action,
+                    category: PiiCategory::HighConfidenceAi,
+                });
+                continue;
+            }
+            // --------------------------------------------------
+
+            let should_force_promote = shadow.category == PiiCategory::IndividualName;
+
+            if let Some(pool) = &self.ai {
+                if let Some(ai_instance) = pool.get() {
+                    if let Some(ai_entity) = ai_instance.validate_miss(&miss, &normalized, session) {
                         if ai_entity.score >= self.confidence_threshold || should_force_promote {
+                            // --- WP #77: SEMANTIC CACHE INSERT ---
+                            if let Some(ctx) = session {
+                                if ai_entity.score >= SEMANTIC_CACHE_THRESHOLD {
+                                    ctx.semantic_cache.insert(ascii_text.to_lowercase(), (ai_entity.label.clone(), ai_entity.score));
+                                }
+                            }
+                            // ------------------------------------
                             all_confirmed.push(UnifiedMatch {
-                                start: shadow.start,
-                                end: shadow.end,
+                                start: unicode_start,
+                                end: unicode_end,
                                 text: miss.text,
                                 rule_id: format!("ai_hybrid_{}", shadow.label),
                                 is_confirmed: true,
                                 action: shadow.action,
+                                category: PiiCategory::HighConfidenceAi,
                             });
                         } else {
                             all_potentials.push(UnifiedMatch {
-                                start: shadow.start,
-                                end: shadow.end,
+                                start: unicode_start,
+                                end: unicode_end,
                                 text: miss.text,
                                 rule_id: shadow.label.clone(),
                                 is_confirmed: false,
                                 action: shadow.action,
+                                category: shadow.category,
                             });
                         }
                     } else if should_force_promote {
                          all_confirmed.push(UnifiedMatch {
-                            start: shadow.start,
-                            end: shadow.end,
+                            start: unicode_start,
+                            end: unicode_end,
                             text: miss.text,
                             rule_id: format!("heuristic_promotion_{}", shadow.label),
                             is_confirmed: true,
                             action: shadow.action,
+                            category: PiiCategory::IndividualName,
                         });
                     } else {
                         all_potentials.push(UnifiedMatch {
-                            start: shadow.start,
-                            end: shadow.end,
+                            start: unicode_start,
+                            end: unicode_end,
                             text: miss.text,
                             rule_id: shadow.label.clone(),
                             is_confirmed: false,
                             action: shadow.action,
+                            category: shadow.category,
+                        });
+                    }
+                    pool.release(ai_instance);
+                } else {
+                    // Pool timeout - fall back to force promote if applicable
+                    if should_force_promote {
+                         all_confirmed.push(UnifiedMatch {
+                            start: unicode_start,
+                            end: unicode_end,
+                            text: miss.text,
+                            rule_id: format!("pool_timeout_promotion_{}", shadow.label),
+                            is_confirmed: true,
+                            action: shadow.action,
+                            category: PiiCategory::IndividualName,
                         });
                     }
                 }
-            }
-        } else {
-            for shadow in shadow_matches {
-                let is_covered = all_confirmed.iter().any(|m| {
-                    shadow.start < m.end && shadow.end > m.start
+            } else if should_force_promote {
+                all_confirmed.push(UnifiedMatch {
+                    start: unicode_start,
+                    end: unicode_end,
+                    text: miss.text,
+                    rule_id: format!("heuristic_promotion_{}", shadow.label),
+                    is_confirmed: true,
+                    action: shadow.action,
+                    category: PiiCategory::IndividualName,
                 });
-                if !is_covered {
-                    all_potentials.push(UnifiedMatch {
-                        start: shadow.start,
-                        end: shadow.end,
-                        text: normalized[shadow.start..shadow.end].to_string(),
-                        rule_id: shadow.label.clone(),
-                        is_confirmed: false,
-                        action: shadow.action,
-                    });
-                }
+            } else {
+                all_potentials.push(UnifiedMatch {
+                    start: unicode_start,
+                    end: unicode_end,
+                    text: miss.text,
+                    rule_id: shadow.label.clone(),
+                    is_confirmed: false,
+                    action: shadow.action,
+                    category: shadow.category,
+                });
             }
         }
 
@@ -264,8 +382,8 @@ impl PiiShield for WardenEngine {
                     merged.text.push_str(gap);
                     merged.text.push_str(&pot.text);
                     merged.rule_id = format!("{}+fused", merged.rule_id);
-                    if pot.action == SanitizationAction::Block {
-                        merged.action = SanitizationAction::Block;
+                    if pot.action == EnforcementAction::Block {
+                        merged.action = EnforcementAction::Block;
                     }
                 } else {
                     break;
@@ -280,8 +398,8 @@ impl PiiShield for WardenEngine {
                         last.text.push_str(gap);
                         last.text.push_str(&merged.text);
                         last.rule_id = format!("{}+{}", last.rule_id, merged.rule_id);
-                        if merged.action == SanitizationAction::Block {
-                            last.action = SanitizationAction::Block;
+                        if merged.action == EnforcementAction::Block {
+                            last.action = EnforcementAction::Block;
                         }
                         continue;
                     }
@@ -305,8 +423,8 @@ impl PiiShield for WardenEngine {
                     }
                     
                     last.end = std::cmp::max(last.end, merged.end);
-                    if merged.action == SanitizationAction::Block {
-                        last.action = SanitizationAction::Block;
+                    if merged.action == EnforcementAction::Block {
+                        last.action = EnforcementAction::Block;
                     }
                     continue;
                 }
@@ -321,13 +439,13 @@ impl PiiShield for WardenEngine {
         for mat in final_matches {
             if mat.start < last_pos { continue; }
 
-            if mat.action == SanitizationAction::Block {
+            if mat.action == EnforcementAction::Block {
                 is_blocked = true;
             }
 
             sanitized_text.push_str(&normalized[last_pos..mat.start]);
 
-            if mat.action == SanitizationAction::AuditOnly {
+            if mat.action == EnforcementAction::AuditOnly {
                  sanitized_text.push_str(&normalized[mat.start..mat.end]);
                  last_pos = mat.end;
                  continue;
@@ -339,7 +457,7 @@ impl PiiShield for WardenEngine {
                 // --- SUB-PHRASE IDENTITY LINKING ---
                 let mut existing_token = None;
                 
-                let is_person_like = mat.rule_id.contains("PERSON") || mat.rule_id.contains("PER") || mat.rule_id.contains("fused") || mat.rule_id.contains("name");
+                let is_person_like = mat.category == PiiCategory::IndividualName || mat.category == PiiCategory::HighConfidenceAi;
 
                 if is_person_like {
                     // 1. Exact Match Check
@@ -382,7 +500,7 @@ impl PiiShield for WardenEngine {
                         ctx.token_to_pii.insert(t.clone(), mat.text.clone());
                         
                         // Register as identity if it's a person or fused name
-                        if mat.rule_id.contains("PERSON") || mat.rule_id.contains("PER") || mat.rule_id.contains("fused") || mat.rule_id.contains("name") {
+                        if mat.category == PiiCategory::IndividualName || mat.category == PiiCategory::HighConfidenceAi {
                              ctx.identities.insert(text_lower.clone(), t.clone());
                         }
                         t
@@ -405,10 +523,11 @@ impl PiiShield for WardenEngine {
 
             redactions.push(Redaction {
                 rule_id: mat.rule_id,
-                action: CoreAction::ReplaceToken,
+                action: mat.action,
                 offset: orig_start,
                 length: if orig_end >= orig_start { orig_end - orig_start } else { mat.text.len() },
                 placeholder: token.clone(),
+                category: mat.category,
             });
 
             sanitized_text.push_str(&token);
@@ -457,5 +576,87 @@ impl PiiShield for WardenEngine {
         });
 
         Ok(result.into_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::HeuristicConfig;
+
+    #[test]
+    fn test_overlap_merging_correct_offsets() {
+        let dict_rules = vec![
+            ("DICT_NAME".to_string(), "John Doe".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName)
+        ];
+        
+        let regex_rules = vec![
+            ("REGEX_NAME".to_string(), "ohn".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName)
+        ];
+
+        let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85).unwrap();
+        
+        let report = engine.sanitize_prompt("Hello John Doe.", None).unwrap();
+        
+        assert_eq!(report.redactions.len(), 1, "Should merge overlapping dict and regex matches");
+        let red = &report.redactions[0];
+        assert_eq!(red.offset, 6);
+        assert_eq!(red.length, 8); // "John Doe" is longer and fully encapsulates "ohn"
+        assert!(red.rule_id.contains("DICT_NAME")); // Longer match provides the rule ID
+    }
+
+    #[test]
+    fn test_overlap_merging_longest_match_wins() {
+        let dict_rules = vec![
+            ("DICT_SHORT".to_string(), "John".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName)
+        ];
+        
+        let regex_rules = vec![
+            ("REGEX_LONG".to_string(), "John Doe".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName)
+        ];
+
+        let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85).unwrap();
+        let report = engine.sanitize_prompt("Hello John Doe.", None).unwrap();
+        
+        assert_eq!(report.redactions.len(), 1);
+        let red = &report.redactions[0];
+        assert_eq!(red.length, 8); // "John Doe"
+        assert_eq!(red.rule_id, "REGEX_LONG"); // Longer match wins
+    }
+
+    #[test]
+    fn test_v12_aho_corasick_overlap_bypass_repro() {
+        let dict_rules = vec![
+            ("REDACT_ALICE".to_string(), "Alice".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName),
+            ("BLOCK_ALICE_SMITH".to_string(), "Alice Smith".to_string(), EnforcementAction::Block, PiiCategory::IndividualName)
+        ];
+        
+        let engine = WardenEngine::new(dict_rules, vec![], vec![], None, 0.85).unwrap();
+        let report = engine.sanitize_prompt("Hello Alice Smith.", None).unwrap();
+        
+        // If the bug exists, report.is_blocked will be FALSE because 'Alice Smith' was masked by 'Alice'.
+        assert!(report.is_blocked, "Should be blocked because 'Alice Smith' is a blocked entity");
+    }
+
+    #[test]
+    fn test_semantic_cache_bypass() {
+        // We use an empty engine (no rules, no AI)
+        let engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85).unwrap();
+        let session = SessionContext::new();
+        
+        // Manually prime the cache with a value that would be caught by ShadowNer (title case)
+        session.semantic_cache.insert("alice smith".to_string(), ("PERSON".to_string(), 0.99));
+        
+        // Use a standalone name to avoid fusion with other words
+        let report = engine.sanitize_prompt("Alice Smith is a person.", Some(&session)).unwrap();
+        
+        // Normally, without AI, "Alice Smith" would be a potential miss.
+        // With cache hit, it becomes a confirmed redaction.
+        assert_eq!(report.redactions.len(), 1, "Should have 1 redaction from cache hit");
+        let red = &report.redactions[0];
+        assert_eq!(red.rule_id, "ai_cache_PERSON");
+        assert_eq!(red.placeholder, "[TOKEN_1]");
+        assert!(report.sanitized_text.contains("[TOKEN_1]"));
+        assert_eq!(report.potential_misses.len(), 0, "Should have no potential misses as it was confirmed by cache");
     }
 }

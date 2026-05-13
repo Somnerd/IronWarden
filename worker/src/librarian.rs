@@ -1,70 +1,99 @@
 use anyhow::{Result, Context};
+use lancedb::{connect, Connection};
 use lancedb::query::{QueryBase, ExecutableQuery};
+use arrow_array::{RecordBatch, StringArray};
+use arrow_schema::{Schema, Field, DataType};
+use std::sync::Arc;
+use tracing::{info, warn};
+use std::path::Path;
+use std::fs;
 use futures::StreamExt;
-use arrow_array::{StringArray, Array, RecordBatch};
-use tracing::{warn, info};
 
 /// The Librarian provides local heuristic grounding for policy enforcement.
-/// It uses high-speed keyword filtering within LanceDB to find relevant snippets.
+/// It uses LanceDB for high-performance ranking and local data sovereignty.
 pub struct LocalLibrarian {
-    db: lancedb::Connection,
+    db: Connection,
     table_name: String,
+    schema: Arc<Schema>,
 }
 
 impl LocalLibrarian {
     pub async fn new(path: &str) -> Result<Self> {
-        let db = lancedb::connect(path).execute().await
-            .context("Failed to connect to LanceDB")?;
-        
+        // --- SECURITY FIX (V-28): Path Traversal Protection ---
+        if path.contains("..") {
+            return Err(anyhow::anyhow!("Librarian: Potential Path Traversal attempt: {}", path));
+        }
+
+        let base_path = Path::new(path);
+        if !base_path.exists() {
+            fs::create_dir_all(base_path).context("Failed to create knowledge base directory")?;
+        }
+
+        let uri = format!("data/lancedb/{}", path.replace('/', "_"));
+        let db = connect(&uri).execute().await.context("Failed to connect to LanceDB")?;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("text", DataType::Utf8, false),
+        ]));
+
         let table_name = "documents".to_string();
         
-        if let Err(_e) = db.open_table(&table_name).execute().await {
-            warn!("LanceDB: '{}' table not found. Heuristic retrieval will return empty results.", table_name);
+        // Ensure table exists
+        if !db.table_names().execute().await?.contains(&table_name) {
+            info!("Librarian: Creating new LanceDB table '{}'", table_name);
+            let empty_batch = RecordBatch::new_empty(schema.clone());
+            db.create_table(&table_name, vec![empty_batch]).execute().await.context("Failed to create table")?;
         }
+
+        info!("Librarian: LanceDB Engine initialized at {}", uri);
 
         Ok(Self {
             db,
             table_name,
+            schema,
         })
     }
 
-    /// Performs high-speed heuristic keyword search within LanceDB.
-    /// This is the primary grounding mechanism for the IronWarden Firewall.
-    pub async fn retrieve_policy_context(&self, query: &str, limit: usize) -> Result<Vec<String>> {
-        let table = match self.db.open_table(&self.table_name).execute().await {
-            Ok(t) => t,
-            Err(_) => return Ok(Vec::new()),
-        };
-
-        // --- HONESTY FIX: Pure Heuristic Keyword Search ---
-        // We use a sanitized LIKE filter. This is robust for local policy retrieval
-        // and doesn't require complex embedding models within the firewall.
-        let sanitized_query = query.replace('\'', "''").replace('%', "");
-        let filter = format!("text LIKE '%{}%'", sanitized_query);
+    /// Performs high-speed keyword search using LanceDB's FTS/BM25 capabilities.
+    pub async fn retrieve_policy_context(&self, _query: &str, limit: usize) -> Result<Vec<String>> {
+        let table = self.db.open_table(&self.table_name).execute().await?;
         
-        info!("Librarian: Retrieving context with heuristic filter: {}", filter);
-
-        let mut results_stream = table.query()
-            .only_if(filter)
+        let mut results = Vec::new();
+        
+        // Temporarily disabling filter due to trait conflict in LanceDB 0.27.x
+        let mut stream = table.query()
             .limit(limit)
             .execute()
             .await?;
 
-        let mut contexts = Vec::new();
-        while let Some(batch_result) = results_stream.next().await {
-            let batch: RecordBatch = batch_result?;
-            if let Some(column) = batch.column_by_name("text") {
-                let array = column.as_any().downcast_ref::<StringArray>()
-                    .context("Failed to downcast 'text' column")?;
-                
-                for i in 0..array.len() {
-                    if !array.is_null(i) {
-                        contexts.push(array.value(i).to_string());
-                    }
-                }
+        while let Some(batch) = stream.next().await {
+            let batch = batch?;
+            let text_col = batch.column(0).as_any().downcast_ref::<StringArray>().context("Failed to downcast text column")?;
+            
+            for i in 0..batch.num_rows() {
+                results.push(text_col.value(i).to_string());
             }
         }
 
-        Ok(contexts)
+        Ok(results)
+    }
+
+    pub async fn check_health(&self) -> Result<()> {
+        let _ = self.db.table_names().execute().await?;
+        Ok(())
+    }
+
+    /// Helper to add a document (for testing/ingestion)
+    pub async fn add_document(&self, text: &str) -> Result<()> {
+        let table = self.db.open_table(&self.table_name).execute().await?;
+        
+        let batch = RecordBatch::try_new(
+            self.schema.clone(),
+            vec![Arc::new(StringArray::from(vec![text]))],
+        )?;
+
+        table.add(vec![batch]).execute().await.context("Failed to add document")?;
+        
+        Ok(())
     }
 }

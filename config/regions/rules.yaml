@@ -1,36 +1,45 @@
 rules:
   - id: "us_ssn"
-    pattern: '\d{3}-\d{2}-\d{4}'
+    pattern: '\d{3}[.\- ]?\d{2}[.\- ]?\d{4}'
     type: "Regex"
+    category: "IdentificationNumber"
   
   - id: "euro_iban"
     pattern: '[A-Z]{2}\d{2}[A-Z0-9]{11,30}'
     type: "Regex"
+    category: "FinancialData"
 
   - id: "client_names"
     pattern: "Alice"
     type: "Dictionary"
+    category: "IndividualName"
 
   - id: "internal_projects"
     pattern: "Project Alpha"
     type: "Dictionary"
+    category: "InternalAsset"
 
   - id: "company_secrets"
     pattern: "Acme Corp"
     type: "Dictionary"
+    category: "InternalAsset"
 
   - id: "credit_card"
-    pattern: '\d{4}-\d{4}-\d{4}-\d{4}'
+    pattern: '\d{4}[.\- ]?\d{4}[.\- ]?\d{4}[.\- ]?\d{4}'
     type: "Regex"
+    category: "FinancialData"
 
   - id: "email_address"
     pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
     type: "Regex"
+    category: "ContactInfo"
 
   - id: "phone_number"
-    pattern: '\d{3}-\d{4}'
+    pattern: '\b\d{3}[.\- ]?\d{3}[.\- ]?\d{4}\b'
     type: "Regex"
+    category: "ContactInfo"
 
   - id: "test_secrets"
     pattern: "Secret[A-Z]"
     type: "Regex"
+    category: "InternalAsset"

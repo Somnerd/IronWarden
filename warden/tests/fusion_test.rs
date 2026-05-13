@@ -34,8 +34,17 @@ ai_confidence_threshold: 0.85
     assert!(!report.sanitized_text.contains("Papadopoulos"));
     assert!(!report.sanitized_text.contains("Papadopoylos"));
     
-    // 3. The token map should contain the full name.
-    let full_name = report.token_map.get("[TOKEN_2]").unwrap();
-    assert!(full_name.contains("Γεώργιος"));
-    assert!(full_name.contains("Παπαδόπουλος"));
+    // 3. The token map should contain the full name and the AFM.
+    let mut found_name = false;
+    let mut found_afm = false;
+    for val in report.token_map.values() {
+        if val.contains("Γεώργιος") && val.contains("Παπαδόπουλος") {
+            found_name = true;
+        }
+        if val == "123456789" {
+            found_afm = true;
+        }
+    }
+    assert!(found_name, "Full name should be in token map");
+    assert!(found_afm, "AFM should be in token map");
 }

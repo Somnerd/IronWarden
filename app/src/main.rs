@@ -4,9 +4,11 @@ use warden::WardenConfig;
 use mcp::StdioMcpServer;
 use iw_core::SovereignError;
 
+use arc_swap::ArcSwap;
+
 // Hot Reload Wrapper
 struct DynamicShield {
-    engine: std::sync::RwLock<Arc<warden::WardenEngine>>,
+    engine: ArcSwap<warden::WardenEngine>,
 }
 
 impl iw_core::PiiShield for DynamicShield {
@@ -15,9 +17,7 @@ impl iw_core::PiiShield for DynamicShield {
         input: &str,
         session: Option<&iw_core::SessionContext>,
     ) -> Result<iw_core::ScrubbingReport, iw_core::SovereignError> {
-        let engine = self.engine.read()
-            .map_err(|_| iw_core::SovereignError::InternalError("Engine RwLock poisoned".to_string()))?
-            .clone();
+        let engine = self.engine.load();
         engine.sanitize_prompt(input, session)
     }
 
@@ -26,9 +26,7 @@ impl iw_core::PiiShield for DynamicShield {
         response: &str,
         map: &iw_core::TokenMap,
     ) -> Result<String, iw_core::SovereignError> {
-        let engine = self.engine.read()
-            .map_err(|_| iw_core::SovereignError::InternalError("Engine RwLock poisoned".to_string()))?
-            .clone();
+        let engine = self.engine.load();
         engine.restore_prompt(response, map)
     }
 }
@@ -43,6 +41,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing_subscriber::fmt().with_writer(std::io::stderr).init();
     }
     tracing::info!("Initializing IronWarden V1.2 - Sovereign Standalone Appliance");
+
+    // 1b. FIPS 140-2/3 Readiness (WP #87)
+    iw_core::fips::FipsValidator::verify_readiness()?;
 
     // 2. Load Configuration
     dotenvy::dotenv().ok();
@@ -63,9 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.compile_engine()
     }).await.map_err(|e| SovereignError::InternalError(format!("Initialization task panicked: {}", e)))??;
 
-    let initial_engine = Arc::new(initial_engine);
     let dynamic_shield = Arc::new(DynamicShield {
-        engine: std::sync::RwLock::new(initial_engine),
+        engine: ArcSwap::from_pointee(initial_engine),
     });
     let shield: Arc<dyn iw_core::PiiShield + Send + Sync> = dynamic_shield.clone();
 
@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let knowledge_path = std::env::var("KNOWLEDGE_PATH").unwrap_or_else(|_| "data/knowledge".to_string());
 
     // 5. Instantiate Control Plane Components
-    let queue = Arc::new(worker::SearchBoostQueue::new(audit_db_path.clone(), &global_pepper));
+    let queue = Arc::new(worker::SearchBoostQueue::new(audit_db_path.clone(), &global_pepper, Some(shield.clone())));
     let session_manager = worker::LocalSessionManager::new(audit_db_path.clone(), &global_pepper);
     
     // Hot-reload background task
@@ -114,11 +114,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }).await;
 
                 if let Ok(Ok(new_engine)) = reload_result {
-                    if let Ok(mut write_guard) = hot_reload_shield.engine.write() {
-                        *write_guard = Arc::new(new_engine);
-                        last_modified = current_modified;
-                        tracing::info!("WardenEngine hot-reload complete.");
-                    }
+                    hot_reload_shield.engine.store(Arc::new(new_engine));
+                    last_modified = current_modified;
+                    tracing::info!("WardenEngine hot-reload complete.");
                 }
             }
         }

@@ -13,3 +13,4 @@ async-trait = "0.1"
 tracing = "0.1"
 uuid = { version = "1.8", features = ["v4"] }
 dashmap = "6.1.0"
+secrecy = "0.8.0"

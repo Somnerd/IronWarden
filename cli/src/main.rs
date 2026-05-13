@@ -100,7 +100,7 @@ fn generate_report(db_path: &str) -> rusqlite::Result<()> {
     
     println!("\n🔍 RULE TRIGGER FREQUENCY:");
     let mut sorted_rules: Vec<_> = rule_counts.into_iter().collect();
-    sorted_rules.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted_rules.sort_by_key(|b| std::cmp::Reverse(b.1));
     for (rule, count) in sorted_rules {
         println!("  - {}: {} hits", rule, count);
     }
@@ -162,7 +162,7 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
         let redactions_vec: Vec<Redaction> = serde_json::from_str(&redactions_json).unwrap_or_default();
         let redactions_bin = bincode::serialize(&redactions_vec).unwrap_or_default();
 
-        let mut mac = HmacSha256::new_from_slice(&hmac_key_bytes).expect("HMAC can take key of any size");
+        let mut mac = HmacSha256::new_from_slice(&hmac_key_bytes).map_err(|_| rusqlite::Error::InvalidQuery)?;
         mac.update(&last_hash);
         mac.update(timestamp.as_bytes());
         mac.update(&[is_blocked as u8]);
