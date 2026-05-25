@@ -21,3 +21,24 @@ Thumbs.db
 
 # Project specific
 /docs/site/
+
+# Gemini
+.gemini/
+
+# Database and Test Cache Data
+**/data/
+
+# SQLite Temporary Anchors
+*.anchor
+
+# Tantivy Index Files and Locks
+data/knowledge/*.fast
+data/knowledge/*.fieldnorm
+data/knowledge/*.idx
+data/knowledge/*.pos
+data/knowledge/*.store
+data/knowledge/*.term
+data/knowledge/.managed.json
+data/knowledge/meta.json
+data/knowledge/*.lock
+

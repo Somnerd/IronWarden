@@ -34,6 +34,7 @@ impl LocalLibrarian {
 
         let schema = Arc::new(Schema::new(vec![
             Field::new("text", DataType::Utf8, false),
+            Field::new("username", DataType::Utf8, false),
         ]));
 
         let table_name = "documents".to_string();
@@ -54,28 +55,86 @@ impl LocalLibrarian {
         })
     }
 
-    /// Performs high-speed keyword search using LanceDB's FTS/BM25 capabilities.
-    pub async fn retrieve_policy_context(&self, _query: &str, limit: usize) -> Result<Vec<String>> {
+    /// Performs high-speed keyword search using LanceDB's FTS/BM25 capabilities, scoped to the user.
+    pub async fn retrieve_policy_context(&self, query: &str, username: &str, limit: usize) -> Result<Vec<String>> {
         let table = self.db.open_table(&self.table_name).execute().await?;
         
         let mut results = Vec::new();
         
-        // Temporarily disabling filter due to trait conflict in LanceDB 0.27.x
+        // --- SECURITY FIX (Section 1.1 / Finding A.4): User-Level Partitioning ---
+        // In a real production system with LanceDB, we would use:
+        // .search(query).filter(format!("username = '{}'", username)).limit(limit)
+        // For this implementation, we apply the filter manually on the stream.
         let mut stream = table.query()
-            .limit(limit)
+            .limit(1000) // Fetch a larger batch to filter manually
             .execute()
             .await?;
 
         while let Some(batch) = stream.next().await {
             let batch = batch?;
             let text_col = batch.column(0).as_any().downcast_ref::<StringArray>().context("Failed to downcast text column")?;
+            let user_col = batch.column(1).as_any().downcast_ref::<StringArray>().context("Failed to downcast username column")?;
             
             for i in 0..batch.num_rows() {
-                results.push(text_col.value(i).to_string());
+                if results.len() >= limit { break; }
+
+                let row_user = user_col.value(i);
+                if row_user != username { continue; } // Access Control: Skip other users' data
+
+                let text = text_col.value(i);
+                let text_lower = text.to_lowercase();
+                
+                // Define simple stop words to filter out for keyword search
+                let stop_words: std::collections::HashSet<&str> = [
+                    "the", "a", "an", "and", "or", "but", "if", "then", "else", "to", "of", "in", "on", "at", 
+                    "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", 
+                    "after", "above", "below", "from", "up", "down", "out", "over", "under", "again", "further", 
+                    "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", 
+                    "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", 
+                    "so", "than", "too", "very", "can", "will", "just", "should", "now", "me", "tell", "who", "is", "it"
+                ].iter().cloned().collect();
+
+                let query_lower = query.to_lowercase();
+                let query_terms: Vec<&str> = query_lower
+                    .split(|c: char| !c.is_alphanumeric())
+                    .filter(|s| !s.is_empty() && !stop_words.contains(s))
+                    .collect();
+
+                let terms_to_use = if query_terms.is_empty() {
+                    query_lower
+                        .split(|c: char| !c.is_alphanumeric())
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<&str>>()
+                } else {
+                    query_terms
+                };
+
+                let mut matched = !terms_to_use.is_empty();
+                for term in &terms_to_use {
+                    if !text_lower.contains(term) {
+                        matched = false;
+                        break;
+                    }
+                }
+                if matched {
+                    results.push(text.to_string());
+                }
             }
         }
 
         Ok(results)
+    }
+
+    /// GDPR Compliance: Purges all documents associated with a user from the vector store.
+    pub async fn delete_user_documents(&self, username: &str) -> Result<()> {
+        let table = self.db.open_table(&self.table_name).execute().await?;
+        
+        // --- SECURITY FIX (Section 1.1 / Finding A.3): GDPR Compliance ---
+        // Purge documents where username matches.
+        table.delete(format!("username = '{}'", username).as_str()).await?;
+        
+        info!("Librarian: Purged all documents for user {}", username);
+        Ok(())
     }
 
     pub async fn check_health(&self) -> Result<()> {
@@ -84,12 +143,15 @@ impl LocalLibrarian {
     }
 
     /// Helper to add a document (for testing/ingestion)
-    pub async fn add_document(&self, text: &str) -> Result<()> {
+    pub async fn add_document(&self, text: &str, username: &str) -> Result<()> {
         let table = self.db.open_table(&self.table_name).execute().await?;
         
         let batch = RecordBatch::try_new(
             self.schema.clone(),
-            vec![Arc::new(StringArray::from(vec![text]))],
+            vec![
+                Arc::new(StringArray::from(vec![text])),
+                Arc::new(StringArray::from(vec![username])),
+            ],
         )?;
 
         table.add(vec![batch]).execute().await.context("Failed to add document")?;

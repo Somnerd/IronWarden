@@ -6,6 +6,10 @@ use tracing::warn;
 
 pub struct ShadowNer {
     patterns: Vec<(Regex, String, bool, EnforcementAction, PiiCategory)>,
+    global_name_re: Regex,
+    greek_name_re: Regex,
+    logistics_suffix_re: Regex,
+    greek_suffix_re: Regex,
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +33,10 @@ impl ShadowNer {
         }
         Self {
             patterns: compiled,
+            global_name_re: Regex::new(r"\b[A-Z][a-z]+(?:\s+(?:[a-z]{1,3}\s+)*[A-Z][a-z]+)+\b").unwrap(),
+            greek_name_re: Regex::new(r"\b[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(?:\s+[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+)+\b").unwrap(),
+            logistics_suffix_re: Regex::new(r"\b[A-Z][a-zA-Z0-9]+ (?:Line|Carrier|Shipping|Logistics|Express|Transport)\b").unwrap(),
+            greek_suffix_re: Regex::new(r"\b[\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(ης|ου|ος|α|ου)\b").unwrap(),
         }
     }
 
@@ -79,9 +87,7 @@ impl ShadowNer {
 
         // --- GLOBAL IDENTITY FIX: Robust Title-Case Chain Heuristic on ASCII ---
         // This provides homoglyph resilience for Latin-based names.
-        let global_name_re = Regex::new(r"\b[A-Z][a-z]+(?:\s+(?:[a-z]{1,3}\s+)*[A-Z][a-z]+)+\b").unwrap();
-        
-        for mat in global_name_re.find_iter(ascii_text) {
+        for mat in self.global_name_re.find_iter(ascii_text) {
             let matched_text = mat.as_str();
             if matched_text == "My name" || matched_text == "The client" {
                 continue;
@@ -100,8 +106,7 @@ impl ShadowNer {
 
         // --- SECURITY FIX (V-15): Unicode-aware Greek Title-Case Chain Heuristic ---
         // Catching Greek names (e.g., Νίκος Παπαδόπουλος) directly in Unicode.
-        let greek_name_re = Regex::new(r"\b[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(?:\s+[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+)+\b").unwrap();
-        for mat in greek_name_re.find_iter(unicode_text) {
+        for mat in self.greek_name_re.find_iter(unicode_text) {
             matches.push(ShadowMatch {
                 start: mat.start(),
                 end: mat.end(),
@@ -112,9 +117,21 @@ impl ShadowNer {
             });
         }
 
+        // --- LOGISTICS SECTOR EXPANSION (WP #82): Suffix-based Heuristics ---
+        // Catching vessel names and logistics entities via common industry suffixes.
+        for mat in self.logistics_suffix_re.find_iter(ascii_text) {
+            matches.push(ShadowMatch {
+                start: mat.start(),
+                end: mat.end(),
+                label: "POTENTIAL_LOGISTICS_ORG".to_string(),
+                action: EnforcementAction::Redact,
+                category: PiiCategory::Organization,
+                is_ascii: true,
+            });
+        }
+
         // Single Greek names (Fallback) on UNICODE
-        let greek_suffix_re = Regex::new(r"\b[\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(ης|ου|ος|α|ου)\b").unwrap();
-        for mat in greek_suffix_re.find_iter(unicode_text) {
+        for mat in self.greek_suffix_re.find_iter(unicode_text) {
             matches.push(ShadowMatch {
                 start: mat.start(),
                 end: mat.end(),

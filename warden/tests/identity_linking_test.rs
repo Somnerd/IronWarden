@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests {
     use iw_core::{PiiShield, SessionContext};
-    use warden::engine::WardenEngine;
+    use iw_warden::engine::WardenEngine;
     use iw_core::traits::{EnforcementAction, PiiCategory};
 
     #[test]
     fn test_identity_linking_john_and_alice_smith() {
+        let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
         let session = SessionContext::new();
 
         let engine = WardenEngine::new(
@@ -13,7 +14,8 @@ mod tests {
             vec![],
             vec![],
             None,
-            0.5
+            0.5,
+            &pepper
         ).unwrap();
 
         let report1 = engine.sanitize_prompt("Hello John Smith.", Some(&session)).unwrap();
@@ -27,7 +29,8 @@ mod tests {
             vec![],
             vec![],
             None,
-            0.5
+            0.5,
+            &pepper
         ).unwrap();
 
         let report2 = engine2.sanitize_prompt("Hello Alice Smith.", Some(&session)).unwrap();
@@ -44,7 +47,8 @@ mod tests {
             vec![],
             vec![],
             None,
-            0.5
+            0.5,
+            &pepper
         ).unwrap();
 
         let report3 = engine3.sanitize_prompt("Smith is here.", Some(&session)).unwrap();

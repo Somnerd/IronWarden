@@ -1,4 +1,4 @@
-use iw_core::{ScrubbingReport, Redaction, EnforcementAction, TokenMap, SovereignError, PiiShield, SessionContext, PotentialMiss, PiiCategory};
+use iw_core::{ScrubbingReport, Redaction, EnforcementAction, TokenMap, SovereignError, PiiShield, SessionContext, PotentialMiss, PiiCategory, GroundingShield};
 use crate::normalize::Normalizer;
 use crate::shadow_ner::ShadowNer;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
@@ -6,12 +6,18 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
+use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, aead::{Aead, Payload}};
+use hkdf::Hkdf;
+use sha2::Sha256;
+use zeroize::Zeroize;
+use rand::RngCore;
+use secrecy::ExposeSecret;
 
 const SEMANTIC_CACHE_THRESHOLD: f64 = 0.95;
 
 pub struct WardenEngine {
     dictionary_automaton: AhoCorasick,
-    pattern_regex: Regex,
+    individual_regexes: Vec<Regex>,
     rule_ids: Vec<String>,
     rule_actions: Vec<EnforcementAction>,
     rule_categories: Vec<PiiCategory>,
@@ -19,6 +25,7 @@ pub struct WardenEngine {
     dict_pattern_count: usize,
     ai: Option<crate::ai::HybridNerPool>,
     confidence_threshold: f64,
+    cipher: Aes256Gcm,
 }
 
     impl WardenEngine {
@@ -28,7 +35,16 @@ pub struct WardenEngine {
         heuristics: Vec<crate::config::HeuristicConfig>,
         ai: Option<crate::ai::HybridNerPool>,
         confidence_threshold: f64,
+        pepper: &secrecy::SecretVec<u8>,
     ) -> Result<Self, SovereignError> {
+        // --- CRYPTOGRAPHIC INITIALIZATION (V-19) ---
+        let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret());
+        let mut key_bytes = [0u8; 32];
+        hk.expand(b"warden-v1-grounding-shield", &mut key_bytes)
+            .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
+        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+        let cipher = Aes256Gcm::new(key);
+        key_bytes.zeroize();
 
         let mut dict_patterns = Vec::new();
         let mut dict_ids = Vec::new();
@@ -43,13 +59,15 @@ pub struct WardenEngine {
             dict_categories.push(category);
         }
 
-        let mut regex_patterns = Vec::new();
+        let mut individual_regexes = Vec::new();
         let mut regex_ids = Vec::new();
         let mut regex_actions = Vec::new();
         let mut regex_categories = Vec::new();
         for (id, pat, action, category) in patterns_rules {
+            let re = Regex::new(&pat)
+                .map_err(|e| SovereignError::ConfigError(format!("Failed to compile regex pattern {}: {}", id, e)))?;
+            individual_regexes.push(re);
             regex_ids.push(id);
-            regex_patterns.push(format!("(?P<r_{}>{})", regex_patterns.len(), pat));
             regex_actions.push(action);
             regex_categories.push(category);
         }
@@ -59,19 +77,10 @@ pub struct WardenEngine {
             .ascii_case_insensitive(true)
             .build(dict_patterns)
             .map_err(|e| SovereignError::ConfigError(format!("Failed to build AC automaton: {}", e)))?;
-        
-        let combined_pattern = if regex_patterns.is_empty() {
-            r"$.^".to_string()
-        } else {
-            regex_patterns.join("|")
-        };
-        
-        let pattern_regex = Regex::new(&combined_pattern)
-            .map_err(|e| SovereignError::ConfigError(format!("Failed to compile pattern union: {}", e)))?;
 
         Ok(Self {
             dictionary_automaton,
-            pattern_regex,
+            individual_regexes,
             rule_ids: [dict_ids, regex_ids].concat(),
             rule_actions: [dict_actions, regex_actions].concat(),
             rule_categories: [dict_categories, regex_categories].concat(),
@@ -79,6 +88,7 @@ pub struct WardenEngine {
             dict_pattern_count,
             ai,
             confidence_threshold,
+            cipher,
         })
     }
 }
@@ -128,8 +138,9 @@ impl PiiShield for WardenEngine {
         // 1. Collect Dictionary Matches (on ASCII for homoglyphs)
         for mat in self.dictionary_automaton.find_overlapping_iter(&norm_res.normalized_ascii) {
             // Word boundary enforcement for dictionary matches
-            let before_ok = mat.start() == 0 || !norm_res.normalized_ascii[..mat.start()].chars().last().unwrap().is_alphanumeric();
-            let after_ok = mat.end() == norm_res.normalized_ascii.len() || !norm_res.normalized_ascii[mat.end()..].chars().next().unwrap().is_alphanumeric();
+            let before_ok = mat.start() == 0 || norm_res.normalized_ascii[..mat.start()].chars().last().map_or(true, |c| !c.is_alphanumeric());
+            let after_ok = mat.end() == norm_res.normalized_ascii.len() || norm_res.normalized_ascii[mat.end()..].chars().next().map_or(true, |c| !c.is_alphanumeric());
+            
             if !before_ok || !after_ok {
                 continue;
             }
@@ -148,6 +159,30 @@ impl PiiShield for WardenEngine {
                     end: unicode_end,
                     text: normalized[unicode_start..unicode_end].to_string(),
                     rule_id: id.clone(),
+                    is_confirmed: true,
+                    action: *action,
+                    category: *category,
+                });
+            }
+        }
+
+        // 1b. Collect Dictionary Matches (on Stripped for flexible separators)
+        // --- SECURITY FIX (Section 2.2 / Finding B.2): Flexible Separator Evasion ---
+        for mat in self.dictionary_automaton.find_overlapping_iter(&norm_res.stripped) {
+            let idx = mat.pattern().as_usize();
+            if let (Some(id), Some(action), Some(category)) = (self.rule_ids.get(idx), self.rule_actions.get(idx), self.rule_categories.get(idx)) {
+                // Map Stripped offsets to Original, then to Unicode
+                let orig_start = norm_res.stripped_to_original.get_original_offset(mat.start());
+                let orig_end = norm_res.stripped_to_original.get_original_offset(mat.end());
+                
+                let unicode_start = norm_res.original_to_unicode[orig_start];
+                let unicode_end = norm_res.original_to_unicode[orig_end];
+
+                all_confirmed.push(UnifiedMatch {
+                    start: unicode_start,
+                    end: unicode_end,
+                    text: normalized[unicode_start..unicode_end].to_string(),
+                    rule_id: format!("{}_flexible", id),
                     is_confirmed: true,
                     action: *action,
                     category: *category,
@@ -268,6 +303,19 @@ impl PiiShield for WardenEngine {
             }
             // --------------------------------------------------
 
+            if shadow.action == EnforcementAction::AuditOnly {
+                all_confirmed.push(UnifiedMatch {
+                    start: unicode_start,
+                    end: unicode_end,
+                    text: miss.text,
+                    rule_id: shadow.label.clone(),
+                    is_confirmed: true,
+                    action: shadow.action,
+                    category: shadow.category,
+                });
+                continue;
+            }
+
             let should_force_promote = shadow.category == PiiCategory::IndividualName;
 
             if let Some(pool) = &self.ai {
@@ -374,7 +422,7 @@ impl PiiShield for WardenEngine {
                 if let Some(pos) = all_potentials.iter().position(|p| {
                     if p.start < current_end { return false; }
                     let gap = &normalized[current_end..p.start];
-                    gap.trim().is_empty() || gap == ", " || gap == " bin " || gap == " al "
+                    gap.trim().is_empty() || gap == ", " || gap == " bin " || gap == " al " || gap == " da " || gap == " de " || gap == " van " || gap == " von "
                 }) {
                     let pot = all_potentials.remove(pos);
                     let gap = &normalized[merged.end..pot.start];
@@ -382,9 +430,7 @@ impl PiiShield for WardenEngine {
                     merged.text.push_str(gap);
                     merged.text.push_str(&pot.text);
                     merged.rule_id = format!("{}+fused", merged.rule_id);
-                    if pot.action == EnforcementAction::Block {
-                        merged.action = EnforcementAction::Block;
-                    }
+                    merged.action = combine_actions(merged.action, pot.action);
                 } else {
                     break;
                 }
@@ -398,9 +444,7 @@ impl PiiShield for WardenEngine {
                         last.text.push_str(gap);
                         last.text.push_str(&merged.text);
                         last.rule_id = format!("{}+{}", last.rule_id, merged.rule_id);
-                        if merged.action == EnforcementAction::Block {
-                            last.action = EnforcementAction::Block;
-                        }
+                        last.action = combine_actions(last.action, merged.action);
                         continue;
                     }
                 } else {
@@ -423,9 +467,7 @@ impl PiiShield for WardenEngine {
                     }
                     
                     last.end = std::cmp::max(last.end, merged.end);
-                    if merged.action == EnforcementAction::Block {
-                        last.action = EnforcementAction::Block;
-                    }
+                    last.action = combine_actions(last.action, merged.action);
                     continue;
                 }
             }
@@ -446,21 +488,33 @@ impl PiiShield for WardenEngine {
             sanitized_text.push_str(&normalized[last_pos..mat.start]);
 
             if mat.action == EnforcementAction::AuditOnly {
-                 sanitized_text.push_str(&normalized[mat.start..mat.end]);
-                 last_pos = mat.end;
-                 continue;
+                sanitized_text.push_str(&normalized[mat.start..mat.end]);
+                last_pos = mat.end;
+                
+                let orig_start = offset_map.get_original_offset(mat.start);
+                let orig_end = offset_map.get_original_offset(mat.end);
+                redactions.push(Redaction {
+                    rule_id: mat.rule_id,
+                    action: mat.action,
+                    offset: orig_start,
+                    length: if orig_end >= orig_start { orig_end - orig_start } else { mat.text.len() },
+                    placeholder: String::new(),
+                    category: mat.category,
+                });
+                continue;
             }
 
             let token = if let Some(ctx) = session {
                 let text_lower = mat.text.to_lowercase();
                 
-                // --- SUB-PHRASE IDENTITY LINKING ---
+                // --- SECURITY FIX (3.1): Category-Aware Identity Linking ---
+                // Prevents 'Identity Ghosting' where different PII types share the same token.
                 let mut existing_token = None;
                 
                 let is_person_like = mat.category == PiiCategory::IndividualName || mat.category == PiiCategory::HighConfidenceAi;
 
                 if is_person_like {
-                    // 1. Exact Match Check
+                    // 1. Exact Match Check (Category-Bound)
                     if let Some(t) = ctx.identities.get(&text_lower) {
                         existing_token = Some(t.value().clone());
                     }
@@ -493,14 +547,15 @@ impl PiiShield for WardenEngine {
                 let t = if let Some(t) = existing_token {
                     t
                 } else {
-                    let key = format!("{}:{}", mat.rule_id, text_lower);
+                    // Use category in key to prevent collision across different PII types (e.g. Name 'Alice' vs Email 'alice@...')
+                    let key = format!("{:?}:{}", mat.category, text_lower);
                     ctx.pii_to_token.entry(key).or_insert_with(|| {
                         let id = ctx.next_id.fetch_add(1, Ordering::SeqCst);
                         let t = format!("[TOKEN_{}]", id);
                         ctx.token_to_pii.insert(t.clone(), mat.text.clone());
                         
                         // Register as identity if it's a person or fused name
-                        if mat.category == PiiCategory::IndividualName || mat.category == PiiCategory::HighConfidenceAi {
+                        if is_person_like {
                              ctx.identities.insert(text_lower.clone(), t.clone());
                         }
                         t
@@ -579,6 +634,58 @@ impl PiiShield for WardenEngine {
     }
 }
 
+fn combine_actions(a: EnforcementAction, b: EnforcementAction) -> EnforcementAction {
+    match (a, b) {
+        (EnforcementAction::Block, _) | (_, EnforcementAction::Block) => EnforcementAction::Block,
+        (EnforcementAction::Redact, _) | (_, EnforcementAction::Redact) => EnforcementAction::Redact,
+        (EnforcementAction::Mask, _) | (_, EnforcementAction::Mask) => EnforcementAction::Mask,
+        (EnforcementAction::AuditOnly, EnforcementAction::AuditOnly) => EnforcementAction::AuditOnly,
+    }
+}
+
+impl GroundingShield for WardenEngine {
+    fn seal_query(&self, query: &str, username: &str) -> Result<Vec<u8>, SovereignError> {
+        let mut nonce_bytes = [0u8; 12];
+        let mut rng = rand::thread_rng();
+        rng.fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        // --- SECURITY FIX (V-19): Bind encryption to username via AAD ---
+        let payload = Payload {
+            msg: query.as_bytes(),
+            aad: username.as_bytes(),
+        };
+
+        let ciphertext = self.cipher.encrypt(nonce, payload)
+            .map_err(|_| SovereignError::InternalError("Query sealing failed".into()))?;
+
+        let mut blob = nonce_bytes.to_vec();
+        blob.extend(ciphertext);
+        Ok(blob)
+    }
+
+    fn unseal_query(&self, blob: &[u8], username: &str) -> Result<String, SovereignError> {
+        if blob.len() < 12 {
+            return Err(SovereignError::InternalError("Invalid sealed query blob".into()));
+        }
+
+        let (nonce_bytes, ciphertext) = blob.split_at(12);
+        let nonce = Nonce::from_slice(nonce_bytes);
+
+        // --- SECURITY FIX (V-19): Bind decryption to username via AAD ---
+        let payload = Payload {
+            msg: ciphertext,
+            aad: username.as_bytes(),
+        };
+
+        let plaintext = self.cipher.decrypt(nonce, payload)
+            .map_err(|_| SovereignError::UnauthorizedAccess("Query unsealing failed: AAD mismatch or tampering".into()))?;
+
+        String::from_utf8(plaintext)
+            .map_err(|_| SovereignError::InternalError("Decrypted query is not valid UTF-8".into()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,7 +701,8 @@ mod tests {
             ("REGEX_NAME".to_string(), "ohn".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName)
         ];
 
-        let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85).unwrap();
+        let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
+        let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85, &pepper).unwrap();
         
         let report = engine.sanitize_prompt("Hello John Doe.", None).unwrap();
         
@@ -615,7 +723,8 @@ mod tests {
             ("REGEX_LONG".to_string(), "John Doe".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName)
         ];
 
-        let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85).unwrap();
+        let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
+        let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85, &pepper).unwrap();
         let report = engine.sanitize_prompt("Hello John Doe.", None).unwrap();
         
         assert_eq!(report.redactions.len(), 1);
@@ -631,7 +740,8 @@ mod tests {
             ("BLOCK_ALICE_SMITH".to_string(), "Alice Smith".to_string(), EnforcementAction::Block, PiiCategory::IndividualName)
         ];
         
-        let engine = WardenEngine::new(dict_rules, vec![], vec![], None, 0.85).unwrap();
+        let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
+        let engine = WardenEngine::new(dict_rules, vec![], vec![], None, 0.85, &pepper).unwrap();
         let report = engine.sanitize_prompt("Hello Alice Smith.", None).unwrap();
         
         // If the bug exists, report.is_blocked will be FALSE because 'Alice Smith' was masked by 'Alice'.
@@ -641,7 +751,8 @@ mod tests {
     #[test]
     fn test_semantic_cache_bypass() {
         // We use an empty engine (no rules, no AI)
-        let engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85).unwrap();
+        let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
+        let engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85, &pepper).unwrap();
         let session = SessionContext::new();
         
         // Manually prime the cache with a value that would be caught by ShadowNer (title case)
@@ -658,5 +769,25 @@ mod tests {
         assert_eq!(red.placeholder, "[TOKEN_1]");
         assert!(report.sanitized_text.contains("[TOKEN_1]"));
         assert_eq!(report.potential_misses.len(), 0, "Should have no potential misses as it was confirmed by cache");
+    }
+
+    #[test]
+    fn test_overlap_merging_action_precedence() {
+        let dict_rules = vec![
+            ("AUDIT_ALICE".to_string(), "Alice".to_string(), EnforcementAction::AuditOnly, PiiCategory::IndividualName)
+        ];
+        
+        let regex_rules = vec![
+            ("REDACT_ALICE_SMITH".to_string(), "Alice Smith".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName)
+        ];
+
+        let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
+        let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85, &pepper).unwrap();
+        let report = engine.sanitize_prompt("Hello Alice Smith.", None).unwrap();
+        
+        assert_eq!(report.redactions.len(), 1);
+        let red = &report.redactions[0];
+        assert_eq!(red.action, EnforcementAction::Redact, "Redact must override AuditOnly in overlapping match");
+        assert!(!report.sanitized_text.contains("Alice"), "Alice must be redacted");
     }
 }

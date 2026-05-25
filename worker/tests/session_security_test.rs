@@ -11,7 +11,7 @@ async fn test_v19_session_swap_integrity() {
     let db_path = tmp_dir.path().join("session.db").to_str().unwrap().to_string();
     let pepper = SecretVec::new(vec![0u8; 32]);
     
-    let manager = LocalSessionManager::new(db_path.clone(), &pepper);
+    let manager = LocalSessionManager::new(db_path.clone(), &pepper).unwrap();
     
     let user_a = "user_a";
     let user_b = "user_b";

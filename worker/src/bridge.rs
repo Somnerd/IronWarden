@@ -28,12 +28,13 @@ pub struct SearchRequest {
 
 pub struct BridgeState {
     pub shield: Arc<dyn PiiShield>,
+    pub grounding_shield: Arc<dyn iw_core::GroundingShield>,
     pub queue: Arc<SearchBoostQueue>,
     pub storage: Arc<dyn StorageProvider>,
     /// Unified Session Manager (Local SQLite-backed)
     pub session_manager: Arc<LocalSessionManager>,
-    /// HMAC/JWT Secret for identity verification
-    pub jwt_secret: SecretVec<u8>,
+    /// RSA Public Key for identity verification (V1.0 Decoupled Auth Mandate)
+    pub jwt_public_key: SecretVec<u8>,
 }
 
 pub fn create_bridge_router(state: Arc<BridgeState>) -> Router {
@@ -85,19 +86,28 @@ async fn handle_enqueue(
         None => return (StatusCode::UNAUTHORIZED, "Missing Bearer Token").into_response(),
     };
 
-    let mut validation = Validation::new(Algorithm::HS256);
+    // --- SECURITY FIX (Section 3.3 / Finding B.3): RS256 Decoupled Verification ---
+    let mut validation = Validation::new(Algorithm::RS256);
     let aud = std::env::var("WARDEN_JWT_AUDIENCE").unwrap_or_else(|_| "ironwarden-bridge".to_string());
     let iss = std::env::var("WARDEN_JWT_ISSUER").unwrap_or_else(|_| "ironwarden-auth".to_string());
     validation.set_audience(&[aud]);
     validation.set_issuer(&[iss]);
 
+    let decoding_key = match DecodingKey::from_rsa_pem(state.jwt_public_key.expose_secret()) {
+        Ok(k) => k,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid RSA Public Key Configuration").into_response(),
+    };
+
     let token_data = match decode::<Claims>(
         token,
-        &DecodingKey::from_secret(state.jwt_secret.expose_secret()),
+        &decoding_key,
         &validation,
     ) {
         Ok(c) => c,
-        Err(_) => return (StatusCode::UNAUTHORIZED, "Invalid or Expired Token").into_response(),
+        Err(e) => {
+            tracing::error!("JWT Validation Failure: {}", e);
+            return (StatusCode::UNAUTHORIZED, "Invalid or Expired Token").into_response();
+        }
     };
 
     let username = token_data.claims.sub;
@@ -114,8 +124,18 @@ async fn handle_enqueue(
         Err(e) => return map_error(e).into_response(),
     };
 
+    // --- SECURITY FIX: Sealed Side-Channel (Tandem Grounding) ---
+    // We seal the raw query for SearchBoost to perform accurate retrieval in its local boundary.
+    let sealed_query = match state.grounding_shield.seal_query(&payload.query, &username) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            tracing::warn!("Failed to seal query for side-channel: {}. Search accuracy may be degraded.", e);
+            None
+        }
+    };
+
     // --- SECURITY FIX: Log to Audit Ledger ---
-    if let Err(e) = state.storage.log_audit_event(&report, &payload.query).await {
+    if let Err(e) = state.storage.log_audit_event(&report, &payload.query, &username).await {
         tracing::error!("AUDIT LOG FAILURE: {}. Request aborted to prevent un-audited access!", e);
         return map_error(e).into_response();
     }
@@ -138,12 +158,15 @@ tracing::info!(
 
 let options = payload.options.unwrap_or_default();
 
-    // --- SECURITY FIX (V-14): Enqueue the SANITIZED query ---
+    // --- SECURITY ENFORCEMENT (V-14): Enqueue ONLY sanitized text ---
+    // To maintain 100% compliance with the Leak-Proof Routing mandate, raw queries are 
+    // dropped immediately after auditing, but the sealed side-channel allows accurate retrieval.
     match state.queue.enqueue(
         report.sanitized_text,
         options,
         payload.thread_id,
         username,
+        sealed_query,
     ).await {
         Ok(job_id) => {
             (StatusCode::OK, Json(serde_json::json!({

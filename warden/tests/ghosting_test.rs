@@ -19,7 +19,8 @@ rules:
     fs::write(&config_path, rules_yaml).unwrap();
 
     let config = WardenConfig::from_file(&config_path).unwrap();
-    let shield = config.compile_engine().unwrap();
+    let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
+    let shield = config.compile_engine(&pepper).unwrap();
 
     let session = SessionContext::new();
 

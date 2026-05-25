@@ -7,7 +7,7 @@ pub use constants::*;
 
 pub use error::SovereignError;
 pub use traits::{
-    InferenceGateway, McpServer, PiiShield, StorageProvider, TokenMap, 
+    InferenceGateway, McpServer, PiiShield, VisionShield, StorageProvider, TokenMap, 
     ScrubbingReport, Redaction, EnforcementAction, PotentialMiss, SessionContext, SessionState,
-    PiiCategory, ComplianceReport
+    PiiCategory, ComplianceReport, GroundingShield
 };

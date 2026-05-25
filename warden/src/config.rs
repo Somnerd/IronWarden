@@ -97,7 +97,7 @@ impl WardenConfig {
         Ok(combined_config)
     }
 
-    pub fn compile_engine(&self) -> Result<WardenEngine, iw_core::SovereignError> {
+    pub fn compile_engine(&self, pepper: &secrecy::SecretVec<u8>) -> Result<WardenEngine, iw_core::SovereignError> {
         let mut dictionary_rules = Vec::new();
         let mut regex_rules = Vec::new();
 
@@ -125,7 +125,7 @@ impl WardenConfig {
             None
         };
 
-        WardenEngine::new(dictionary_rules, regex_rules, self.heuristics.clone(), ai, self.ai_confidence_threshold)
+        WardenEngine::new(dictionary_rules, regex_rules, self.heuristics.clone(), ai, self.ai_confidence_threshold, pepper)
     }
 }
 

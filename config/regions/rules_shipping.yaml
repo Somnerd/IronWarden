@@ -1,0 +1,55 @@
+rules:
+  - id: "bill_of_lading"
+    type: "Regex"
+    pattern: '\b(?:[A-Z]{4}[0-9A-Z]{8,12}|BOL-\d{8}-[A-Z]{2})\b'
+    category: "Organization" # Often tied to carriers
+
+  - id: "customs_id"
+    type: "Regex"
+    pattern: '\b(?:CUST-[A-Z]{3}-\d{6}|[A-Z]{2}\d{9,12})\b'
+    category: "IndividualName" # Often tied to consignees
+
+  - id: "tracking_manifest"
+    type: "Regex"
+    pattern: '\b(?:TRK-\d{10}|[A-Z0-9]{10,20})\b'
+
+  - id: "container_id"
+    type: "Regex"
+    pattern: '\b[A-Z]{4}\d{7}\b'
+    category: "Organization"
+
+  - id: "imo_number"
+    type: "Regex"
+    pattern: '\bIMO\s?\d{7}\b'
+    category: "Organization"
+
+  - id: "air_waybill"
+    type: "Regex"
+    pattern: '\b\d{3}-\d{8}\b'
+    category: "InternalAsset"
+    action: Redact
+
+  - id: "hs_tariff_code"
+    type: "Regex"
+    pattern: '\b\d{4}\.\d{2}(?:\.\d{2})?\b'
+    category: "InternalAsset"
+    action: Redact
+
+  - id: "commercial_invoice"
+    type: "Regex"
+    pattern: '(?i)\b(?:INV|INVOICE)-\d{5,10}\b'
+    category: "InternalAsset"
+    action: Redact
+
+heuristics:
+  - label: "POTENTIAL_VESSEL_NAME"
+    pattern: '\b(?:MV|SS|RV|MS|CV) [A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)?\b'
+    skip_sentence_start: true
+    category: "IndividualName" # Vessels are treated as quasi-identities in logistics
+
+  - label: "LOGISTICS_LOCATION"
+    pattern: '\b(?:Port of|Terminal|Berth) [A-Z][a-zA-Z]+\b'
+    category: "Location"
+
+ai_enabled: true
+ai_confidence_threshold: 0.85

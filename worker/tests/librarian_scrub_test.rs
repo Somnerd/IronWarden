@@ -1,6 +1,7 @@
 use iw_core::{PiiShield};
 use iw_core::traits::{EnforcementAction, PiiCategory};
 use tempfile::tempdir;
+use secrecy::SecretVec;
 
 #[tokio::test]
 async fn test_leak_proof_librarian_flow() {
@@ -11,12 +12,14 @@ async fn test_leak_proof_librarian_flow() {
     let patterns_rules = vec![("confidential_project".to_string(), "(?i)Project (Alpha|Omega|Zion)".to_string(), EnforcementAction::Redact, PiiCategory::Other)];
     let heuristics = Vec::new();
     
+    let pepper = SecretVec::new(vec![0u8; 32]);
     let engine = iw_warden::WardenEngine::new(
         dictionary_rules,
         patterns_rules,
         heuristics,
         None, // No AI needed for regex test
-        0.85
+        0.85,
+        &pepper,
     ).unwrap();
 
     // 2. The "Confidential" Data

@@ -23,9 +23,10 @@ impl WorkerStorage {
         knowledge_base_path: &str,
         pepper: SecretVec<u8>,
         sb_queue: Option<SearchBoostQueue>,
+        remote_forwarder: Option<Arc<dyn crate::audit::RemoteAuditForwarder>>,
     ) -> Result<Self, SovereignError> {
         // Await the spawn to ensure DB is writable before boot
-        let auditor = AsyncAuditor::spawn(audit_db_path, pepper).await
+        let auditor = AsyncAuditor::spawn(audit_db_path, pepper, remote_forwarder).await
             .map_err(|e| SovereignError::StorageError(format!("Failed to initialize Async Auditor: {}", e)))?;
         
         let librarian = LocalLibrarian::new(knowledge_base_path).await
@@ -79,10 +80,11 @@ impl WorkerStorage {
 
     pub async fn enqueue_search(
         &self,
-        query: String,
+        sanitized_query: String,
         options: std::collections::HashMap<String, serde_json::Value>,
         thread_id: String,
         username: String,
+        sealed_query: Option<Vec<u8>>,
     ) -> Result<String, SovereignError> {
         if !self.validate_thread_access(&thread_id, &username).await? {
             return Err(SovereignError::UnauthorizedAccess(format!("User {} denied access to thread {}", username, thread_id)));
@@ -91,7 +93,7 @@ impl WorkerStorage {
         let queue = self.sb_queue.as_ref()
             .ok_or_else(|| SovereignError::StorageError("SearchBoost Queue not initialized".into()))?;
             
-        let job_id = queue.enqueue(query, options, thread_id.clone(), username.clone()).await?;
+        let job_id = queue.enqueue(sanitized_query, options, thread_id.clone(), username.clone(), sealed_query).await?;
 
         Ok(job_id)
     }
@@ -99,13 +101,13 @@ impl WorkerStorage {
 
 #[async_trait]
 impl StorageProvider for WorkerStorage {
-    async fn fetch_context(&self, query: &str) -> Result<Vec<String>, SovereignError> {
-        self.librarian.retrieve_policy_context(query, 5).await
+    async fn fetch_context(&self, query: &str, username: &str) -> Result<Vec<String>, SovereignError> {
+        self.librarian.retrieve_policy_context(query, username, 5).await
             .map_err(|e| SovereignError::StorageError(format!("Retrieval Failure: {}", e)))
     }
 
-    async fn log_audit_event(&self, report: &ScrubbingReport, raw_input: &str) -> Result<(), SovereignError> {
-        self.auditor.log_report(report.clone(), raw_input.to_string()).await
+    async fn log_audit_event(&self, report: &ScrubbingReport, raw_input: &str, username: &str) -> Result<(), SovereignError> {
+        self.auditor.log_report(report.clone(), raw_input.to_string(), username.to_string()).await
     }
 
     async fn validate_job_access(&self, job_id: &str, username: &str) -> Result<bool, SovereignError> {
@@ -131,7 +133,32 @@ impl StorageProvider for WorkerStorage {
         Ok(exists)
     }
 
+    async fn purge_user_data(&self, username: &str) -> Result<(), SovereignError> {
+        let username_str = username.to_string();
+        
+        // 1. Purge from Audit Ledger (via Auditor)
+        self.auditor.purge_user(username).await?;
+
+        // 2. Purge from Vector Store (via Librarian)
+        self.librarian.delete_user_documents(username).await
+            .map_err(|e| SovereignError::StorageError(format!("Librarian purge failed: {}", e)))?;
+
+        // 3. Purge from Main Storage DB (Threads, Sessions, Jobs)
+        let conn_arc = self.conn.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
+            conn.execute("DELETE FROM search_jobs WHERE username = ?1", [&username_str]).map_err(|e| SovereignError::StorageError(e.to_string()))?;
+            conn.execute("DELETE FROM threads WHERE username = ?1", [&username_str]).map_err(|e| SovereignError::StorageError(e.to_string()))?;
+            conn.execute("DELETE FROM sessions WHERE username = ?1", [&username_str]).map_err(|e| SovereignError::StorageError(e.to_string()))?;
+            Ok::<(), SovereignError>(())
+        }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
+
+        Ok(())
+    }
+
     async fn check_health(&self) -> Result<(), SovereignError> {
+        self.auditor.check_health()?;
+
         let conn_arc = self.conn.clone();
         tokio::task::spawn_blocking(move || {
             let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;

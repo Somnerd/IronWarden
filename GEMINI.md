@@ -28,3 +28,12 @@ This document defines the foundational mandates for agent-user and agent-peer in
 - **Traceability:** Every code change MUST be documented with a detailed comment on the corresponding OpenProject work package, explaining the technical rationale and the specific files modified.
 - **Verification Gate:** No task shall be moved to 'Closed' until it has been verified by QA. 
 - **Warden Oversight:** The Warden will monitor these transitions. Any 'In Progress' task without comments for >24 hours or any 'Closed' task that bypassed 'QA Verification' will be flagged as an operational bottleneck.
+
+## 6. Code Red: Security Invariants (May 2026 Mandate)
+IronWarden operates under a **Zero-Failure / Fail-Closed** mandate. The following invariants are codified and must be preserved:
+1. **Overlap Integrity (V-12):** The engine MUST perform overlapping PII scans. A 'Redact' match must never mask a 'Block' match.
+2. **Leak-Proof Routing (V-14):** The bridge MUST ONLY enqueue sanitized text. RAW queries are strictly prohibited in the LLM/grounding pipeline.
+3. **Dual-Track NER (V-15):** Named Entity Recognition MUST maintain parity between ASCII (homoglyph-resilient) and Unicode (script-aware) buffers.
+4. **Isolation via AAD (V-19):** All session and job data MUST be bound to the 'username' using Associated Authenticated Data (AAD) during encryption. Session/Job swapping is a terminal security failure.
+5. **Feature Freeze:** Non-critical features (e.g., Model Distillation, Sector Expansion) are suspended until the V-series stabilization is certified by a 3rd-party audit (#55).
+

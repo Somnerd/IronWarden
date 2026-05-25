@@ -16,7 +16,8 @@ ai_confidence_threshold: 0.85
 "#;
     
     let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
-    let engine = config.compile_engine().unwrap();
+    let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
+    let engine = config.compile_engine(&pepper).unwrap();
     
     // The prompt that failed previously
     let prompt = "Γεια σου, είμαι ο Γεώργιος Παπαδόπουλος και το ΑΦΜ μου είναι 123456789.";

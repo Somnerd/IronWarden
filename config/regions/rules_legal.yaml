@@ -18,6 +18,24 @@ rules:
     type: "Regex"
     pattern: '\bLAW-[0-9]{4}-[A-Z0-9]+\b'
     category: "InternalAsset"
+
+  - id: "attorney_bar_number"
+    type: "Regex"
+    pattern: '(?i)\b(?:BAR|Bar Number:?)\s?\d{5,8}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  - id: "court_case_docket"
+    type: "Regex"
+    pattern: '(?i)\b\d{2,4}-[a-z]{2,4}-\d{4,6}\b'
+    category: "InternalAsset"
+    action: Redact
+
+  - id: "confidential_marker"
+    type: "Regex"
+    pattern: '(?i)\b(?:CONFIDENTIAL|ATTORNEY-CLIENT PRIVILEGE|SUBJECT TO NDA|WORK PRODUCT)\b'
+    category: "InternalAsset"
+    action: Redact
   
   - id: "gr_phone"
     type: "Regex"

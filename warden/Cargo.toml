@@ -17,7 +17,18 @@ serde_yaml = "0.9"
 tracing = "0.1.44"
 tokio = { version = "1.37", features = ["rt", "rt-multi-thread"] }
 rust-bert = { version = "0.23", features = ["download-libtorch"] }
+ort = "2.0.0-rc.12"
+ndarray = "0.15"
+tokenizers = "0.19"
+async-trait = "0.1"
 console = { version = "0.16", features = ["std"] }
+aes-gcm = "0.10"
+aead = "0.5"
+hkdf = "0.12"
+sha2 = "0.10"
+zeroize = "1.7"
+rand = "0.8"
+secrecy = "0.8"
 
 [dev-dependencies]
 tempfile = "3.10"
