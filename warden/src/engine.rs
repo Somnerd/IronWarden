@@ -444,18 +444,16 @@ impl PiiShield for WardenEngine {
     fn restore_prompt(&self, response: &str, map: &TokenMap) -> Result<String, SovereignError> {
         if map.is_empty() { return Ok(response.to_string()); }
 
-        let mut sorted_keys: Vec<&String> = map.keys().collect();
-        sorted_keys.sort_by(|a, b| b.len().cmp(&a.len()));
-        
-        let tokens: Vec<String> = sorted_keys.into_iter().map(|k| regex::escape(k)).collect();
-        let pattern = format!("({})", tokens.join("|"));
-        let re = Regex::new(&pattern).map_err(|e| SovereignError::InternalError(e.to_string()))?;
+        let keys: Vec<&String> = map.keys().collect();
+        let values: Vec<&String> = map.values().collect();
 
-        let result = re.replace_all(response, |caps: &regex::Captures| {
-            let token = &caps[0];
-            map.get(token).cloned().unwrap_or_else(|| token.to_string())
-        });
+        let ac = aho_corasick::AhoCorasick::builder()
+            .match_kind(aho_corasick::MatchKind::LeftmostLongest)
+            .build(&keys)
+            .map_err(|e| SovereignError::InternalError(e.to_string()))?;
 
-        Ok(result.into_owned())
+        let result = ac.replace_all(response, &values);
+
+        Ok(result)
     }
 }
