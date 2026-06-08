@@ -85,9 +85,9 @@ struct UnifiedMatch {
 
 fn is_standalone_word(text: &str, sub: &str) -> bool {
     if let Some(idx) = text.find(sub) {
-        let before_ok = idx == 0 || !text[..idx].chars().last().unwrap().is_alphanumeric();
+        let before_ok = idx == 0 || !text[..idx].chars().last().is_some_and(|c| c.is_alphanumeric());
         let after_idx = idx + sub.len();
-        let after_ok = after_idx == text.len() || !text[after_idx..].chars().next().unwrap().is_alphanumeric();
+        let after_ok = after_idx == text.len() || !text[after_idx..].chars().next().is_some_and(|c| c.is_alphanumeric());
         before_ok && after_ok
     } else {
         false
