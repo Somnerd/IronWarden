@@ -363,9 +363,10 @@ impl PiiShield for WardenEngine {
                         for entry in ctx.identities.iter() {
                             let known_id = entry.key();
                             if is_standalone_word(&text_lower, known_id) && known_id.len() > 3 {
-                                existing_token = Some(entry.value().clone());
+                                let token = entry.value().clone();
+                                existing_token = Some(token.clone());
                                 // Upgrade identity storage to the fuller name
-                                ctx.identities.insert(text_lower.clone(), existing_token.as_ref().unwrap().clone());
+                                ctx.identities.insert(text_lower.clone(), token);
                                 break;
                             }
                         }
