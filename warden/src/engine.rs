@@ -85,9 +85,9 @@ struct UnifiedMatch {
 
 fn is_standalone_word(text: &str, sub: &str) -> bool {
     if let Some(idx) = text.find(sub) {
-        let before_ok = idx == 0 || !text[..idx].chars().last().unwrap().is_alphanumeric();
+        let before_ok = text[..idx].chars().last().map_or(true, |c| !c.is_alphanumeric());
         let after_idx = idx + sub.len();
-        let after_ok = after_idx == text.len() || !text[after_idx..].chars().next().unwrap().is_alphanumeric();
+        let after_ok = text[after_idx..].chars().next().map_or(true, |c| !c.is_alphanumeric());
         before_ok && after_ok
     } else {
         false
@@ -117,8 +117,8 @@ impl PiiShield for WardenEngine {
         // 1. Collect Dictionary Matches (on ASCII for homoglyphs)
         for mat in self.dictionary_automaton.find_iter(&norm_res.normalized_ascii) {
             // Word boundary enforcement for dictionary matches
-            let before_ok = mat.start() == 0 || !norm_res.normalized_ascii[..mat.start()].chars().last().unwrap().is_alphanumeric();
-            let after_ok = mat.end() == norm_res.normalized_ascii.len() || !norm_res.normalized_ascii[mat.end()..].chars().next().unwrap().is_alphanumeric();
+            let before_ok = mat.start() == 0 || !norm_res.normalized_ascii[..mat.start()].chars().last().is_some_and(|c| c.is_alphanumeric());
+            let after_ok = mat.end() == norm_res.normalized_ascii.len() || !norm_res.normalized_ascii[mat.end()..].chars().next().is_some_and(|c| c.is_alphanumeric());
             if !before_ok || !after_ok {
                 continue;
             }
@@ -363,9 +363,10 @@ impl PiiShield for WardenEngine {
                         for entry in ctx.identities.iter() {
                             let known_id = entry.key();
                             if is_standalone_word(&text_lower, known_id) && known_id.len() > 3 {
-                                existing_token = Some(entry.value().clone());
+                                let token = entry.value().clone();
+                                existing_token = Some(token.clone());
                                 // Upgrade identity storage to the fuller name
-                                ctx.identities.insert(text_lower.clone(), existing_token.as_ref().unwrap().clone());
+                                ctx.identities.insert(text_lower.clone(), token);
                                 break;
                             }
                         }
