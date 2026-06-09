@@ -81,27 +81,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hot_reload_shield = dynamic_shield.clone();
     let hot_reload_path = config_path.clone();
     tokio::spawn(async move {
-        let get_latest_modified = || -> std::time::SystemTime {
-            let mut latest = std::time::SystemTime::UNIX_EPOCH;
-            if let Ok(entries) = std::fs::read_dir(&hot_reload_path) {
-                for entry in entries.flatten() {
-                    if let Ok(metadata) = entry.metadata() {
-                        if let Ok(modified) = metadata.modified() {
-                            if modified > latest {
-                                latest = modified;
+        let get_latest_modified = |path: String| async move {
+            tokio::task::spawn_blocking(move || {
+                let mut latest = std::time::SystemTime::UNIX_EPOCH;
+                if let Ok(entries) = std::fs::read_dir(&path) {
+                    for entry in entries.flatten() {
+                        if let Ok(metadata) = entry.metadata() {
+                            if let Ok(modified) = metadata.modified() {
+                                if modified > latest {
+                                    latest = modified;
+                                }
                             }
                         }
                     }
                 }
-            }
-            latest
+                latest
+            }).await.unwrap_or(std::time::SystemTime::UNIX_EPOCH)
         };
 
-        let mut last_modified = get_latest_modified();
+        let mut last_modified = get_latest_modified(hot_reload_path.clone()).await;
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
             interval.tick().await;
-            let current_modified = get_latest_modified();
+            let current_modified = get_latest_modified(hot_reload_path.clone()).await;
             
             if current_modified > last_modified {
                 tracing::info!("Detected file modification in config regions directory. Hot-reloading WardenEngine...");
