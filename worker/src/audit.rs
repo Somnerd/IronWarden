@@ -312,6 +312,26 @@ impl AsyncAuditor {
             loop {
                 interval.tick().await;
                 
+                // --- DISK CAPACITY CHECK ---
+                unsafe {
+                    let mut stat: libc::statvfs = std::mem::zeroed();
+                    // We check the parent directory of the DB path, or the current dir as fallback
+                    let db_parent = std::path::Path::new(&path_monitor).parent().unwrap_or(std::path::Path::new("."));
+                    let path_cstr = std::ffi::CString::new(db_parent.to_string_lossy().into_owned()).unwrap_or_default();
+                    if libc::statvfs(path_cstr.as_ptr(), &mut stat) == 0 {
+                        let free_space = (stat.f_bavail as u64) * (stat.f_frsize as u64);
+                        if free_space < 50_000_000 { // 50MB threshold
+                            error!("HARD-STOP MONITOR: Disk exhaustion imminent (Free < 50MB). Triggering Fail-Closed state.");
+                            healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
+                            break;
+                        }
+                    } else {
+                        error!("HARD-STOP MONITOR: Cannot read disk capacity. Triggering Fail-Closed state.");
+                        healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
+                        break;
+                    }
+                }
+                
                 let anchor_path = format!("{}.anchor", path_monitor);
                 if !std::path::Path::new(&anchor_path).exists() {
                     error!("HARD-STOP MONITOR: Audit anchor file missing! Triggering Fail-Closed state.");

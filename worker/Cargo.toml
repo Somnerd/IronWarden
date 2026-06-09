@@ -6,7 +6,8 @@ edition = "2021"
 [dependencies]
 iw_core = { path = "../core" }
 iw-warden = { path = "../warden" }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+tokio-rusqlite = "0.7"
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }

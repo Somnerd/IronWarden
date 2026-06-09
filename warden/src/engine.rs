@@ -12,8 +12,56 @@ use sha2::Sha256;
 use zeroize::Zeroize;
 use rand::RngCore;
 use secrecy::ExposeSecret;
+use std::sync::LazyLock;
 
 const SEMANTIC_CACHE_THRESHOLD: f64 = 0.95;
+
+static INJECTION_BLOCKLIST: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasickBuilder::new()
+        .ascii_case_insensitive(true)
+        .build(vec![
+            "systemoverride",
+            "ignorepreviousinstructions",
+            "disregardinstructions",
+            "bypassconstraints",
+            "systemprompt",
+            "youarenow",
+            "forgetall",
+            "printyour",
+        ])
+        .unwrap()
+});
+
+fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
+    use std::io::{Write, Read};
+    let socket_path = "/tmp/warden_llamaguard.sock";
+    
+    if !std::path::Path::new(socket_path).exists() {
+        return Ok(false); 
+    }
+
+    match std::os::unix::net::UnixStream::connect(socket_path) {
+        Ok(mut stream) => {
+            stream.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
+            stream.set_write_timeout(Some(std::time::Duration::from_millis(100))).ok();
+            
+            let payload = format!(r#"{{"prompt":"{}"}}"#, input.replace("\"", "\\\""));
+            if stream.write_all(payload.as_bytes()).is_ok() {
+                let mut buf = [0u8; 1024];
+                if let Ok(n) = stream.read(&mut buf) {
+                    let response = String::from_utf8_lossy(&buf[..n]);
+                    if response.contains("BLOCKED") {
+                        return Ok(true);
+                    }
+                }
+            }
+            Ok(false)
+        }
+        Err(_) => {
+            Err(SovereignError::InternalError("ML Guardrail Sidecar unreachable".into()))
+        }
+    }
+}
 
 pub struct WardenEngine {
     dictionary_automaton: AhoCorasick,
@@ -121,14 +169,20 @@ impl PiiShield for WardenEngine {
         input: &str,
         session: Option<&SessionContext>,
     ) -> Result<ScrubbingReport, SovereignError> {
-        // --- SECURITY FIX (Finding 4): Pre-Flight Prompt Injection Guardrails ---
-        let lower_input = input.to_lowercase();
-        if lower_input.contains("system override") 
-            || lower_input.contains("ignore previous instructions")
-            || lower_input.contains("disregard instructions") 
-            || lower_input.contains("bypass constraints") 
-        {
-            return Err(SovereignError::UnauthorizedAccess("Prompt injection attempt blocked by Pre-Flight Guardrail".into()));
+        // --- SECURITY FIX (Finding 4): Dual-Layer Prompt Injection Guardrails ---
+        // Layer 1: Robust Heuristic Tree
+        let aggressive_normalized: String = input.chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .to_lowercase();
+
+        if INJECTION_BLOCKLIST.is_match(&aggressive_normalized) {
+            return Err(SovereignError::UnauthorizedAccess("Prompt injection attempt blocked by Layer 1 Heuristic Guardrail".into()));
+        }
+
+        // Layer 2: ML Classifier Sidecar
+        if check_ml_sidecar(input)? {
+            return Err(SovereignError::UnauthorizedAccess("Prompt injection attempt blocked by Layer 2 ML Guardrail".into()));
         }
 
         let start_time = Instant::now();

@@ -93,15 +93,14 @@ rules:
         report.sanitized_text, 
         std::collections::HashMap::new(), 
         "thread_1".to_string(), 
-        "alice".to_string(),
-        None
+        "alice".to_string()
     ).await.unwrap();
     
     // 3. Wait for worker to process
     let mut attempts = 0;
     let mut result = None;
     while attempts < 20 {
-        if let Ok(Some(res)) = queue.get_result(&job_id).await {
+        if let Ok(Some(res)) = queue.get_result(&job_id, "sentinel_test", true).await {
             result = Some(res);
             break;
         }

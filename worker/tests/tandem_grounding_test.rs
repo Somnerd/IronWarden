@@ -61,7 +61,7 @@ async fn test_v14_leak_prevention_enforced() {
     queue.process_next_job(librarian.clone()).await.expect("Worker processing failed");
 
     // Step D: Verify Result
-    let result = queue.get_result(&job_id).await.unwrap().expect("Job should be complete");
+    let result = queue.get_result(&job_id, "test_user", true).await.unwrap().expect("Job should be complete");
     
     // VERIFICATION:
     // 1. The search should FAIL to find the context because it used the sanitized query "[TOKEN_1]".

@@ -261,7 +261,7 @@ impl SearchBoostQueue {
         Ok(job_id)
     }
 
-    pub async fn get_result(&self, job_id: &str) -> Result<Option<String>, SovereignError> {
+    pub async fn get_result(&self, job_id: &str, requester: &str, is_admin: bool) -> Result<Option<String>, SovereignError> {
         let job_id_str = job_id.to_string();
         
         // --- HA FIX (WP 90): Check Redis first for result ---
@@ -305,6 +305,9 @@ impl SearchBoostQueue {
 
         match result_data {
             Some((username, data)) => {
+                if !is_admin && username != requester {
+                    return Err(SovereignError::UnauthorizedAccess("You do not have permission to access this job result".into()));
+                }
                 if data.is_empty() { return Ok(None); }
                 
                 // Decrypt result using centralized AadCipher (WP-98)

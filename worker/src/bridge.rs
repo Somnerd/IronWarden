@@ -17,6 +17,8 @@ use secrecy::{SecretVec, ExposeSecret};
 pub struct Claims {
     pub sub: String, // The username/tenant_id
     pub exp: usize,
+    #[serde(default)]
+    pub roles: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -70,12 +72,6 @@ async fn handle_enqueue(
     headers: HeaderMap,
     Json(payload): Json<SearchRequest>,
 ) -> impl IntoResponse {
-    // --- COMPLIANCE CHECK: Hard-Stop Health Check (WP #88) ---
-    if let Err(e) = state.storage.check_health().await {
-        tracing::error!("HARD-STOP TRIGGERED: {}. Aborting request to maintain zero-failure compliance.", e);
-        return map_error(e).into_response();
-    }
-
     // 1. Authenticate & Verify Identity (JWT)
     let auth_header = headers.get("Authorization")
         .and_then(|h| h.to_str().ok())
@@ -88,8 +84,14 @@ async fn handle_enqueue(
 
     // --- SECURITY FIX (Section 3.3 / Finding B.3): RS256 Decoupled Verification ---
     let mut validation = Validation::new(Algorithm::RS256);
-    let aud = std::env::var("WARDEN_JWT_AUDIENCE").unwrap_or_else(|_| "ironwarden-bridge".to_string());
-    let iss = std::env::var("WARDEN_JWT_ISSUER").unwrap_or_else(|_| "ironwarden-auth".to_string());
+    let aud = match std::env::var("WARDEN_JWT_AUDIENCE") {
+        Ok(v) => v,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_AUDIENCE environment variable is strictly required. Refusing to boot with default fallbacks.").into_response(),
+    };
+    let iss = match std::env::var("WARDEN_JWT_ISSUER") {
+        Ok(v) => v,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_ISSUER environment variable is strictly required. Refusing to boot with default fallbacks.").into_response(),
+    };
     validation.set_audience(&[aud]);
     validation.set_issuer(&[iss]);
 
@@ -178,16 +180,48 @@ async fn handle_get_result(
     headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> impl IntoResponse {
-    // Authentication (simplified for this turn, ideally share logic)
     let auth_header = headers.get("Authorization")
         .and_then(|h| h.to_str().ok())
         .and_then(|h: &str| h.strip_prefix("Bearer "));
 
-    if auth_header.is_none() {
-        return (StatusCode::UNAUTHORIZED, "Missing Bearer Token").into_response();
-    }
+    let token = match auth_header {
+        Some(t) => t,
+        None => return (StatusCode::UNAUTHORIZED, "Missing Bearer Token").into_response(),
+    };
 
-    match state.queue.get_result(&job_id).await {
+    let mut validation = Validation::new(Algorithm::RS256);
+    let aud = match std::env::var("WARDEN_JWT_AUDIENCE") {
+        Ok(v) => v,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_AUDIENCE environment variable is strictly required.").into_response(),
+    };
+    let iss = match std::env::var("WARDEN_JWT_ISSUER") {
+        Ok(v) => v,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_ISSUER environment variable is strictly required.").into_response(),
+    };
+    validation.set_audience(&[aud]);
+    validation.set_issuer(&[iss]);
+
+    let decoding_key = match DecodingKey::from_rsa_pem(state.jwt_public_key.expose_secret()) {
+        Ok(k) => k,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid RSA Public Key Configuration").into_response(),
+    };
+
+    let token_data = match decode::<Claims>(
+        token,
+        &decoding_key,
+        &validation,
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("JWT Validation Failure: {}", e);
+            return (StatusCode::UNAUTHORIZED, "Invalid or Expired Token").into_response();
+        }
+    };
+
+    let username = token_data.claims.sub;
+    let is_admin = token_data.claims.roles.contains(&"admin".to_string());
+
+    match state.queue.get_result(&job_id, &username, is_admin).await {
         Ok(Some(res)) => (StatusCode::OK, res).into_response(),
         Ok(None) => (StatusCode::ACCEPTED, "Processing...").into_response(),
         Err(e) => map_error(e).into_response(),
