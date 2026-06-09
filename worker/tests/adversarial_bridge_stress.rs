@@ -99,6 +99,7 @@ cwIDAQAB
     let claims = Claims {
         sub: "test_user".to_string(),
         exp: 10000000000, // far future
+        roles: vec![],
     };
     let token = encode(&Header::new(jsonwebtoken::Algorithm::RS256), &claims, &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap()).unwrap();
 
