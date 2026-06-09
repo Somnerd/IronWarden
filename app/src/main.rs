@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // --- PERFORMANCE FIX: Initialize heavy AI engine in a blocking task ---
     let config_path_clone = config_path.clone();
-    let pepper_init = secrecy::SecretVec::new(pepper_raw);
+    let pepper_init = secrecy::SecretVec::new(pepper_raw.clone());
     let initial_engine = tokio::task::spawn_blocking(move || {
         let config = WardenConfig::from_dir(&config_path_clone)?;
         config.compile_engine(&pepper_init)
@@ -98,6 +98,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("Remote Audit Streaming: DISABLED. Audit logs are local-only.");
         None
     };
+
+    // Hot-reload background task
+    let hot_reload_shield = dynamic_shield.clone();
+    let hot_reload_path = config_path.clone();
+    let hot_reload_pepper_raw = pepper_raw.clone();
+    tokio::spawn(async move {
+        let get_latest_modified = |path: String| async move {
+            tokio::task::spawn_blocking(move || {
+                let mut latest = std::time::SystemTime::UNIX_EPOCH;
+                if let Ok(entries) = std::fs::read_dir(&path) {
+                    for entry in entries.flatten() {
+                        if let Ok(metadata) = entry.metadata() {
+                            if let Ok(modified) = metadata.modified() {
+                                if modified > latest {
+                                    latest = modified;
+                                }
+                            }
+                        }
+                    }
+                }
+                latest
+            }).await.unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        };
+
+        let mut last_modified = get_latest_modified(hot_reload_path.clone()).await;
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            let current_modified = get_latest_modified(hot_reload_path.clone()).await;
+            
+            if current_modified > last_modified {
+                tracing::info!("Detected file modification in config regions directory. Hot-reloading WardenEngine...");
+                let hot_reload_path_inner = hot_reload_path.clone();
+                let pepper_inner = secrecy::SecretVec::new(hot_reload_pepper_raw.clone());
+                let reload_result = tokio::task::spawn_blocking(move || {
+                    if let Ok(new_config) = WardenConfig::from_dir(&hot_reload_path_inner) {
+                        return new_config.compile_engine(&pepper_inner);
+                    }
+                    Err(iw_core::SovereignError::ConfigError("Reload failed".into()))
+                }).await;
+
+                if let Ok(Ok(new_engine)) = reload_result {
+                    hot_reload_shield.engine.store(Arc::new(new_engine));
+                    last_modified = current_modified;
+                    tracing::info!("WardenEngine hot-reload complete.");
+                }
+            }
+        }
+    });
 
     let queue = Arc::new(worker::SearchBoostQueue::new(audit_db_path.clone(), &global_pepper, Some(shield.clone()), Some(grounding_shield.clone()))?);
     let session_manager = worker::LocalSessionManager::new(audit_db_path.clone(), &global_pepper)?;

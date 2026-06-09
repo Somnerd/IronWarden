@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::collections::HashMap;
-use tokio::io::{self, AsyncBufReadExt, BufReader};
+use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Semaphore};
 use serde_json::json;
 use async_trait::async_trait;
@@ -55,8 +55,12 @@ impl StdioMcpServer {
 
         let (tx, mut rx) = mpsc::channel::<String>(1024);
         tokio::spawn(async move {
+            let mut stdout = io::stdout();
             while let Some(msg) = rx.recv().await {
-                println!("{}", msg);
+                let mut out = msg.clone();
+                out.push('\n');
+                let _ = stdout.write_all(out.as_bytes()).await;
+                let _ = stdout.flush().await;
             }
         });
 

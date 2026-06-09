@@ -114,16 +114,18 @@ impl PiiShield for AhoCorasickShield {
     }
 
     fn restore_prompt(&self, response: &str, map: &TokenMap) -> Result<String, SovereignError> {
-        let mut restored = response.to_string();
-        let mut sorted_keys: Vec<&String> = map.keys().collect();
-        sorted_keys.sort_by(|a, b| b.len().cmp(&a.len()));
+        if map.is_empty() { return Ok(response.to_string()); }
 
-        for token in sorted_keys {
-            if let Some(original) = map.get(token) {
-                restored = restored.replace(token, original);
-            }
-        }
-        
-        Ok(restored)
+        let keys: Vec<&String> = map.keys().collect();
+        let values: Vec<&String> = map.values().collect();
+
+        let ac = aho_corasick::AhoCorasick::builder()
+            .match_kind(aho_corasick::MatchKind::LeftmostLongest)
+            .build(&keys)
+            .map_err(|e| SovereignError::InternalError(e.to_string()))?;
+
+        let result = ac.replace_all(response, &values);
+
+        Ok(result)
     }
 }

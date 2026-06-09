@@ -31,3 +31,14 @@ secrecy = "0.8"
 [dev-dependencies]
 tempfile = "3.10"
 proptest = "1.4"
+
+[dev-dependencies.criterion]
+version = "0.5"
+
+[[bench]]
+name = "engine_benchmark"
+harness = false
+[[bench]]
+name = "ner_benchmark"
+harness = false
+

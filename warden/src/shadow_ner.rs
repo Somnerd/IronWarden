@@ -1,15 +1,22 @@
+use std::sync::LazyLock;
 use iw_core::traits::{PotentialMiss, EnforcementAction};
 use iw_core::PiiCategory;
 use crate::normalize::OffsetMap;
 use regex::Regex;
 use tracing::warn;
 
+static GLOBAL_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+(?:\s+(?:[a-z]{1,3}\s+)*[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+)+\b").unwrap()
+});
+
+static GREEK_SUFFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(ης|ου|ος|α|ου)\b").unwrap()
+});
+
 pub struct ShadowNer {
     patterns: Vec<(Regex, String, bool, EnforcementAction, PiiCategory)>,
     global_name_re: Regex,
     greek_name_re: Regex,
-    logistics_suffix_re: Regex,
-    greek_suffix_re: Regex,
 }
 
 #[derive(Debug, Clone)]
@@ -35,8 +42,6 @@ impl ShadowNer {
             patterns: compiled,
             global_name_re: Regex::new(r"\b[A-Z][a-z]+(?:\s+(?:[a-z]{1,3}\s+)*[A-Z][a-z]+)+\b").unwrap(),
             greek_name_re: Regex::new(r"\b[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(?:\s+[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+)+\b").unwrap(),
-            logistics_suffix_re: Regex::new(r"\b[A-Z][a-zA-Z0-9]+ (?:Line|Carrier|Shipping|Logistics|Express|Transport)\b").unwrap(),
-            greek_suffix_re: Regex::new(r"\b[\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(ης|ου|ος|α|ου)\b").unwrap(),
         }
     }
 
@@ -87,13 +92,12 @@ impl ShadowNer {
 
         // --- GLOBAL IDENTITY FIX: Robust Title-Case Chain Heuristic on ASCII ---
         // This provides homoglyph resilience for Latin-based names.
-        for mat in self.global_name_re.find_iter(ascii_text) {
+        for mat in GLOBAL_NAME_RE.find_iter(ascii_text) {
             let matched_text = mat.as_str();
             if matched_text == "My name" || matched_text == "The client" {
                 continue;
             }
 
-            // We return ASCII offsets here; the caller must map them to original offsets correctly.
             matches.push(ShadowMatch {
                 start: mat.start(),
                 end: mat.end(),
@@ -117,21 +121,8 @@ impl ShadowNer {
             });
         }
 
-        // --- LOGISTICS SECTOR EXPANSION (WP #82): Suffix-based Heuristics ---
-        // Catching vessel names and logistics entities via common industry suffixes.
-        for mat in self.logistics_suffix_re.find_iter(ascii_text) {
-            matches.push(ShadowMatch {
-                start: mat.start(),
-                end: mat.end(),
-                label: "POTENTIAL_LOGISTICS_ORG".to_string(),
-                action: EnforcementAction::Redact,
-                category: PiiCategory::Organization,
-                is_ascii: true,
-            });
-        }
-
         // Single Greek names (Fallback) on UNICODE
-        for mat in self.greek_suffix_re.find_iter(unicode_text) {
+        for mat in GREEK_SUFFIX_RE.find_iter(unicode_text) {
             matches.push(ShadowMatch {
                 start: mat.start(),
                 end: mat.end(),
