@@ -112,6 +112,12 @@ async fn handle_enqueue(
         }
     };
 
+    let has_required_role = token_data.claims.roles.contains(&"admin".to_string()) || token_data.claims.roles.contains(&"privileged_search".to_string());
+    if !has_required_role {
+        tracing::error!("RBAC Enforcement Failure: {} lacks required roles", token_data.claims.sub);
+        return (StatusCode::FORBIDDEN, "Insufficient privileges. Requires 'admin' or 'privileged_search' role.").into_response();
+    }
+
     let username = token_data.claims.sub;
 
     // 2. Local Session Retrieval
