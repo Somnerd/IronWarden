@@ -4,6 +4,10 @@ use crate::normalize::OffsetMap;
 use crate::config::SanitizationAction;
 use regex::Regex;
 use tracing::warn;
+use std::sync::LazyLock;
+
+static GREEK_SUFFIX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(ης|ου|ος|α|ου)\b").unwrap());
+static GLOBAL_NAME_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+(?:\s+(?:[a-z]{1,3}\s+)*[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+)+\b").unwrap());
 
 static GLOBAL_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+(?:\s+(?:[a-z]{1,3}\s+)*[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+)+\b").unwrap()
@@ -67,6 +71,7 @@ impl ShadowNer {
         // Capitalized Word followed by any sequence of:
         // (1-3 lowercase words or connectors) + (Capitalized Word)
         // OR simply (Capitalized Word)
+        
         for mat in GLOBAL_NAME_RE.find_iter(normalized_text) {
             // Skip matches that are just "My Name", "The Case", etc.
             let matched_text = mat.as_str();
