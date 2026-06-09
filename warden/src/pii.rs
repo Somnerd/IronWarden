@@ -1,5 +1,5 @@
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
-use iw_core::{PiiShield, SovereignError, TokenMap, ScrubbingReport, Redaction, SanitizationAction, SessionContext};
+use iw_core::{PiiShield, SovereignError, TokenMap, ScrubbingReport, Redaction, EnforcementAction, SessionContext, PiiCategory};
 use regex::Regex;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -12,7 +12,8 @@ pub struct AhoCorasickShield {
 impl AhoCorasickShield {
     /// Creates a new AhoCorasickShield with a provided dynamic dictionary of terms and a predefined SSN pattern.
     pub fn new(dictionary: Vec<String>) -> Result<Self, SovereignError> {
-        let ssn_regex = Regex::new(r"\d{3}-\d{2}-\d{4}")
+        // --- SECURITY FIX (V-11): Robust SSN Pattern ---
+        let ssn_regex = Regex::new(r"\d{3}[- ]?\d{2}[- ]?\d{4}")
             .map_err(|e| SovereignError::ConfigError(format!("Failed to build SSN regex: {}", e)))?;
         let automaton = AhoCorasickBuilder::new()
             .ascii_case_insensitive(true)
@@ -36,8 +37,9 @@ impl PiiShield for AhoCorasickShield {
         
         // --- Stage 0: Normalization (Bypass Protection) ---
         let norm_res = crate::normalize::Normalizer::normalize(prompt);
-        let normalized_prompt = &norm_res.normalized_unicode;
-        let offset_map = &norm_res.unicode_to_original;
+        // --- SECURITY FIX (V-07): Use ASCII normalization to prevent homoglyph bypasses ---
+        let normalized_prompt = &norm_res.normalized_ascii;
+        let offset_map = &norm_res.ascii_to_original;
 
         let mut token_map = TokenMap::new();
         let mut redactions = Vec::new();
@@ -58,10 +60,11 @@ impl PiiShield for AhoCorasickShield {
 
             redactions.push(Redaction {
                 rule_id: "regex_ssn".into(),
-                action: SanitizationAction::ReplaceToken,
+                action: EnforcementAction::Redact,
                 offset: orig_start,
                 length: if orig_end >= orig_start { orig_end - orig_start } else { 0 },
                 placeholder: token.clone(),
+                category: PiiCategory::IdentificationNumber,
             });
 
             token_map.insert(token.clone(), matched_text);
@@ -87,10 +90,11 @@ impl PiiShield for AhoCorasickShield {
 
             redactions.push(Redaction {
                 rule_id: "dict_match".into(),
-                action: SanitizationAction::ReplaceToken,
+                action: EnforcementAction::Redact,
                 offset: mat.start(), // Note: These offsets are relative to ssn_sanitized, still drifted
                 length: original_text.len(),
                 placeholder: token.clone(),
+                category: PiiCategory::Other,
             });
 
             final_result.push_str(token);

@@ -1,10 +1,11 @@
-use warden::WardenConfig;
+use iw_warden::WardenConfig;
 use iw_core::{PiiShield, SessionContext};
 use tempfile::tempdir;
 use std::fs;
 
 #[tokio::test]
 async fn test_session_token_consistency() {
+    let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("rules.yaml");
     
@@ -20,7 +21,7 @@ rules:
     fs::write(&config_path, rules_yaml).unwrap();
 
     let config = WardenConfig::from_file(&config_path).unwrap();
-    let shield = config.compile_engine().unwrap();
+    let shield = config.compile_engine(&pepper).unwrap();
     
     // Create a shared session
     let mut session = SessionContext::new();

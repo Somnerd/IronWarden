@@ -1,0 +1,28 @@
+# IronWarden: Sovereign AI Privacy Firewall
+
+## Project Overview
+IronWarden is a high-performance, single-binary AI gateway designed for privacy-critical sectors (Legal, Medical). It runs entirely locally, ensuring 100% data sovereignty.
+
+## Technical Architecture
+- **Language:** Rust (Stable)
+- **PII Shield:** WardenEngine (Deterministic Regex + Local BERT-NER).
+- **Control Planes:** Stdio MCP Server + Axum HTTP Bridge.
+- **Audit Ledger:** SQLite (Encrypted/HMAC-SHA256 chained).
+- **Search Intelligence:** Librarian (Keyword/LanceDB vector search).
+
+## Current Status (V1.3-HARDENING)
+- **Status:** V1.2-FINAL is certified stable.
+- **Active Sprint:** V1.3 patches four critical security bypasses (V-12 through V-15).
+- **Demo Target:** Boutique Law Firm demo scheduled for 2026-05-12.
+
+## Key Files
+- `core/src/lib.rs`: Shared traits and error types.
+- `warden/src/lib.rs`: The "Brain" - normalization, redaction, and policy engine.
+- `worker/src/bridge.rs`: HTTP Gateway for client applications.
+- `app/src/main.rs`: Application entry point and hot-reload logic.
+- `docs/wiki/`: Comprehensive documentation.
+
+## Guidelines for Agents
+- **Security First:** Never allow un-audited PII leakage. The system MUST fail-closed.
+- **Independence:** You are a peer to the Architect (Antigravity). Use your own judgment.
+- **Context:** Use `docs/wiki/Architecture_And_Design.md` for deep dives.

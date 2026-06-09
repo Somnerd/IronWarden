@@ -3,10 +3,6 @@ use regex::Regex;
 use once_cell::sync::Lazy;
 use any_ascii::any_ascii_char;
 
-static INVISIBLE_CHARS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"[\u200B-\u200D\uFEFF]").expect("Failed to compile invisible char regex")
-});
-
 pub struct OffsetMap {
     pub normalized_to_original: Vec<usize>,
 }
@@ -28,23 +24,31 @@ pub struct NormalizationResult {
     pub ascii_to_original: OffsetMap,
     pub normalized_unicode: String,
     pub unicode_to_original: OffsetMap,
+    pub stripped: String,
+    pub stripped_to_original: OffsetMap,
     pub original_to_unicode: Vec<usize>,
+    pub original_to_ascii: Vec<usize>,
 }
 
 pub struct Normalizer;
 
 impl Normalizer {
-    /// Optimized normalization that produces both ASCII-normalized and Unicode-normalized versions.
+    /// Optimized normalization that produces ASCII, Unicode, and Stripped (alphanumeric only) versions.
     pub fn normalize(input: &str) -> NormalizationResult {
         let mut normalized_ascii = String::with_capacity(input.len());
         let mut ascii_mapping = Vec::with_capacity(input.len() + 1);
+        let mut original_to_ascii = vec![0; input.len() + 1];
         
         let mut normalized_unicode = String::with_capacity(input.len());
         let mut unicode_mapping = Vec::with_capacity(input.len() + 1);
         let mut original_to_unicode = vec![0; input.len() + 1];
 
+        let mut stripped = String::with_capacity(input.len());
+        let mut stripped_mapping = Vec::with_capacity(input.len() + 1);
+
         for (orig_idx, c) in input.char_indices() {
             // 1. Process for ASCII (Homoglyph detection)
+            let ascii_start = normalized_ascii.len();
             let ascii_equiv = any_ascii_char(c);
             for norm_c in ascii_equiv.nfkc() {
                 if !Self::is_invisible(norm_c) {
@@ -54,6 +58,22 @@ impl Normalizer {
                     for _ in start_pos..end_pos {
                         ascii_mapping.push(orig_idx);
                     }
+                    
+                    // --- SECURITY FIX (Section 2.2 / Finding B.2): Flexible Separator Evasion ---
+                    // Build a 'stripped' version containing only alphanumeric characters for robust matching.
+                    if norm_c.is_alphanumeric() {
+                        let s_start = stripped.len();
+                        stripped.push(norm_c.to_ascii_lowercase());
+                        let s_end = stripped.len();
+                        for _ in s_start..s_end {
+                            stripped_mapping.push(orig_idx);
+                        }
+                    }
+                }
+            }
+            for i in 0..c.len_utf8() {
+                if orig_idx + i < original_to_ascii.len() {
+                    original_to_ascii[orig_idx + i] = ascii_start;
                 }
             }
 
@@ -78,22 +98,30 @@ impl Normalizer {
         }
         ascii_mapping.push(input.len());
         unicode_mapping.push(input.len());
+        stripped_mapping.push(input.len());
         original_to_unicode[input.len()] = normalized_unicode.len();
+        original_to_ascii[input.len()] = normalized_ascii.len();
 
         NormalizationResult {
             normalized_ascii,
             ascii_to_original: OffsetMap { normalized_to_original: ascii_mapping },
             normalized_unicode,
             unicode_to_original: OffsetMap { normalized_to_original: unicode_mapping },
+            stripped,
+            stripped_to_original: OffsetMap { normalized_to_original: stripped_mapping },
             original_to_unicode,
+            original_to_ascii,
         }
     }
 
     fn is_invisible(c: char) -> bool {
-        match c {
-            '\u{200B}'..='\u{200D}' | '\u{FEFF}' => true,
-            _ => false,
-        }
+        // Broaden detection to all Unicode Format (Cf) and Control (Cc) characters,
+        // as well as other non-spacing characters used for evasion.
+        c.is_control() || 
+        ('\u{200B}'..='\u{200F}').contains(&c) || // ZWSP, ZWNJ, ZWJ, LRM, RLM
+        ('\u{202A}'..='\u{202E}').contains(&c) || // LRE, RLE, PDF, LRO, RLO
+        ('\u{2060}'..='\u{206F}').contains(&c) || // Word Joiner, Format characters
+        ('\u{FEFF}' == c)                         // BOM
     }
 }
 

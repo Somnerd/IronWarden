@@ -10,8 +10,9 @@ rules:
     type: "Regex"
 "#;
     
+    let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
     let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
-    let engine = config.compile_engine().unwrap();
+    let engine = config.compile_engine(&pepper).unwrap();
     
     let prompt = "Ο χρήστης Nikolas Papadopoulos με ΑΦΜ 123456789.";
     

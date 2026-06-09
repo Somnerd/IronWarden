@@ -10,7 +10,7 @@ async fn test_auditor_concurrency_stress() {
     let db_path = dir.path().join("stress.db").to_str().unwrap().to_string();
     let lancedb_path = dir.path().join("lancedb").to_str().unwrap().to_string();
     let pepper = vec![0u8; 32];
-    let storage = Arc::new(WorkerStorage::new(&db_path, &lancedb_path, secrecy::SecretVec::new(pepper), None).await.unwrap());
+    let storage = Arc::new(WorkerStorage::new(&db_path, &lancedb_path, secrecy::SecretVec::new(pepper), None, None).await.unwrap());
 
     let num_requests = 100; // Stressing the MPSC channel
     let mut handles = vec![];
@@ -28,7 +28,7 @@ async fn test_auditor_concurrency_stress() {
                 potential_misses: vec![],
                 execution_time_ms: 1,
             };
-            storage_clone.log_audit_event(&report, "Raw sensitive info").await.unwrap();
+            storage_clone.log_audit_event(&report, "Raw sensitive info", "user_1").await.unwrap();
         });
         handles.push(handle);
     }

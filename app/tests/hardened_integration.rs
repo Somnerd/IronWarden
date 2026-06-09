@@ -26,12 +26,13 @@ rules:
 
     // 2. Initialize Components
     let config = WardenConfig::from_file(&config_path).unwrap();
-    let shield = Arc::new(config.compile_engine().unwrap());
+    let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
+    let shield = Arc::new(config.compile_engine(&pepper).unwrap());
     
     let pepper = vec![0u8; 32];
     let lancedb_dir = dir.path().join("lancedb");
     let lancedb_path = lancedb_dir.to_str().unwrap();
-    let storage = Arc::new(WorkerStorage::new(&db_path, &lancedb_path, secrecy::SecretVec::new(pepper), None).await.unwrap());
+    let storage = Arc::new(WorkerStorage::new(&db_path, &lancedb_path, secrecy::SecretVec::new(pepper), None, None).await.unwrap());
 
     // 3. Attack Vector: "Greeting from A[ZERO_WIDTH]lice (Greek Alpha)."
     // Raw length: 30 bytes
@@ -50,7 +51,7 @@ rules:
     assert_eq!(redaction.length, 9); // Greek Α (2) + ZWSP (3) + lice (4) = 9 bytes
     
     // 5. Audit Logging
-    storage.log_audit_event(&report, raw_input).await.unwrap();
+    storage.log_audit_event(&report, raw_input, "test_user").await.unwrap();
     
     // Give async task time to flush
     sleep(Duration::from_millis(500)).await;
@@ -84,7 +85,8 @@ async fn test_stateful_tokenization_session_consistency() {
     let rules_yaml = "rules: [{id: id_name, pattern: Alice, type: Dictionary}]";
     fs::write(&config_path, rules_yaml).unwrap();
     let config = WardenConfig::from_file(&config_path).unwrap();
-    let shield = config.compile_engine().unwrap();
+    let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
+    let shield = config.compile_engine(&pepper).unwrap();
 
     let session = iw_core::SessionContext::new();
 

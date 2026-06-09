@@ -13,10 +13,20 @@ pub struct OpenAIGateway {
 impl OpenAIGateway {
     /// Creates a new OpenAIGateway instance.
     pub fn new(api_key: String, base_url: String) -> Self {
-        let client = Client::builder()
+        let mut builder = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
+            .timeout(std::time::Duration::from_secs(30));
+
+        // --- SECURITY FIX (WP 87): FIPS 140-2/3 Enforcement ---
+        if iw_core::fips::FipsValidator::is_fips_enabled() {
+            tracing::info!("FIPS: Configuring OpenAIGateway with restricted TLS 1.2+ ciphers.");
+            builder = builder
+                .min_tls_version(reqwest::tls::Version::TLS_1_2)
+                .https_only(true);
+            // Note: Specific FIPS cipher suites would be enforced here if rustls/openssl bindings are fully configured
+        }
+
+        let client = builder.build()
             .expect("Failed to build reqwest client");
 
         Self {

@@ -9,7 +9,8 @@ ai_confidence_threshold: 0.85
 "#;
     
     let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
-    let engine = config.compile_engine().unwrap();
+    let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
+    let engine = config.compile_engine(&pepper).unwrap();
     
     // A complex Spanish name with connectors
     let prompt = "My name is Juan Pablo Garcia de la Cruz and I live in Madrid.";

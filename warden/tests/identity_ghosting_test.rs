@@ -1,5 +1,6 @@
 use iw_core::{SessionContext, PiiShield};
 use iw_warden::{WardenConfig};
+use secrecy::SecretVec;
 use std::fs;
 use tempfile::tempdir;
 #[test]
@@ -22,7 +23,8 @@ rules:
     fs::write(&config_path, rules_yaml).unwrap();
 
     let config = WardenConfig::from_file(&config_path).unwrap();
-    let shield = config.compile_engine().unwrap();
+    let pepper = SecretVec::new(vec![0u8; 32]);
+    let shield = config.compile_engine(&pepper).unwrap();
 
     let session = SessionContext::new();
 

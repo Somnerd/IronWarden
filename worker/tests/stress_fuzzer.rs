@@ -1,6 +1,6 @@
 use std::process::Command;
 use worker::audit::AsyncAuditor;
-use iw_core::{ScrubbingReport, Redaction, SanitizationAction};
+use iw_core::{ScrubbingReport, Redaction, EnforcementAction};
 use std::time::Duration;
 use rusqlite::Connection;
 use chrono::{Utc, Duration as ChronoDuration};
@@ -12,9 +12,10 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     let pepper = b"test-pepper-12345678901234567890".to_vec(); // 32 bytes
     
     let _ = std::fs::remove_file(db_path);
+    let _ = std::fs::remove_file(format!("{}.anchor", db_path));
 
     // 1. Initialize Auditor
-    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone())).await.expect("Failed to spawn auditor");
+    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.expect("Failed to spawn auditor");
     
     // 2. Fuzz with malformed inputs
     let report1 = ScrubbingReport {
@@ -26,23 +27,24 @@ async fn test_time_travel_purge_and_hmac_integrity() {
         execution_time_ms: 10,
     };
     // Edge case: Right-to-Left Override character
-    let _ = auditor.log_report(report1, "Malicious prompt with \u{202e} right-to-left override".to_string()).await;
+    let _ = auditor.log_report(report1, "Malicious prompt with \u{202e} right-to-left override".to_string(), "fuzzer_user".into()).await;
     
     let report2 = ScrubbingReport {
         sanitized_text: "Test 2 [REDACTED]".to_string(),
         is_blocked: true,
         redactions: vec![Redaction {
             rule_id: "test_rule".to_string(),
-            action: SanitizationAction::ReplaceToken,
+            action: EnforcementAction::Redact,
             offset: 0,
             length: 5,
             placeholder: "[REDACTED]".to_string(),
+            category: iw_core::traits::PiiCategory::Other,
         }],
         token_map: Default::default(),
         potential_misses: vec![],
         execution_time_ms: 20,
     };
-    let _ = auditor.log_report(report2, "Blocked prompt with secret".to_string()).await;
+    let _ = auditor.log_report(report2, "Blocked prompt with secret".to_string(), "attacker_0".into()).await;
 
     // Allow worker thread to process the MPSC queue
     tokio::time::sleep(Duration::from_millis(1000)).await;

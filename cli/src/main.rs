@@ -100,7 +100,7 @@ fn generate_report(db_path: &str) -> rusqlite::Result<()> {
     
     println!("\n🔍 RULE TRIGGER FREQUENCY:");
     let mut sorted_rules: Vec<_> = rule_counts.into_iter().collect();
-    sorted_rules.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted_rules.sort_by_key(|b| std::cmp::Reverse(b.1));
     for (rule, count) in sorted_rules {
         println!("  - {}: {} hits", rule, count);
     }
@@ -126,7 +126,7 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
     // We verify by joining audit_reports and ephemeral_raw_logs where they match by ID
     // Note: Due to 30-day log purging, older records cannot be cryptographically verified.
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.timestamp, a.is_blocked, a.redactions_json, a.integrity_hash, e.nonce, e.encrypted_data \
+        "SELECT a.id, a.timestamp, a.is_blocked, a.redactions_json, a.integrity_hash, a.payload_hash, e.nonce, e.encrypted_data, a.username \
          FROM audit_reports a \
          LEFT JOIN ephemeral_raw_logs e ON a.id = e.id \
          ORDER BY a.id ASC"
@@ -138,12 +138,14 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
         let is_blocked: bool = row.get(2)?;
         let redactions_json: String = row.get(3)?;
         let integrity_hash_hex: String = row.get(4)?;
+        let payload_hash_hex: String = row.get(5)?;
         
         // ephemeral log fields might be missing due to 30-day purge
-        let nonce: Option<Vec<u8>> = row.get(5).ok().flatten();
-        let ciphertext: Option<Vec<u8>> = row.get(6).ok().flatten();
+        let nonce: Option<Vec<u8>> = row.get(6).ok().flatten();
+        let ciphertext: Option<Vec<u8>> = row.get(7).ok().flatten();
+        let username: String = row.get(8)?;
         
-        Ok((id, timestamp, is_blocked, redactions_json, integrity_hash_hex, nonce, ciphertext))
+        Ok((id, timestamp, is_blocked, redactions_json, integrity_hash_hex, payload_hash_hex, nonce, ciphertext, username))
     })?;
 
     let mut last_hash: Vec<u8> = genesis_hash.to_vec();
@@ -156,28 +158,43 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
     println!("=============================================\n");
 
     for row_res in iter {
-        let (id, timestamp, is_blocked, redactions_json, integrity_hash_hex, nonce_opt, ciphertext_opt) = row_res?;
+        let (id, timestamp, is_blocked, redactions_json, integrity_hash_hex, payload_hash_hex, nonce_opt, ciphertext_opt, username) = row_res?;
         let stored_hash = hex::decode(&integrity_hash_hex).unwrap_or_default();
+        let payload_hash = hex::decode(&payload_hash_hex).unwrap_or_default();
 
         let redactions_vec: Vec<Redaction> = serde_json::from_str(&redactions_json).unwrap_or_default();
         let redactions_bin = bincode::serialize(&redactions_vec).unwrap_or_default();
 
-        let mut mac = HmacSha256::new_from_slice(&hmac_key_bytes).expect("HMAC can take key of any size");
+        let mut mac = HmacSha256::new_from_slice(&hmac_key_bytes).map_err(|_| rusqlite::Error::InvalidQuery)?;
         mac.update(&last_hash);
         mac.update(timestamp.as_bytes());
+        mac.update(username.as_bytes()); // Bind username to integrity chain
         mac.update(&[is_blocked as u8]);
         mac.update(&redactions_bin);
+        mac.update(&payload_hash); // Bind payload to chain
         
         let calculated_hash = mac.finalize().into_bytes().to_vec();
         
         if calculated_hash == stored_hash {
-            if nonce_opt.is_some() && ciphertext_opt.is_some() {
-                verified_count += 1;
+            if let (Some(nonce), Some(data)) = (nonce_opt, ciphertext_opt) {
+                // Verify Stage 2: Payload Binding
+                use sha2::Digest;
+                let mut hasher = Sha256::new();
+                hasher.update(&data);
+                hasher.update(&nonce);
+                let actual_payload_hash = hasher.finalize();
+
+                if actual_payload_hash.as_slice() == payload_hash.as_slice() {
+                    verified_count += 1;
+                } else {
+                    println!("❌ PAYLOAD TAMPER DETECTED at Log ID {}!", id);
+                    tampered_count += 1;
+                }
             } else {
                 archived_count += 1;
             }
         } else {
-            println!("❌ TAMPER DETECTED at Log ID {}!", id);
+            println!("❌ CHAIN TAMPER DETECTED at Log ID {}!", id);
             println!("   Expected Hash: {}", hex::encode(&calculated_hash));
             println!("   Stored Hash  : {}", integrity_hash_hex);
             tampered_count += 1;
