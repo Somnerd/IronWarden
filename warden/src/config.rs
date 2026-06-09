@@ -131,3 +131,44 @@ impl WardenConfig {
         WardenEngine::new(dictionary_rules, regex_rules, self.heuristics.clone(), ai, self.ai_confidence_threshold)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_from_file_malformed_yaml_returns_error() {
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        // Write invalid YAML content
+        writeln!(temp_file, "rules:\n  - id: 1\n    pattern: [\n").expect("Failed to write to temp file");
+
+        let result = WardenConfig::from_file(temp_file.path());
+
+        assert!(result.is_err(), "Expected an error for malformed YAML");
+        if let Err(iw_core::SovereignError::ConfigError(msg)) = result {
+            assert!(msg.contains("YAML Error:"), "Expected error message to contain 'YAML Error:', got: {}", msg);
+        } else {
+            panic!("Expected ConfigError, got different error type or Ok");
+        }
+    }
+
+    #[test]
+    fn test_from_dir_malformed_yaml_returns_error() {
+        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let file_path = temp_dir.path().join("invalid.yaml");
+        let mut file = std::fs::File::create(&file_path).expect("Failed to create temp file");
+        // Write invalid YAML content
+        writeln!(file, "rules:\n  - id: 1\n    pattern: [\n").expect("Failed to write to temp file");
+
+        let result = WardenConfig::from_dir(temp_dir.path());
+
+        assert!(result.is_err(), "Expected an error for malformed YAML in directory");
+        if let Err(iw_core::SovereignError::ConfigError(msg)) = result {
+            assert!(msg.contains("YAML Error in"), "Expected error message to contain 'YAML Error in', got: {}", msg);
+        } else {
+            panic!("Expected ConfigError, got different error type or Ok");
+        }
+    }
+}
