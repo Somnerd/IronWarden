@@ -1,11 +1,19 @@
-use rust_bert::pipelines::ner::NERModel;
 use tracing::{info, error, warn};
 use ort::session::Session;
-use ort::value::Value;
-use ort::inputs;
-use ndarray::Array2;
+use ort::value::Tensor;
 use tokenizers::Tokenizer;
 use std::path::Path;
+use std::cell::UnsafeCell;
+
+/// NER label set for DistilBERT-NER (CoNLL-2003 standard).
+/// Index 0 = O (outside), then B-/I- pairs for PER, ORG, LOC, MISC.
+const NER_LABELS: &[&str] = &[
+    "O",
+    "B-PER", "I-PER",
+    "B-ORG", "I-ORG",
+    "B-LOC", "I-LOC",
+    "B-MISC", "I-MISC",
+];
 
 pub struct Entity {
     pub word: String,
@@ -14,21 +22,27 @@ pub struct Entity {
 }
 
 pub enum NerBackend {
-    LibTorch(NERModel),
     Onnx(OnnxNer),
     None,
 }
 
 pub struct OnnxNer {
-    session: Session,
+    // UnsafeCell because ort::Session::run() requires &mut self.
+    // Safety: HybridNerPool guarantees exclusive access via its bounded channel —
+    // only one thread holds a given OnnxNer at a time.
+    session: UnsafeCell<Session>,
     tokenizer: Tokenizer,
     threshold: f64,
 }
 
+// SAFETY: OnnxNer is only accessed by one thread at a time via HybridNerPool.
+unsafe impl Send for OnnxNer {}
+unsafe impl Sync for OnnxNer {}
+
 impl OnnxNer {
     pub fn new(model_path: &Path, tokenizer_path: &Path, threshold: f64) -> Result<Self, String> {
         info!("Loading ONNX NER Model from {:?}...", model_path);
-        
+
         let session = Session::builder()
             .map_err(|e| format!("Failed to create ONNX builder: {}", e))?
             .with_intra_threads(2)
@@ -40,22 +54,155 @@ impl OnnxNer {
             .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
 
         Ok(Self {
-            session,
+            session: UnsafeCell::new(session),
             tokenizer,
             threshold,
         })
     }
 
     pub fn predict(&self, text: &str) -> Vec<Entity> {
-        let _encoding = match self.tokenizer.encode(text, true) {
+        let encoding = match self.tokenizer.encode(text, true) {
             Ok(e) => e,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                warn!("Tokenization failed: {}. Returning empty entities.", e);
+                return Vec::new();
+            }
         };
 
-        // ONNX Inference is currently disabled due to API incompatibilities in ort 2.0.0-rc.12
-        // and missing model files. This is a stub to allow the project to build.
-        warn!("ONNX Inference triggered but STUBBED. Models missing or API mismatch.");
-        Vec::new()
+        let ids = encoding.get_ids();
+        let attention = encoding.get_attention_mask();
+        let tokens = encoding.get_tokens();
+        let offsets = encoding.get_offsets();
+        let seq_len = ids.len();
+
+        // Build input tensors using ort's native (shape, Vec) API — no ndarray needed.
+        let shape = vec![1i64, seq_len as i64];
+        let ids_data: Vec<i64> = ids.iter().map(|&id| id as i64).collect();
+        let mask_data: Vec<i64> = attention.iter().map(|&m| m as i64).collect();
+
+        let input_ids_tensor = match Tensor::from_array((shape.clone(), ids_data)) {
+            Ok(t) => t,
+            Err(e) => {
+                error!("Failed to create input_ids tensor: {}", e);
+                return Vec::new();
+            }
+        };
+
+        let attention_mask_tensor = match Tensor::from_array((shape, mask_data)) {
+            Ok(t) => t,
+            Err(e) => {
+                error!("Failed to create attention_mask tensor: {}", e);
+                return Vec::new();
+            }
+        };
+
+        // Run ONNX inference via named inputs.
+        // SAFETY: We use UnsafeCell because Session::run() requires &mut self.
+        // HybridNerPool's bounded channel guarantees exclusive ownership.
+        let session = unsafe { &mut *self.session.get() };
+        let outputs = match session.run(ort::inputs! {
+            "input_ids" => input_ids_tensor,
+            "attention_mask" => attention_mask_tensor
+        }) {
+            Ok(o) => o,
+            Err(e) => {
+                // --- SECURITY FIX (Finding 3): OOM returns an error instead of abort() ---
+                error!("ONNX inference failed (possible OOM): {}. Failing closed.", e);
+                return Vec::new();
+            }
+        };
+
+        // Extract logits from the first output.
+        // SessionOutputs implements Index<usize>, returning a DynValue.
+        let logits_value = &outputs[0usize];
+
+        let (logits_shape, logits_data) = match logits_value.try_extract_tensor::<f32>() {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to extract logits tensor: {}", e);
+                return Vec::new();
+            }
+        };
+
+        // Expected shape: [1, seq_len, num_labels]
+        if logits_shape.len() != 3 || logits_shape[0] != 1 {
+            error!("Unexpected logits shape: {:?}", &*logits_shape);
+            return Vec::new();
+        }
+        let num_labels = logits_shape[2] as usize;
+
+        // Process each token (skip [CLS] at 0 and [SEP] at end)
+        let mut entities: Vec<Entity> = Vec::new();
+        for i in 1..(seq_len.saturating_sub(1)) {
+            // Logits for token i are at offset: i * num_labels
+            let base = i * num_labels;
+
+            // Find argmax
+            let mut max_idx = 0usize;
+            let mut max_val = f32::NEG_INFINITY;
+            for j in 0..num_labels {
+                let val = logits_data[base + j];
+                if val > max_val {
+                    max_val = val;
+                    max_idx = j;
+                }
+            }
+
+            // Compute softmax score for the winning label
+            let mut sum_exp = 0.0f64;
+            for j in 0..num_labels {
+                sum_exp += ((logits_data[base + j] - max_val) as f64).exp();
+            }
+            let score = 1.0 / sum_exp;
+
+            // Skip "O" (outside) labels and low-confidence predictions
+            if max_idx == 0 || score < self.threshold {
+                continue;
+            }
+
+            let label = NER_LABELS.get(max_idx).unwrap_or(&"O");
+            if *label == "O" {
+                continue;
+            }
+
+            let token_text = &tokens[i];
+            let (start, end) = offsets[i];
+
+            // Extract the original text span
+            let word = if start < text.len() && end <= text.len() && start < end {
+                text[start..end].to_string()
+            } else {
+                token_text.replace("##", "")
+            };
+
+            // Merge with previous entity if this is an I- continuation
+            if label.starts_with("I-") && !entities.is_empty() {
+                let last = entities.last_mut().unwrap();
+                let base_label = &label[2..];
+                if last.label.ends_with(base_label) {
+                    // Merge: extend the word
+                    if token_text.starts_with("##") {
+                        last.word.push_str(&word);
+                    } else {
+                        last.word.push(' ');
+                        last.word.push_str(&word);
+                    }
+                    // Keep the higher score
+                    if score > last.score {
+                        last.score = score;
+                    }
+                    continue;
+                }
+            }
+
+            entities.push(Entity {
+                word,
+                score,
+                label: label.to_string(),
+            });
+        }
+
+        entities
     }
 }
 
@@ -66,7 +213,7 @@ pub struct HybridNer {
 
 impl HybridNer {
     pub fn new(threshold: f64) -> Result<Self, String> {
-        // Attempt ONNX first (WP #74 preferred path)
+        // Attempt ONNX (the only supported path post-V1.3)
         let model_path = Path::new("data/models/distilbert-ner/model_quantized.onnx");
         let tokenizer_path = Path::new("data/models/distilbert-ner/tokenizer.json");
 
@@ -79,83 +226,45 @@ impl HybridNer {
                         threshold,
                     });
                 }
-                Err(e) => warn!("ONNX Initialization Failed: {}. Falling back to LibTorch.", e),
+                Err(e) => {
+                    error!("ONNX Initialization Failed: {}. Falling back to Heuristic-Only mode.", e);
+                }
             }
+        } else {
+            warn!(
+                "ONNX model files not found at {:?} / {:?}. Running in Heuristic-Only mode.",
+                model_path, tokenizer_path
+            );
         }
 
-        info!("Initializing Legacy LibTorch BERT-NER Engine...");
-        let model = tokio::task::block_in_place(|| {
-            NERModel::new(Default::default())
-        });
-
-        match model {
-            Ok(m) => {
-                info!("LibTorch Inference Engine: ONLINE");
-                Ok(Self {
-                    backend: NerBackend::LibTorch(m),
-                    threshold,
-                })
-            }
-            Err(e) => {
-                error!("AI Engine Initialization Failed: {}. Falling back to Heuristic-Only mode.", e);
-                Ok(Self {
-                    backend: NerBackend::None,
-                    threshold,
-                })
-            }
-        }
+        // --- SECURITY FIX (Finding 3): LibTorch removed entirely ---
+        // No LibTorch fallback. If ONNX fails, we run heuristic-only.
+        // This prevents C++ abort() from crashing the gateway on VRAM OOM.
+        Ok(Self {
+            backend: NerBackend::None,
+            threshold,
+        })
     }
 
     pub fn analyze(&self, text: &str) -> Vec<Entity> {
         match &self.backend {
             NerBackend::Onnx(onnx) => onnx.predict(text),
-            NerBackend::LibTorch(model) => {
-                let output = model.predict(&[text]);
-                let mut entities = Vec::new();
-                for entity_list in output {
-                    for e in entity_list {
-                        if e.score >= self.threshold {
-                            entities.push(Entity {
-                                word: e.word,
-                                score: e.score,
-                                label: e.label,
-                            });
-                        }
-                    }
-                }
-                entities
-            }
             NerBackend::None => Vec::new(),
         }
     }
 
     pub fn validate_miss(
-        &self, 
-        miss: &iw_core::traits::PotentialMiss, 
-        _text: &str, 
-        _session: Option<&iw_core::SessionContext>
+        &self,
+        miss: &iw_core::traits::PotentialMiss,
+        _text: &str,
+        _session: Option<&iw_core::SessionContext>,
     ) -> Option<Entity> {
         match &self.backend {
             NerBackend::Onnx(onnx) => {
                 let entities = onnx.predict(&miss.text);
-                entities.into_iter().max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
-            }
-            NerBackend::LibTorch(model) => {
-                let results = model.predict(&[&miss.text]);
-                if let Some(entities) = results.first() {
-                    let best = entities.iter()
-                        .filter(|e| e.score >= self.threshold)
-                        .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
-                    
-                    if let Some(e) = best {
-                        return Some(Entity {
-                            word: e.word.clone(),
-                            score: e.score,
-                            label: e.label.clone(),
-                        });
-                    }
-                }
-                None
+                entities
+                    .into_iter()
+                    .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
             }
             NerBackend::None => None,
         }
@@ -173,13 +282,13 @@ impl HybridNerPool {
     pub fn new(threshold: f64, count: usize) -> Result<Self, String> {
         info!("Initializing AI Worker Pool with {} instances...", count);
         let (tx, rx) = crossbeam_channel::bounded(count);
-        
+
         for i in 0..count {
             let instance = HybridNer::new(threshold)?;
             info!("AI Worker #{} initialized.", i);
             tx.send(instance).map_err(|e| e.to_string())?;
         }
-        
+
         Ok(Self {
             sender: tx,
             receiver: rx,

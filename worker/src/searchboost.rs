@@ -4,14 +4,9 @@ use std::time::{Duration};
 use std::sync::Arc;
 use uuid::Uuid;
 use tracing::{info, error};
-use iw_core::{SessionContext, SessionState, SovereignError};
+use iw_core::{SessionContext, SessionState, SovereignError, AadCipher};
 use dashmap::DashMap;
 use rusqlite::{Connection, ErrorCode};
-use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, aead::Aead};
-use sha2::Sha256;
-use hkdf::Hkdf;
-use rand::RngCore;
-use zeroize::Zeroize;
 use secrecy::{SecretVec, ExposeSecret};
 
 /// Represents the job payload for consolidated storage.
@@ -28,7 +23,7 @@ pub struct LocalJob {
 #[derive(Clone)]
 pub struct SearchBoostQueue {
     db_path: String,
-    cipher: Aes256Gcm,
+    pepper: Arc<SecretVec<u8>>,
     conn: Arc<std::sync::Mutex<Connection>>,
     shield: Option<Arc<dyn iw_core::PiiShield + Send + Sync>>,
     grounding_shield: Option<Arc<dyn iw_core::GroundingShield + Send + Sync>>,
@@ -42,14 +37,6 @@ impl SearchBoostQueue {
         shield: Option<Arc<dyn iw_core::PiiShield + Send + Sync>>,
         grounding_shield: Option<Arc<dyn iw_core::GroundingShield + Send + Sync>>,
     ) -> Result<Self, SovereignError> {
-        let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret());
-        let mut key_bytes = [0u8; 32];
-        hk.expand(b"warden-v1-queue-encryption", &mut key_bytes)
-            .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
-        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-        let cipher = Aes256Gcm::new(key);
-        key_bytes.zeroize();
-
         let conn = Connection::open(&db_path).map_err(|e| SovereignError::StorageError(format!("Failed to open SearchBoost DB: {}", e)))?;
         conn.busy_timeout(std::time::Duration::from_millis(5000)).map_err(|e| SovereignError::StorageError(e.to_string()))?;
         conn.execute_batch("
@@ -60,7 +47,7 @@ impl SearchBoostQueue {
                 username TEXT, 
                 thread_id TEXT, 
                 query BLOB, 
-                sealed_query BLOB,
+                sealed_query BLOB, -- DEPRECATED (V-14 Fix): Column remains for schema compatibility but is no longer used.
                 result BLOB,
                 status TEXT DEFAULT 'pending',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -75,7 +62,7 @@ impl SearchBoostQueue {
 
         Ok(Self { 
             db_path, 
-            cipher,
+            pepper: Arc::new(SecretVec::new(pepper.expose_secret().to_vec())),
             conn: Arc::new(std::sync::Mutex::new(conn)),
             shield,
             grounding_shield,
@@ -102,7 +89,7 @@ impl SearchBoostQueue {
     /// Processes the next job in the queue (exposed for testing and orchestration).
     pub async fn process_next_job(&self, librarian: Arc<crate::librarian::LocalLibrarian>) -> Result<(), SovereignError> {
         // --- HA FIX (WP 90): Poll Redis first for distributed jobs ---
-        let mut redis_job: Option<(String, String, Vec<u8>, Option<Vec<u8>>)> = None;
+        let mut redis_job: Option<(String, String, Vec<u8>)> = None;
         if let Some(ref client) = self.redis_client {
             if let Ok(mut con) = client.get_multiplexed_async_connection().await {
                 // RPOP from global queue
@@ -113,8 +100,7 @@ impl SearchBoostQueue {
                         if !data.is_empty() {
                             let username = String::from_utf8(data.get("username").cloned().unwrap_or_default()).unwrap_or_default();
                             let encrypted_sanitized = data.get("query").cloned().unwrap_or_default();
-                            let sealed_query = data.get("sealed_query").cloned();
-                            redis_job = Some((job_id, username, encrypted_sanitized, sealed_query));
+                            redis_job = Some((job_id, username, encrypted_sanitized));
                         }
                     }
                 }
@@ -127,7 +113,7 @@ impl SearchBoostQueue {
             let conn_arc = self.conn.clone();
             tokio::task::spawn_blocking(move || {
                 let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
-                let mut stmt = conn.prepare("SELECT id, username, query, sealed_query FROM search_jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1")
+                let mut stmt = conn.prepare("SELECT id, username, query FROM search_jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1")
                     .map_err(|e| SovereignError::StorageError(e.to_string()))?;
                 let mut rows = stmt.query([]).map_err(|e| SovereignError::StorageError(e.to_string()))?;
                 
@@ -135,57 +121,36 @@ impl SearchBoostQueue {
                     let id: String = row.get(0).map_err(|e| SovereignError::StorageError(e.to_string()))?;
                     let username: String = row.get(1).map_err(|e| SovereignError::StorageError(e.to_string()))?;
                     let encrypted_sanitized: Vec<u8> = row.get(2).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                    let sealed_query: Option<Vec<u8>> = row.get(3).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                    Ok::<Option<(String, String, Vec<u8>, Option<Vec<u8>>)>, SovereignError>(Some((id, username, encrypted_sanitized, sealed_query)))
+                    Ok::<Option<(String, String, Vec<u8>)>, SovereignError>(Some((id, username, encrypted_sanitized)))
                 } else {
                     Ok(None)
                 }
             }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??
         };
 
-        if let Some((id, username, encrypted_sanitized, sealed_query)) = job {
-            // 1. Decrypt Queries
-            let decrypt_query = |data: Vec<u8>| -> Result<String, SovereignError> {
-                if data.len() < 12 { return Err(SovereignError::InternalError("Corrupt job data".into())); }
-                let (nonce_bytes, ciphertext) = data.split_at(12);
-                let nonce = Nonce::from_slice(nonce_bytes);
-                let payload = aes_gcm::aead::Payload {
-                    msg: ciphertext,
-                    aad: username.as_bytes(),
-                };
-                let bytes = self.cipher.decrypt(nonce, payload)
-                    .map_err(|_| SovereignError::InternalError("Job decryption failed (Integrity Mismatch)".into()))?;
-                String::from_utf8(bytes).map_err(|_| SovereignError::InternalError("Invalid UTF-8".into()))
-            };
+        if let Some((id, username, encrypted_sanitized)) = job {
+            // 1. Decrypt Queries using centralized AadCipher (WP-98)
+            let pepper = self.pepper.expose_secret();
+            let decrypted_bytes = AadCipher::decrypt(
+                &encrypted_sanitized,
+                &username,
+                pepper,
+                b"warden-v1-queue-encryption"
+            )?;
+            let sanitized_query = String::from_utf8(decrypted_bytes)
+                .map_err(|_| SovereignError::InternalError("Invalid UTF-8 in job data".into()))?;
 
-            let sanitized_query = decrypt_query(encrypted_sanitized)?;
-
-            // 2. Unseal Raw Query (Side-Channel - Tandem Grounding)
-            let query_for_search = if let (Some(ref sq), Some(gs)) = (sealed_query, &self.grounding_shield) {
-                match gs.unseal_query(sq, &username) {
-                    Ok(q) => {
-                        info!(job_id = %id, "Side-channel: using unsealed raw query for grounding.");
-                        q
-                    },
-                    Err(e) => {
-                        error!(job_id = %id, "Side-channel unseal failed: {}. Falling back to sanitized query.", e);
-                        sanitized_query.clone()
-                    }
-                }
-            } else {
-                sanitized_query.clone()
-            };
-
-            // 3. Perform Search (RAG)
-            info!(job_id = %id, user = %username, "Processing SearchBoost job...");
-            let results = librarian.retrieve_policy_context(&query_for_search, &username, 3).await
+            // 2. Perform Search (RAG)
+            // --- SECURITY FIX (V-14 / WP-97): RAW Query Side-Channel REMOVED ---
+            // Grounding now uses exclusively the sanitized query to prevent PII leakage into the RAG pipeline.
+            info!(job_id = %id, user = %username, "Processing SearchBoost job (Sanitized Grounding)...");
+            let results = librarian.retrieve_policy_context(&sanitized_query, &username, 3).await
                 .map_err(|e| SovereignError::StorageError(e.to_string()))?;
             
             // --- SECURITY FIX (WP 68): Scrub retrieved context ---
             let mut scrubbed_results = Vec::new();
             if let Some(shield) = &self.shield {
                 for res in results {
-                    // Apply global rules to the retrieved context (No session-bound context for background search)
                     if let Ok(report) = shield.sanitize_prompt(&res, None) {
                         scrubbed_results.push(report.sanitized_text);
                     } else {
@@ -202,21 +167,13 @@ impl SearchBoostQueue {
                 scrubbed_results.join("\n---\n")
             };
 
-            // 3. Encrypt Result (Bound to username)
-            let mut res_nonce_bytes = [0u8; 12];
-            rand::thread_rng().fill_bytes(&mut res_nonce_bytes);
-            let res_nonce = Nonce::from_slice(&res_nonce_bytes);
-            
-            let res_payload = aes_gcm::aead::Payload {
-                msg: consolidated_result.as_bytes(),
-                aad: username.as_bytes(),
-            };
-            
-            let res_ciphertext = self.cipher.encrypt(res_nonce, res_payload)
-                .map_err(|_| SovereignError::InternalError("Result encryption failed".into()))?;
-            
-            let mut encrypted_result = res_nonce_bytes.to_vec();
-            encrypted_result.extend(res_ciphertext);
+            // 3. Encrypt Result using centralized AadCipher (WP-98)
+            let encrypted_result = AadCipher::encrypt(
+                consolidated_result.as_bytes(),
+                &username,
+                pepper,
+                b"warden-v1-queue-encryption"
+            )?;
 
             // 4. Update DB (and Redis if HA)
             if let Some(ref client) = self.redis_client {
@@ -224,7 +181,7 @@ impl SearchBoostQueue {
                     let redis_key = format!("iw:sb:job:{}", id);
                     let _: Result<(), _> = con.hset(&redis_key, "result", &encrypted_result).await;
                     let _: Result<(), _> = con.hset(&redis_key, "status", "complete").await;
-                    let _: Result<(), _> = con.expire(&redis_key, 3600).await; // 1h TTL for results
+                    let _: Result<(), _> = con.expire(&redis_key, 3600).await;
                 }
             }
 
@@ -240,53 +197,40 @@ impl SearchBoostQueue {
             }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
 
             info!(job_id = %id, "SearchBoost job completed and encrypted.");
-
         }
 
         Ok(())
     }
 
-    /// Enqueues a job with both sanitized and raw queries into the local SQLite-backed queue.
+    /// Enqueues a job into the local SQLite-backed queue.
+    /// --- SECURITY FIX (V-14 / WP-97): Removed sealed_query parameter ---
     pub async fn enqueue(
         &self,
         sanitized_query: String,
         _options: HashMap<String, serde_json::Value>,
         thread_id: String,
         username: String,
-        sealed_query: Option<Vec<u8>>,
     ) -> Result<String, SovereignError> {
         let session_id = format!("SB-SESSION:{}:{}", username, thread_id);
         let job_id = format!("{}:{}", session_id, Uuid::new_v4());
 
-        let encrypt_data = |data: &str| -> Result<Vec<u8>, SovereignError> {
-            let mut nonce_bytes = [0u8; 12];
-            rand::thread_rng().fill_bytes(&mut nonce_bytes);
-            let nonce = Nonce::from_slice(&nonce_bytes);
-            let payload = aes_gcm::aead::Payload {
-                msg: data.as_bytes(),
-                aad: username.as_bytes(),
-            };
-            let ciphertext = self.cipher.encrypt(nonce, payload)
-                .map_err(|_| SovereignError::InternalError("Queue encryption failed".into()))?;
-            let mut combined = nonce_bytes.to_vec();
-            combined.extend(ciphertext);
-            Ok(combined)
-        };
-
-        let encrypted_sanitized = encrypt_data(&sanitized_query)?;
+        // Encrypt sanitized query using centralized AadCipher (WP-98)
+        let encrypted_sanitized = AadCipher::encrypt(
+            sanitized_query.as_bytes(),
+            &username,
+            self.pepper.expose_secret(),
+            b"warden-v1-queue-encryption"
+        )?;
 
         // --- HA FIX (WP 90): Push to Redis for distributed processing ---
         if let Some(ref client) = self.redis_client {
             if let Ok(mut con) = client.get_multiplexed_async_connection().await {
                 let redis_key = format!("iw:sb:job:{}", job_id);
-                let mut fields = vec![
+                let fields = vec![
                     ("username", username.as_bytes().to_vec()),
                     ("query", encrypted_sanitized.clone()),
                     ("status", b"pending".to_vec())
                 ];
-                if let Some(ref sq) = sealed_query {
-                    fields.push(("sealed_query", sq.clone()));
-                }
                 let _: Result<(), _> = con.hset_multiple(&redis_key, &fields).await;
                 let _: Result<(), _> = con.lpush("iw:sb:queue", &job_id).await;
             }
@@ -296,13 +240,12 @@ impl SearchBoostQueue {
         let thread_id_clone = thread_id.clone();
         let job_id_clone = job_id.clone();
         let conn_arc = self.conn.clone();
-        let sealed_query_clone = sealed_query.clone();
 
         tokio::task::spawn_blocking(move || {
             let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
             conn.execute(
-                "INSERT INTO search_jobs (id, username, thread_id, query, sealed_query) VALUES (?1, ?2, ?3, ?4, ?5)",
-                (&job_id_clone, &username_clone, &thread_id_clone, &encrypted_sanitized, &sealed_query_clone),
+                "INSERT INTO search_jobs (id, username, thread_id, query) VALUES (?1, ?2, ?3, ?4)",
+                (&job_id_clone, &username_clone, &thread_id_clone, &encrypted_sanitized),
             ).map_err(|e| {
                 if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
                     SovereignError::DatabaseBusy("SearchBoost Queue busy".into())
@@ -363,20 +306,16 @@ impl SearchBoostQueue {
         match result_data {
             Some((username, data)) => {
                 if data.is_empty() { return Ok(None); }
-                if data.len() < 12 { return Err(SovereignError::InternalError("Invalid result length".into())); }
-                let (nonce_bytes, ciphertext) = data.split_at(12);
-                let nonce = Nonce::from_slice(nonce_bytes);
                 
-                // --- SECURITY FIX (V-19): Bind decryption to username via AAD ---
-                let payload = aes_gcm::aead::Payload {
-                    msg: ciphertext,
-                    aad: username.as_bytes(),
-                };
+                // Decrypt result using centralized AadCipher (WP-98)
+                let decrypted_bytes = AadCipher::decrypt(
+                    &data,
+                    &username,
+                    self.pepper.expose_secret(),
+                    b"warden-v1-queue-encryption"
+                )?;
                 
-                let decrypted = self.cipher.decrypt(nonce, payload)
-                    .map_err(|_| SovereignError::InternalError("Result decryption failed (Integrity Mismatch)".into()))?;
-                
-                Ok(Some(String::from_utf8(decrypted).map_err(|e| SovereignError::InternalError(e.to_string()))?))
+                Ok(Some(String::from_utf8(decrypted_bytes).map_err(|e| SovereignError::InternalError(e.to_string()))?))
             },
             None => Ok(None)
         }
@@ -390,22 +329,13 @@ use redis::AsyncCommands;
 pub struct LocalSessionManager {
     sessions: DashMap<String, Arc<SessionContext>>,
     db_path: String,
-    cipher: Aes256Gcm,
+    pepper: Arc<SecretVec<u8>>,
     conn: Arc<std::sync::Mutex<Connection>>,
     redis_client: Option<redis::Client>,
 }
 
 impl LocalSessionManager {
     pub fn new(db_path: String, pepper: &SecretVec<u8>) -> Result<Arc<Self>, SovereignError> {
-        let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret());
-        let mut key_bytes = [0u8; 32];
-        hk.expand(b"warden-v1-session-encryption", &mut key_bytes)
-            .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
-        
-        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-        let cipher = Aes256Gcm::new(key);
-        key_bytes.zeroize();
-
         let conn = Connection::open(&db_path).map_err(|e| SovereignError::StorageError(format!("Failed to open Session DB: {}", e)))?;
         conn.busy_timeout(std::time::Duration::from_millis(2000)).map_err(|e| SovereignError::StorageError(e.to_string()))?;
         conn.execute_batch("
@@ -423,7 +353,7 @@ impl LocalSessionManager {
         let manager = Arc::new(Self {
             sessions: DashMap::new(),
             db_path: db_path.clone(),
-            cipher,
+            pepper: Arc::new(SecretVec::new(pepper.expose_secret().to_vec())),
             conn: Arc::new(std::sync::Mutex::new(conn)),
             redis_client,
         });
@@ -485,18 +415,13 @@ impl LocalSessionManager {
 
         let ctx = match encrypted_data {
             Some(data) => {
-                if data.len() < 12 { return Err(SovereignError::InternalError("Invalid session data length".into())); }
-                let (nonce_bytes, ciphertext) = data.split_at(12);
-                let nonce = Nonce::from_slice(nonce_bytes);
-                
-                // --- SECURITY FIX (V-19): Bind decryption to username via AAD ---
-                let payload = aes_gcm::aead::Payload {
-                    msg: ciphertext,
-                    aad: username.as_bytes(),
-                };
-                
-                let decrypted = self.cipher.decrypt(nonce, payload)
-                    .map_err(|_| SovereignError::InternalError("Session decryption failed (Integrity Mismatch)".into()))?;
+                // Decrypt session using centralized AadCipher (WP-98)
+                let decrypted = AadCipher::decrypt(
+                    &data,
+                    username,
+                    self.pepper.expose_secret(),
+                    b"warden-v1-session-encryption"
+                )?;
                 
                 let state: SessionState = serde_json::from_slice(&decrypted)
                     .map_err(|e| SovereignError::InternalError(format!("Session corruption: {}", e)))?;
@@ -514,21 +439,13 @@ impl LocalSessionManager {
         let state = SessionState::from(ctx);
         let json_bytes = serde_json::to_vec(&state).unwrap_or_default();
         
-        let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
-        
-        // --- SECURITY FIX (V-19): Bind encryption to username via AAD ---
-        let payload = aes_gcm::aead::Payload {
-            msg: json_bytes.as_slice(),
-            aad: username.as_bytes(),
-        };
-        
-        let ciphertext = self.cipher.encrypt(nonce, payload)
-            .map_err(|_| SovereignError::InternalError("Session encryption failed".into()))?;
-        
-        let mut combined = nonce_bytes.to_vec();
-        combined.extend(ciphertext);
+        // Encrypt session using centralized AadCipher (WP-98)
+        let combined = AadCipher::encrypt(
+            &json_bytes,
+            username,
+            self.pepper.expose_secret(),
+            b"warden-v1-session-encryption"
+        )?;
 
         // --- HA FIX (WP 90): Write to Redis for HA Clustered Access ---
         if let Some(ref client) = self.redis_client {
@@ -568,19 +485,13 @@ impl LocalSessionManager {
             let state = SessionState::from(item.value().as_ref());
             let json_bytes = serde_json::to_vec(&state).unwrap_or_default();
             
-            let mut nonce_bytes = [0u8; 12];
-            rand::thread_rng().fill_bytes(&mut nonce_bytes);
-            let nonce = Nonce::from_slice(&nonce_bytes);
-            
-            // --- SECURITY FIX (V-19): Bind encryption to username via AAD ---
-            let payload = aes_gcm::aead::Payload {
-                msg: json_bytes.as_slice(),
-                aad: username.as_bytes(),
-            };
-            
-            if let Ok(ciphertext) = self.cipher.encrypt(nonce, payload) {
-                let mut combined = nonce_bytes.to_vec();
-                combined.extend(ciphertext);
+            // Encrypt session using centralized AadCipher (WP-98)
+            if let Ok(combined) = AadCipher::encrypt(
+                &json_bytes,
+                username,
+                self.pepper.expose_secret(),
+                b"warden-v1-session-encryption"
+            ) {
                 sessions_to_flush.push((username.clone(), combined));
             }
         }

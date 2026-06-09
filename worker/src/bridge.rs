@@ -124,49 +124,40 @@ async fn handle_enqueue(
         Err(e) => return map_error(e).into_response(),
     };
 
-    // --- SECURITY FIX: Sealed Side-Channel (Tandem Grounding) ---
-    // We seal the raw query for SearchBoost to perform accurate retrieval in its local boundary.
-    let sealed_query = match state.grounding_shield.seal_query(&payload.query, &username) {
-        Ok(s) => Some(s),
-        Err(e) => {
-            tracing::warn!("Failed to seal query for side-channel: {}. Search accuracy may be degraded.", e);
-            None
-        }
-    };
-
     // --- SECURITY FIX: Log to Audit Ledger ---
     if let Err(e) = state.storage.log_audit_event(&report, &payload.query, &username).await {
         tracing::error!("AUDIT LOG FAILURE: {}. Request aborted to prevent un-audited access!", e);
         return map_error(e).into_response();
     }
-// --- SECURITY FIX (V-14): Hard-Block Circuit Breaker & Leak Prevention ---
-if report.is_blocked {
-    return map_error(iw_core::SovereignError::PiiViolation("[POLICY VIOLATION] Your request was blocked due to sensitive data leakage.".into())).into_response();
-}
 
-// 4. Persist updated session state
-if let Err(e) = state.session_manager.save_session(&username, &user_context).await {
-    tracing::error!("Failed to save session for {}: {}", username, e);
-}
+    // --- SECURITY FIX (V-14): Hard-Block Circuit Breaker & Leak Prevention ---
+    if report.is_blocked {
+        return map_error(iw_core::SovereignError::PiiViolation("[POLICY VIOLATION] Your request was blocked due to sensitive data leakage.".into())).into_response();
+    }
 
-// 5. Delegate to Storage & Queue
-tracing::info!(
-    "PII Scrubbed for {}: replaced {} terms",
-    username,
-    report.token_map.len()
-);
+    // 4. Persist updated session state
+    if let Err(e) = state.session_manager.save_session(&username, &user_context).await {
+        tracing::error!("Failed to save session for {}: {}", username, e);
+    }
 
-let options = payload.options.unwrap_or_default();
+    // 5. Delegate to Storage & Queue
+    tracing::info!(
+        "PII Scrubbed for {}: replaced {} terms",
+        username,
+        report.token_map.len()
+    );
 
-    // --- SECURITY ENFORCEMENT (V-14): Enqueue ONLY sanitized text ---
+    let options = payload.options.unwrap_or_default();
+
+    // --- SECURITY ENFORCEMENT (V-14 / WP-97): Enqueue ONLY sanitized text ---
     // To maintain 100% compliance with the Leak-Proof Routing mandate, raw queries are 
-    // dropped immediately after auditing, but the sealed side-channel allows accurate retrieval.
+    // dropped immediately after auditing. Side-channels for raw query grounding are strictly 
+    // prohibited as they bypass the core security boundary.
     match state.queue.enqueue(
         report.sanitized_text,
         options,
         payload.thread_id,
         username,
-        sealed_query,
     ).await {
         Ok(job_id) => {
             (StatusCode::OK, Json(serde_json::json!({
@@ -205,7 +196,7 @@ async fn handle_get_result(
 
 async fn handle_health(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
     match state.storage.check_health().await {
-        Ok(_) => (StatusCode::OK, "IronWarden Bridge: V1.2 Sovereign Search: HEALTHY").into_response(),
+        Ok(_) => (StatusCode::OK, "IronWarden Bridge: V1.3 Sovereign Search: HEALTHY").into_response(),
         Err(e) => (StatusCode::SERVICE_UNAVAILABLE, format!("IronWarden Bridge: CRITICAL FAILURE: {}", e)).into_response(),
     }
 }

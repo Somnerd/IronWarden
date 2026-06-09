@@ -1,12 +1,10 @@
-use iw_core::{ScrubbingReport, SovereignError};
+use iw_core::{ScrubbingReport, SovereignError, AadCipher};
 use rusqlite::{Connection, ErrorCode};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use hmac::{Hmac, Mac};
 use sha2::{Sha256, Digest};
 use hkdf::Hkdf;
-use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, aead::Aead};
-use rand::RngCore;
 use tracing::{info, error, warn};
 use chrono::{Utc, Duration};
 use zeroize::Zeroize;
@@ -86,13 +84,6 @@ impl AsyncAuditor {
         
         let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret());
         
-        let mut encryption_key_bytes = [0u8; 32];
-        hk.expand(KDF_SALT_ENCRYPTION, &mut encryption_key_bytes)
-            .map_err(|e| SovereignError::InternalError(format!("KDF Expansion Failure: {}", e)))?;
-        
-        let encryption_key = Key::<Aes256Gcm>::from_slice(&encryption_key_bytes);
-        let cipher = Aes256Gcm::new(encryption_key);
-
         let mut hmac_key_bytes = [0u8; 32];
         hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes)
             .map_err(|e| SovereignError::InternalError(format!("KDF Expansion Failure: {}", e)))?;
@@ -100,8 +91,6 @@ impl AsyncAuditor {
         let mut genesis_hash = [0u8; 32];
         hk.expand(KDF_SALT_GENESIS, &mut genesis_hash)
             .map_err(|e| SovereignError::InternalError(format!("KDF Expansion Failure: {}", e)))?;
-        
-        encryption_key_bytes.zeroize();
 
         let (init_tx, init_rx) = tokio::sync::oneshot::channel();
 
@@ -146,113 +135,116 @@ impl AsyncAuditor {
                             let redactions_json = serde_json::to_string(&report.redactions).unwrap_or_default();
                             let redactions_bin = bincode::serialize(&report.redactions).unwrap_or_default();
 
-                            let mut nonce_bytes = [0u8; 12];
-                            rand::thread_rng().fill_bytes(&mut nonce_bytes);
-                            let nonce = Nonce::from_slice(&nonce_bytes);
-
                             // --- SECURITY FIX (Section 3.1 & V-19): Hash-then-Encrypt with Composite AAD Binding ---
-                            let mut aad = Vec::new();
-                            aad.extend_from_slice(&last_hash);
-                            aad.extend_from_slice(username.as_bytes());
+                            let mut composite_aad = String::new();
+                            composite_aad.push_str(&hex::encode(&last_hash));
+                            composite_aad.push_str(&username);
 
-                            let payload = aes_gcm::aead::Payload {
-                                msg: raw_input.as_bytes(),
-                                aad: &aad,
-                            };
+                            // Encrypt using centralized AadCipher (WP-98)
+                            let encrypted_data = AadCipher::encrypt(
+                                raw_input.as_bytes(),
+                                &composite_aad,
+                                pepper.expose_secret(),
+                                KDF_SALT_ENCRYPTION
+                            );
 
-                            if let Ok(ciphertext) = cipher.encrypt(nonce, payload) {
-                                // --- SECURITY FIX (WP 55): Hash-then-Encrypt Binding ---
-                                let mut hasher = Sha256::new();
-                                hasher.update(&ciphertext);
-                                hasher.update(&nonce_bytes);
-                                let payload_hash = hasher.finalize();
+                            match encrypted_data {
+                                Ok(combined) => {
+                                    // Extract nonce and ciphertext from combined output
+                                    let (nonce_bytes, ciphertext) = combined.split_at(12);
 
-                                let mut mac = match <HmacSha256 as Mac>::new_from_slice(&hmac_key_bytes) {
-                                    Ok(m) => m,
-                                    Err(e) => {
-                                        let _ = ack_tx.send(Err(SovereignError::InternalError(format!("HMAC Key Failure: {}", e))));
-                                        raw_input.zeroize();
-                                        nonce_bytes.zeroize();
-                                        continue;
-                                    }
-                                };
-                                
-                                mac.update(&last_hash);
-                                mac.update(timestamp.as_bytes());
-                                mac.update(username.as_bytes()); // Bind username to integrity chain
-                                mac.update(&[report.is_blocked as u8]);
-                                mac.update(&redactions_bin);
-                                mac.update(&payload_hash); // Bind payload to chain
-                                
-                                let current_hash = mac.finalize().into_bytes().to_vec();
+                                    // --- SECURITY FIX (WP 55): Hash-then-Encrypt Binding ---
+                                    let mut hasher = Sha256::new();
+                                    hasher.update(ciphertext);
+                                    hasher.update(nonce_bytes);
+                                    let payload_hash = hasher.finalize();
 
-                                // --- HA / IMMUTABILITY FIX (WP 92): Real-time Remote Forwarding ---
-                                if let Some(ref forwarder) = remote_forwarder {
-                                    let forward_forwarder = forwarder.clone();
-                                    let forward_ciphertext = ciphertext.clone();
-                                    let forward_nonce = nonce_bytes.to_vec();
-                                    let forward_hash = current_hash.clone();
-                                    let forward_report = report.clone();
-                                    let forward_username = username.clone();
-                                    
-                                    let _ = tokio::runtime::Handle::current().spawn(async move {
-                                        if let Err(e) = forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await {
-                                            error!("Remote Audit Forwarding Failed: {}. Audit remains local-only.", e);
-                                        } else {
-                                            info!("Audit record successfully streamed to remote endpoint.");
+                                    let mut mac = match <HmacSha256 as Mac>::new_from_slice(&hmac_key_bytes) {
+                                        Ok(m) => m,
+                                        Err(e) => {
+                                            let _ = ack_tx.send(Err(SovereignError::InternalError(format!("HMAC Key Failure: {}", e))));
+                                            raw_input.zeroize();
+                                            continue;
                                         }
-                                    });
-                                }
+                                    };
+                                    
+                                    mac.update(&last_hash);
+                                    mac.update(timestamp.as_bytes());
+                                    mac.update(username.as_bytes()); // Bind username to integrity chain
+                                    mac.update(&[report.is_blocked as u8]);
+                                    mac.update(&redactions_bin);
+                                    mac.update(&payload_hash); // Bind payload to chain
+                                    
+                                    let current_hash = mac.finalize().into_bytes().to_vec();
 
-                                let mut write_success = false;
-                                let map_err = |e: rusqlite::Error| {
-                                    if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
-                                        SovereignError::DatabaseBusy("Audit DB busy (timeout)".into())
-                                    } else {
-                                        SovereignError::StorageError(format!("Audit DB Error: {}", e))
+                                    // --- HA / IMMUTABILITY FIX (WP 92): Real-time Remote Forwarding ---
+                                    if let Some(ref forwarder) = remote_forwarder {
+                                        let forward_forwarder = forwarder.clone();
+                                        let forward_ciphertext = ciphertext.to_vec();
+                                        let forward_nonce = nonce_bytes.to_vec();
+                                        let forward_hash = current_hash.clone();
+                                        let forward_report = report.clone();
+                                        let forward_username = username.clone();
+                                        
+                                        let _ = tokio::runtime::Handle::current().spawn(async move {
+                                            if let Err(e) = forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await {
+                                                error!("Remote Audit Forwarding Failed: {}. Audit remains local-only.", e);
+                                            } else {
+                                                info!("Audit record successfully streamed to remote endpoint.");
+                                            }
+                                        });
                                     }
-                                };
 
-                                let _ = c.execute("BEGIN IMMEDIATE TRANSACTION", []);
-                                let res = c.execute("INSERT INTO ephemeral_raw_logs (username, encrypted_data, nonce) VALUES (?1, ?2, ?3)", (&username, &ciphertext, &nonce_bytes.to_vec()));
-                                if let Err(e) = res {
-                                    let _ = c.execute("ROLLBACK", []);
-                                    result = Err(map_err(e));
-                                } else {
-                                    let res2 = c.execute(
-                                        "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", 
-                                        (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(&payload_hash), hex::encode(&current_hash))
-                                    );
-                                    if let Err(e) = res2 {
+                                    let mut write_success = false;
+                                    let map_err = |e: rusqlite::Error| {
+                                        if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
+                                            SovereignError::DatabaseBusy("Audit DB busy (timeout)".into())
+                                        } else {
+                                            SovereignError::StorageError(format!("Audit DB Error: {}", e))
+                                        }
+                                    };
+
+                                    let _ = c.execute("BEGIN IMMEDIATE TRANSACTION", []);
+                                    let res = c.execute("INSERT INTO ephemeral_raw_logs (username, encrypted_data, nonce) VALUES (?1, ?2, ?3)", (&username, &ciphertext.to_vec(), &nonce_bytes.to_vec()));
+                                    if let Err(e) = res {
                                         let _ = c.execute("ROLLBACK", []);
                                         result = Err(map_err(e));
                                     } else {
-                                        let commit_res = c.execute("COMMIT", []);
-                                        if let Err(e) = commit_res {
+                                        let res2 = c.execute(
+                                            "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", 
+                                            (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(&payload_hash), hex::encode(&current_hash))
+                                        );
+                                        if let Err(e) = res2 {
                                             let _ = c.execute("ROLLBACK", []);
                                             result = Err(map_err(e));
                                         } else {
-                                            last_hash = current_hash;
-                                            last_id += 1;
-                                            if let Err(e) = Self::update_anchor(&path_thread, last_id, &last_hash) {
-                                                error!("CRITICAL: Failed to update audit anchor: {}. Halting system.", e);
-                                                healthy_thread.store(false, std::sync::atomic::Ordering::SeqCst);
-                                                result = Err(e);
+                                            let commit_res = c.execute("COMMIT", []);
+                                            if let Err(e) = commit_res {
+                                                let _ = c.execute("ROLLBACK", []);
+                                                result = Err(map_err(e));
                                             } else {
-                                                result = Ok(());
-                                                write_success = true;
+                                                last_hash = current_hash;
+                                                last_id += 1;
+                                                if let Err(e) = Self::update_anchor(&path_thread, last_id, &last_hash) {
+                                                    error!("CRITICAL: Failed to update audit anchor: {}. Halting system.", e);
+                                                    healthy_thread.store(false, std::sync::atomic::Ordering::SeqCst);
+                                                    result = Err(e);
+                                                } else {
+                                                    result = Ok(());
+                                                    write_success = true;
+                                                }
                                             }
                                         }
                                     }
+                                    
+                                    if !write_success {
+                                        error!("Audit log failed to persist: {:?}. Sending fail-closed signal.", result);
+                                    }
                                 }
-                                
-                                if !write_success {
-                                    error!("Audit log failed to persist: {:?}. Sending fail-closed signal.", result);
+                                Err(e) => {
+                                    result = Err(e);
                                 }
-                            } else {
-                                result = Err(SovereignError::InternalError("Encryption failed".to_string()));
                             }
-                            nonce_bytes.zeroize();
                         }
                         let _ = ack_tx.send(result);
                         raw_input.zeroize();

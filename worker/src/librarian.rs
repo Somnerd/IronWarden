@@ -131,7 +131,8 @@ impl LocalLibrarian {
         
         // --- SECURITY FIX (Section 1.1 / Finding A.3): GDPR Compliance ---
         // Purge documents where username matches.
-        table.delete(format!("username = '{}'", username).as_str()).await?;
+        let sanitized_username = username.replace("'", "''");
+        table.delete(format!("username = '{}'", sanitized_username).as_str()).await?;
         
         info!("Librarian: Purged all documents for user {}", username);
         Ok(())

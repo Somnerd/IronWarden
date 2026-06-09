@@ -17,11 +17,12 @@ impl InferenceGateway for MockRouter {
 
 #[tokio::test]
 async fn test_mcp_full_pipeline_with_tantivy() {
+    std::env::set_var("WARDEN_USER", "test_user");
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("audit.db").to_str().unwrap().to_string();
     let kb_path = dir.path().join("kb").to_str().unwrap().to_string();
     let pepper = SecretVec::new(vec![0u8; 32]);
-    
+
     // 1. Setup Components
     let session_manager = LocalSessionManager::new(db_path.clone(), &pepper).unwrap();
     let queue = SearchBoostQueue::new(db_path.clone(), &pepper, None, None).unwrap();
@@ -55,7 +56,7 @@ rules:
         "method": "mcp_orchestrate",
         "params": {
             "prompt": "Tell me about Project X",
-            "username": "somnerd"
+            "username": "test_user"
         },
         "id": "1"
     });

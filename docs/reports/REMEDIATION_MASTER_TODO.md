@@ -1,9 +1,15 @@
 # 🏰 IronWarden: Master Remediation Roadmap (Security & QA)
-**Status:** V1.3-INVESTMENT-GRADE
+**Status:** V1.3-INVESTMENT-GRADE (REMEDIATED)
 **Target:** Nikolas (Dev) / Antigravity (Arch)
 **Author:** GeminiCLI (Lead QA/Security)
 
 This document serves as the master "To-Do" and progress tracker for IronWarden.
+
+---
+
+## 🚨 V1.3 AUDIT REMEDIATION (FIXED)
+- [x] **WP-97: V-14 Security Breach**: Removed raw query side-channel. Grounding now uses sanitized text only.
+- [x] **WP-98: V-19 Cryptographic Fragility**: Centralized AAD-bound encryption in `iw-core::crypto`.
 
 ---
 
@@ -32,7 +38,7 @@ This document serves as the master "To-Do" and progress tracker for IronWarden.
 ---
 
 ## 🔍 4. LIBRARIAN & RAG LOGIC (FIXED)
-- [x] **Pre-Redaction Search:** Grounding before query redaction.
+- [x] **Pre-Redaction Search:** Grounding before query redaction. (DEPRECATED for V-14 Compliance: Grounding now uses sanitized text).
 - [x] **SearchBoost HA Queue:** Redis-backed distributed job processing (WP-90).
 - [x] **Context Scrubbing:** RAG results are scrubbed before LLM delivery (WP-68).
 
@@ -50,6 +56,8 @@ IronWarden V1.3 has graduated from a "Sovereign Toy" to an **Enterprise-Grade AI
 - Architectural SPOF: ELIMINATED.
 - Audit Immutability: ENFORCED.
 - Multi-Modal Ready: YES.
+- V-14 Leak Prevention: VERIFIED.
+- V-19 Identity Binding: CENTRALIZED.
 
 **Certified for Tier-1 Commercial Engagement & Professional Due Diligence.**
 

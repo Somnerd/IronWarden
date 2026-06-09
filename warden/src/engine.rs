@@ -121,6 +121,16 @@ impl PiiShield for WardenEngine {
         input: &str,
         session: Option<&SessionContext>,
     ) -> Result<ScrubbingReport, SovereignError> {
+        // --- SECURITY FIX (Finding 4): Pre-Flight Prompt Injection Guardrails ---
+        let lower_input = input.to_lowercase();
+        if lower_input.contains("system override") 
+            || lower_input.contains("ignore previous instructions")
+            || lower_input.contains("disregard instructions") 
+            || lower_input.contains("bypass constraints") 
+        {
+            return Err(SovereignError::UnauthorizedAccess("Prompt injection attempt blocked by Pre-Flight Guardrail".into()));
+        }
+
         let start_time = Instant::now();
         let norm_res = Normalizer::normalize(input);
         
@@ -173,10 +183,44 @@ impl PiiShield for WardenEngine {
             if let (Some(id), Some(action), Some(category)) = (self.rule_ids.get(idx), self.rule_actions.get(idx), self.rule_categories.get(idx)) {
                 // Map Stripped offsets to Original, then to Unicode
                 let orig_start = norm_res.stripped_to_original.get_original_offset(mat.start());
-                let orig_end = norm_res.stripped_to_original.get_original_offset(mat.end());
+                let orig_end = if mat.end() > mat.start() {
+                    let last_stripped_idx = mat.end() - 1;
+                    let orig_last = norm_res.stripped_to_original.get_original_offset(last_stripped_idx);
+                    if orig_last < input.len() {
+                        let char_len = input[orig_last..].chars().next().map_or(1, |c| c.len_utf8());
+                        orig_last + char_len
+                    } else {
+                        input.len()
+                    }
+                } else {
+                    orig_start
+                };
                 
                 let unicode_start = norm_res.original_to_unicode[orig_start];
                 let unicode_end = norm_res.original_to_unicode[orig_end];
+
+                // Enforce word boundaries on the original input for flexible matching
+                let has_before = {
+                    let mut chars = input[..orig_start].chars().rev();
+                    let mut found = false;
+                    while let Some(c) = chars.next() {
+                        if c.is_whitespace() { break; }
+                        if c.is_alphanumeric() { found = true; break; }
+                    }
+                    found
+                };
+                let has_after = {
+                    let mut chars = input[orig_end..].chars();
+                    let mut found = false;
+                    while let Some(c) = chars.next() {
+                        if c.is_whitespace() { break; }
+                        if c.is_alphanumeric() { found = true; break; }
+                    }
+                    found
+                };
+                if has_before || has_after {
+                    continue;
+                }
 
                 all_confirmed.push(UnifiedMatch {
                     start: unicode_start,

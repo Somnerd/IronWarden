@@ -52,6 +52,36 @@ impl WorkerStorage {
             info!("SearchBoost background worker ignited.");
         }
 
+        let db_path_clone = audit_db_path.to_string();
+        let conn_arc = storage.conn.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let path_c = std::ffi::CString::new(db_path_clone.clone()).unwrap_or_default();
+                if path_c.as_bytes().is_empty() { continue; }
+                let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+                if unsafe { libc::statvfs(path_c.as_ptr(), &mut stat) } == 0 {
+                    let total = stat.f_blocks.saturating_mul(stat.f_frsize);
+                    let avail = stat.f_bavail.saturating_mul(stat.f_frsize);
+                    if total > 0 {
+                        let percent_avail = (avail as f64 / total as f64) * 100.0;
+                        if percent_avail < 10.0 {
+                            tracing::warn!("Disk space critical ({:.1}% available). Triggering emergency ephemeral log purge.", percent_avail);
+                            let conn_clone = conn_arc.clone();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                if let Ok(conn) = conn_clone.lock() {
+                                    let cutoff = chrono::Utc::now() - chrono::Duration::hours(1);
+                                    let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+                                    let _ = conn.execute("DELETE FROM ephemeral_raw_logs WHERE timestamp < ?1", [cutoff_str]);
+                                }
+                            }).await;
+                        }
+                    }
+                }
+            }
+        });
+
         Ok(storage)
     }
 
@@ -84,7 +114,6 @@ impl WorkerStorage {
         options: std::collections::HashMap<String, serde_json::Value>,
         thread_id: String,
         username: String,
-        sealed_query: Option<Vec<u8>>,
     ) -> Result<String, SovereignError> {
         if !self.validate_thread_access(&thread_id, &username).await? {
             return Err(SovereignError::UnauthorizedAccess(format!("User {} denied access to thread {}", username, thread_id)));
@@ -93,7 +122,7 @@ impl WorkerStorage {
         let queue = self.sb_queue.as_ref()
             .ok_or_else(|| SovereignError::StorageError("SearchBoost Queue not initialized".into()))?;
             
-        let job_id = queue.enqueue(sanitized_query, options, thread_id.clone(), username.clone(), sealed_query).await?;
+        let job_id = queue.enqueue(sanitized_query, options, thread_id.clone(), username.clone()).await?;
 
         Ok(job_id)
     }

@@ -98,6 +98,7 @@ async fn test_hmac_chain_integrity() {
     let mut mac = <HmacSha256 as Mac>::new_from_slice(&hmac_key).unwrap();
     mac.update(&genesis_hash);
     mac.update(timestamp.as_bytes());
+    mac.update(b"Alice"); // Bind username to integrity chain
     mac.update(&[is_blocked as u8]);
     
     let redactions_vec: Vec<Redaction> = serde_json::from_str(&redactions_json).unwrap_or_default();
@@ -142,9 +143,13 @@ async fn test_encryption_roundtrip() {
     ).unwrap();
 
     let nonce = Nonce::from_slice(&nonce_bytes);
+    let mut aad = Vec::new();
+    aad.extend_from_slice(&genesis_hash);
+    aad.extend_from_slice(b"user_1");
+
     let payload = aes_gcm::aead::Payload {
         msg: encrypted_data.as_slice(),
-        aad: &genesis_hash,
+        aad: &aad,
     };
     let decrypted = cipher.decrypt(nonce, payload).expect("Decryption failed");
     assert_eq!(String::from_utf8(decrypted).unwrap(), raw_input);

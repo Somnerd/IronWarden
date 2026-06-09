@@ -2,6 +2,7 @@ pub mod error;
 pub mod traits;
 pub mod constants;
 pub mod fips;
+pub mod crypto;
 
 pub use constants::*;
 
@@ -11,3 +12,4 @@ pub use traits::{
     ScrubbingReport, Redaction, EnforcementAction, PotentialMiss, SessionContext, SessionState,
     PiiCategory, ComplianceReport, GroundingShield
 };
+pub use crypto::AadCipher;
