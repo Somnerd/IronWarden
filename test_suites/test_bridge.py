@@ -8,7 +8,18 @@ def jwt_token(warden):
     secret = warden.env["JWT_SECRET"]
     payload = {
         "sub": "test_user",
-        "exp": int(time.time()) + 3600
+        "exp": int(time.time()) + 3600,
+        "roles": ["admin"]
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+@pytest.fixture
+def jwt_token_unprivileged(warden):
+    secret = warden.env["JWT_SECRET"]
+    payload = {
+        "sub": "test_user_no_roles",
+        "exp": int(time.time()) + 3600,
+        "roles": []
     }
     return jwt.encode(payload, secret, algorithm="HS256")
 
@@ -29,6 +40,15 @@ def test_bridge_enqueue_unauthorized(bridge_url):
     }
     response = requests.post(f"{bridge_url}/enqueue", json=payload)
     assert response.status_code == 401
+
+def test_bridge_enqueue_forbidden(bridge_url, jwt_token_unprivileged):
+    payload = {
+        "query": "Hello Bob",
+        "thread_id": "thread_123"
+    }
+    headers = {"Authorization": f"Bearer {jwt_token_unprivileged}"}
+    response = requests.post(f"{bridge_url}/enqueue", json=payload, headers=headers)
+    assert response.status_code == 403
 
 def test_bridge_enqueue_authorized(bridge_url, jwt_token):
     payload = {
