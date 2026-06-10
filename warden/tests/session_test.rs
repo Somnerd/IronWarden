@@ -3,8 +3,8 @@ use iw_core::{PiiShield, SessionContext};
 use tempfile::tempdir;
 use std::fs;
 
-#[tokio::test]
-async fn test_session_token_consistency() {
+#[test]
+fn test_session_token_consistency() {
     let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("rules.yaml");
