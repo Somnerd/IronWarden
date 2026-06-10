@@ -143,13 +143,13 @@ async fn test_encryption_roundtrip() {
     ).unwrap();
 
     let nonce = Nonce::from_slice(&nonce_bytes);
-    let mut aad = Vec::new();
-    aad.extend_from_slice(&genesis_hash);
-    aad.extend_from_slice(b"user_1");
+    let mut composite_aad = String::new();
+    composite_aad.push_str(&hex::encode(&genesis_hash));
+    composite_aad.push_str("user_1");
 
     let payload = aes_gcm::aead::Payload {
         msg: encrypted_data.as_slice(),
-        aad: &aad,
+        aad: composite_aad.as_bytes(),
     };
     let decrypted = cipher.decrypt(nonce, payload).expect("Decryption failed");
     assert_eq!(String::from_utf8(decrypted).unwrap(), raw_input);
