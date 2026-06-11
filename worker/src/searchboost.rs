@@ -130,13 +130,16 @@ impl SearchBoostQueue {
 
         if let Some((id, username, encrypted_sanitized)) = job {
             // 1. Decrypt Queries using centralized AadCipher (WP-98)
-            let pepper = self.pepper.expose_secret();
-            let decrypted_bytes = AadCipher::decrypt(
-                &encrypted_sanitized,
-                &username,
-                pepper,
-                b"warden-v1-queue-encryption"
-            )?;
+            let pepper = self.pepper.clone();
+            let username_clone = username.clone();
+            let decrypted_bytes = tokio::task::spawn_blocking(move || {
+                AadCipher::decrypt(
+                    &encrypted_sanitized,
+                    &username_clone,
+                    pepper.expose_secret(),
+                    b"warden-v1-queue-encryption"
+                )
+            }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
             let sanitized_query = String::from_utf8(decrypted_bytes)
                 .map_err(|_| SovereignError::InternalError("Invalid UTF-8 in job data".into()))?;
 
@@ -168,12 +171,16 @@ impl SearchBoostQueue {
             };
 
             // 3. Encrypt Result using centralized AadCipher (WP-98)
-            let encrypted_result = AadCipher::encrypt(
-                consolidated_result.as_bytes(),
-                &username,
-                pepper,
-                b"warden-v1-queue-encryption"
-            )?;
+            let pepper_clone = self.pepper.clone();
+            let username_clone = username.clone();
+            let encrypted_result = tokio::task::spawn_blocking(move || {
+                AadCipher::encrypt(
+                    consolidated_result.as_bytes(),
+                    &username_clone,
+                    pepper_clone.expose_secret(),
+                    b"warden-v1-queue-encryption"
+                )
+            }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
 
             // 4. Update DB (and Redis if HA)
             if let Some(ref client) = self.redis_client {
@@ -215,12 +222,17 @@ impl SearchBoostQueue {
         let job_id = format!("{}:{}", session_id, Uuid::new_v4());
 
         // Encrypt sanitized query using centralized AadCipher (WP-98)
-        let encrypted_sanitized = AadCipher::encrypt(
-            sanitized_query.as_bytes(),
-            &username,
-            self.pepper.expose_secret(),
-            b"warden-v1-queue-encryption"
-        )?;
+        let pepper = self.pepper.clone();
+        let username_clone = username.clone();
+        let sanitized_query_clone = sanitized_query.clone();
+        let encrypted_sanitized = tokio::task::spawn_blocking(move || {
+            AadCipher::encrypt(
+                sanitized_query_clone.as_bytes(),
+                &username_clone,
+                pepper.expose_secret(),
+                b"warden-v1-queue-encryption"
+            )
+        }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
 
         // --- HA FIX (WP 90): Push to Redis for distributed processing ---
         if let Some(ref client) = self.redis_client {
@@ -425,19 +437,24 @@ impl LocalSessionManager {
         let pepper = self.pepper.clone();
         let ctx = match encrypted_data {
             Some(data) => {
-                tokio::task::spawn_blocking(move || {
+                let res = tokio::task::spawn_blocking(move || {
                     // Decrypt session using centralized AadCipher (WP-98)
                     let decrypted = AadCipher::decrypt(
                         &data,
                         &username_str,
                         pepper.expose_secret(),
                         b"warden-v1-session-encryption"
-                    )?;
+                    ).map_err(|e| SovereignError::InternalError(format!("Session decryption failed: {}", e)))?;
 
                     let state: SessionState = serde_json::from_slice(&decrypted)
                         .map_err(|e| SovereignError::InternalError(format!("Session corruption: {}", e)))?;
                     Ok::<Arc<SessionContext>, SovereignError>(Arc::new(SessionContext::from(state)))
-                }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??
+                }).await;
+                match res {
+                    Ok(Ok(ctx)) => ctx,
+                    Ok(Err(e)) => return Err(e),
+                    Err(e) => return Err(SovereignError::InternalError(format!("Blocking task failed: {}", e))),
+                }
             },
             None => Arc::new(SessionContext::new()),
         };
@@ -494,18 +511,23 @@ impl LocalSessionManager {
         let mut sessions_to_flush: Vec<(String, Vec<u8>)> = Vec::new();
         
         for item in self.sessions.iter() {
-            let username = item.key();
+            let username = item.key().clone();
             let state = SessionState::from(item.value().as_ref());
             let json_bytes = serde_json::to_vec(&state).unwrap_or_default();
+            let pepper = self.pepper.clone();
             
             // Encrypt session using centralized AadCipher (WP-98)
-            if let Ok(combined) = AadCipher::encrypt(
-                &json_bytes,
-                username,
-                self.pepper.expose_secret(),
-                b"warden-v1-session-encryption"
-            ) {
-                sessions_to_flush.push((username.clone(), combined));
+            let combined_res = tokio::task::spawn_blocking(move || {
+                AadCipher::encrypt(
+                    &json_bytes,
+                    &username,
+                    pepper.expose_secret(),
+                    b"warden-v1-session-encryption"
+                )
+            }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))?;
+
+            if let Ok(combined) = combined_res {
+                sessions_to_flush.push((item.key().clone(), combined));
             }
         }
 
