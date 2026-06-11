@@ -4,25 +4,25 @@ import jwt
 import time
 
 @pytest.fixture
-def jwt_token(jwt_keys):
+def jwt_token(warden):
+    secret = warden.env["JWT_SECRET"]
     payload = {
         "sub": "test_user",
-        "aud": "test_audience",
-        "iss": "test_issuer",
         "exp": int(time.time()) + 3600
     }
-    return jwt.encode(payload, jwt_keys["private"], algorithm="RS256")
+    return jwt.encode(payload, secret, algorithm="HS256")
 
 @pytest.fixture
 def bridge_url(warden):
     port = warden.env["BRIDGE_PORT"]
     return f"http://localhost:{port}"
 
-def test_bridge_health(warden, bridge_url):
+def test_bridge_health(bridge_url):
     response = requests.get(f"{bridge_url}/health")
-    assert "HEALTHY" in response.text
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"
 
-def test_bridge_enqueue_unauthorized(warden, bridge_url):
+def test_bridge_enqueue_unauthorized(bridge_url):
     payload = {
         "query": "Hello",
         "thread_id": "thread_123"

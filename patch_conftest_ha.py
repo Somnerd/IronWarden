@@ -1,5 +1,4 @@
 import re
-
 with open("test_suites/conftest.py", "r") as f:
     content = f.read()
 
@@ -33,49 +32,80 @@ def jwt_keys():
 
     return {"private": pem_private.decode('utf-8'), "public": pem_public.decode('utf-8')}
 """
+content = re.sub(r'import threading\n', r'import threading\n' + replacement_fixture + '\n', content)
 
-# add it after imports
-content = re.sub(r'import pytest\nimport os\nimport subprocess\nimport time\nimport requests\nimport jwt', r'import pytest\nimport os\nimport subprocess\nimport time\nimport requests\nimport jwt' + replacement_fixture, content)
 
-# update runner
-runner_start = """    def start(self, env_vars=None, **kwargs):
-        self.env = os.environ.copy()
-        if env_vars:
-            self.env.update(env_vars)"""
+runner_start = """    def start(self):
+        # Cleanup old files
+        if os.path.exists(self.env["AUDIT_DB_PATH"]):
+            os.remove(self.env["AUDIT_DB_PATH"])"""
 
 runner_start_replacement = """    def start(self, env_vars=None, **kwargs):
-        self.env = os.environ.copy()
+        # We use self.env from __init__ instead of overwriting with os.environ.copy()
         if env_vars:
             self.env.update(env_vars)
 
         self.env["WARDEN_ENV"] = "test"
-        self.env["WARDEN_MODE"] = "Development"
+        self.env["WARDEN_MODE"] = "hybrid"
         self.env["REMOTE_AUDIT_ENDPOINT"] = "http://127.0.0.1:9999/mock-audit"
-"""
+
+        # Cleanup old files
+        if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
+            os.remove(self.env["AUDIT_DB_PATH"])"""
 content = content.replace(runner_start, runner_start_replacement)
 
 
-# update jwt_factory fixture
-jwt_factory_original = """@pytest.fixture
-def jwt_factory():
-    def _create_jwt(payload):
-        # We use symmetric signing for simplicity in tests, using the same secret
-        # the Rust server is configured with.
-        secret = os.environ.get("JWT_SECRET", "super_secret_test_key_1234567890")
+warden_fixture_orig = """@pytest.fixture
+def warden(warden_bin):
+    runner = IronWardenRunner(warden_bin)
+    runner.start()
+    yield runner
+    runner.stop()"""
+
+warden_fixture_replacement = """@pytest.fixture
+def warden(warden_bin, jwt_keys):
+    runner = IronWardenRunner(warden_bin)
+    runner.start(env_vars={"JWT_PRIVATE_KEY": jwt_keys["private"], "JWT_PUBLIC_KEY": jwt_keys["public"]})
+    yield runner
+    runner.stop()"""
+content = content.replace(warden_fixture_orig, warden_fixture_replacement)
+
+
+jwt_factory_orig = """@pytest.fixture
+def jwt_factory(warden):
+    def _create_token(username):
+        secret = warden.env["JWT_SECRET"]
+        payload = {
+            "sub": username,
+            "aud": "test_audience",
+            "iss": "test_issuer",
+            "exp": int(time.time()) + 3600
+        }
         return jwt.encode(payload, secret, algorithm="HS256")
-    return _create_jwt"""
+    return _create_token"""
 
 jwt_factory_replacement = """@pytest.fixture
 def jwt_factory(jwt_keys):
-    def _create_jwt(payload):
+    import jwt
+    def _create_token(username_or_payload):
+        if isinstance(username_or_payload, str):
+            payload = {
+                "sub": username_or_payload,
+                "aud": "test_audience",
+                "iss": "test_issuer",
+                "exp": int(time.time()) + 3600
+            }
+        else:
+            payload = username_or_payload
         return jwt.encode(payload, jwt_keys["private"], algorithm="RS256")
-    return _create_jwt"""
+    return _create_token"""
+content = content.replace(jwt_factory_orig, jwt_factory_replacement)
 
-content = content.replace(jwt_factory_original, jwt_factory_replacement)
 
+# Make sure we add WARDEN_JWT_AUDIENCE to env
+content = content.replace('"BRIDGE_PORT": "14141",', '"BRIDGE_PORT": "14141",\n            "WARDEN_JWT_AUDIENCE": "test_audience",\n            "WARDEN_JWT_ISSUER": "test_issuer",')
 
-# in pytest_spawn_rust_server, update environment with jwt keys
-# find `runner = IronWardenRunner()` and `runner.start(env_vars={...})`
+# and ensure spawn_rust_server gets it
 spawn_original = """    runner.start(env_vars={
         "JWT_SECRET": "super_secret_test_key_1234567890",
         "WARDEN_PEPPER": "peppers_should_be_long_enough_32_bytes",
@@ -92,8 +122,6 @@ spawn_replacement = """    runner.start(env_vars={
         "RUST_LOG": "info"
     })"""
 content = content.replace(spawn_original, spawn_replacement)
-
-# also fix the argument to pytest_spawn_rust_server
 content = content.replace('def pytest_spawn_rust_server():', 'def pytest_spawn_rust_server(jwt_keys):')
 
 with open("test_suites/conftest.py", "w") as f:

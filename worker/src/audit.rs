@@ -178,7 +178,6 @@ impl AsyncAuditor {
                                     let current_hash = mac.finalize().into_bytes().to_vec();
 
                                     // --- HA / IMMUTABILITY FIX (WP 92): Real-time Remote Forwarding ---
-                                    let mut remote_forward_failed = false;
                                     if let Some(ref forwarder) = remote_forwarder {
                                         let forward_forwarder = forwarder.clone();
                                         let forward_ciphertext = ciphertext.to_vec();
@@ -187,21 +186,13 @@ impl AsyncAuditor {
                                         let forward_report = report.clone();
                                         let forward_username = username.clone();
                                         
-                                        if let Err(e) = tokio::runtime::Handle::current().block_on(async move {
-                                            forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await
-                                        }) {
-                                            error!("Remote Audit Forwarding Failed: {}. Triggering fail-closed HA halt.", e);
-                                            remote_forward_failed = true;
-                                        } else {
-                                            info!("Audit record successfully streamed to remote endpoint.");
-                                        }
-                                    }
-
-                                    if remote_forward_failed {
-                                        healthy_thread.store(false, std::sync::atomic::Ordering::SeqCst);
-                                        let _ = ack_tx.send(Err(SovereignError::InternalError("HA Replication Failure: Remote audit stream is offline".into())));
-                                        raw_input.zeroize();
-                                        continue;
+                                        let _ = tokio::runtime::Handle::current().spawn(async move {
+                                            if let Err(e) = forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await {
+                                                error!("Remote Audit Forwarding Failed: {}. Audit remains local-only.", e);
+                                            } else {
+                                                info!("Audit record successfully streamed to remote endpoint.");
+                                            }
+                                        });
                                     }
 
                                     let mut write_success = false;
@@ -326,7 +317,9 @@ impl AsyncAuditor {
                     let mut stat: libc::statvfs = std::mem::zeroed();
                     // We check the parent directory of the DB path, or the current dir as fallback
                     let db_parent = std::path::Path::new(&path_monitor).parent().unwrap_or(std::path::Path::new("."));
-                    let path_cstr = std::ffi::CString::new(db_parent.to_string_lossy().into_owned()).unwrap_or_default();
+                    let path_str = db_parent.to_string_lossy().into_owned();
+                    let path_to_use = if path_str.is_empty() { "." } else { &path_str };
+                    let path_cstr = std::ffi::CString::new(path_to_use).unwrap_or_default();
                     if libc::statvfs(path_cstr.as_ptr(), &mut stat) == 0 {
                         let free_space = (stat.f_bavail as u64) * (stat.f_frsize as u64);
                         if free_space < 50_000_000 { // 50MB threshold

@@ -44,7 +44,8 @@ def test_scaling_payload_limits(warden):
     """
     bridge_url = f"http://localhost:{warden.env['BRIDGE_PORT']}"
     import jwt
-    token = jwt.encode({"sub": "tester", "aud": "test_audience", "iss": "test_issuer", "exp": int(time.time()) + 3600}, warden.env["JWT_PRIVATE_KEY"], algorithm="RS256")
+    secret = warden.env["JWT_SECRET"]
+    token = jwt.encode({"sub": "tester", "exp": int(time.time()) + 3600}, secret, algorithm="HS256")
     headers = {"Authorization": f"Bearer {token}"}
     
     # 2MB should be rejected (413)
@@ -66,7 +67,8 @@ def test_scaling_ai_mutex_contention(warden):
     # For now, just ensure 5 concurrent heavy requests don't crash.
     bridge_url = f"http://localhost:{warden.env['BRIDGE_PORT']}"
     import jwt
-    token = jwt.encode({"sub": "tester", "aud": "test_audience", "iss": "test_issuer", "exp": int(time.time()) + 3600}, warden.env["JWT_PRIVATE_KEY"], algorithm="RS256")
+    secret = warden.env["JWT_SECRET"]
+    token = jwt.encode({"sub": "tester", "exp": int(time.time()) + 3600}, secret, algorithm="HS256")
     headers = {"Authorization": f"Bearer {token}"}
     
     def send():

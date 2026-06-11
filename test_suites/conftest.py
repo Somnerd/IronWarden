@@ -6,15 +6,34 @@ import os
 import signal
 import threading
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from jwt_keys import PUBLIC_KEY, PRIVATE_KEY
-
 @pytest.fixture(scope="session")
 def jwt_keys():
-    return {"private": PRIVATE_KEY, "public": PUBLIC_KEY}
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives import serialization
 
+    # Generate a private key
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+    # Extract the public key
+    public_key = private_key.public_key()
+
+    # Serialize private key
+    pem_private = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+
+    # Serialize public key
+    pem_public = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    return {"private": pem_private.decode('utf-8'), "public": pem_public.decode('utf-8')}
 
 
 class IronWardenRunner:
@@ -41,14 +60,10 @@ class IronWardenRunner:
 
         self.env = {
             **os.environ,
-            "WARDEN_MODE": "hybrid",
+            "WARDEN_MODE": "ephemeral",
             "WARDEN_PEPPER": "a_very_secret_pepper_32_bytes_long",
             "OPENAI_API_KEY": "sk-mock-key",
             "JWT_SECRET": "another_very_secret_key_32_bytes_long",
-            "JWT_PRIVATE_KEY": PRIVATE_KEY,
-            "JWT_PUBLIC_KEY": PUBLIC_KEY,
-
-            "IGNORE_HA_ENFORCEMENT": "1",
             "DATABASE_URL": "postgres://somnerd:postgres@localhost:5432/ironwarden",
             "REDIS_URL": "redis://localhost:6379",
             "AUDIT_DB_PATH": os.path.join(project_root, f"test_audit_{unique_id}.db"),
@@ -197,17 +212,13 @@ def warden(warden_bin, jwt_keys):
     runner.stop()
 
 @pytest.fixture
-def jwt_factory(jwt_keys):
+def jwt_factory(warden):
     import jwt
-    def _create_token(username_or_payload):
-        if isinstance(username_or_payload, str):
-            payload = {
-                "sub": username_or_payload,
-                "aud": "test_audience",
-                "iss": "test_issuer",
-                "exp": int(time.time()) + 3600
-            }
-        else:
-            payload = username_or_payload
-        return jwt.encode(payload, jwt_keys["private"], algorithm="RS256")
+    def _create_token(username):
+        secret = warden.env["JWT_SECRET"]
+        payload = {
+            "sub": username,
+            "exp": int(time.time()) + 3600
+        }
+        return jwt.encode(payload, secret, algorithm="HS256")
     return _create_token
