@@ -85,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let global_pepper = secrecy::SecretVec::new(pepper_raw.clone());
 
     let config_path = std::env::var("WARDEN_CONFIG_PATH").unwrap_or_else(|_| "config/regions".to_string());
-    
+
     // --- PERFORMANCE FIX: Initialize heavy AI engine in a blocking task ---
     let config_path_clone = config_path.clone();
     let pepper_init = secrecy::SecretVec::new(pepper_raw.clone());
@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 5. Instantiate Control Plane Components
     let remote_audit_endpoint = std::env::var("REMOTE_AUDIT_ENDPOINT").ok();
     let remote_audit_token = std::env::var("REMOTE_AUDIT_TOKEN").ok();
-    
+
     let remote_forwarder: Option<Arc<dyn worker::audit::RemoteAuditForwarder>> = if let (Some(ep), Some(tk)) = (remote_audit_endpoint, remote_audit_token) {
         tracing::info!("Remote Audit Streaming: ENABLED (Endpoint: {})", ep);
         Some(Arc::new(worker::audit::HttpAuditForwarder::new(ep, secrecy::SecretString::new(tk.into()))))
@@ -144,7 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             interval.tick().await;
             let current_modified = get_latest_modified(hot_reload_path.clone()).await;
-            
+
             if current_modified > last_modified {
                 tracing::info!("Detected file modification in config regions directory. Hot-reloading WardenEngine...");
                 let hot_reload_path_inner = hot_reload_path.clone();
@@ -167,14 +167,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let queue = Arc::new(worker::SearchBoostQueue::new(audit_db_path.clone(), &global_pepper, Some(shield.clone()), Some(grounding_shield.clone()))?);
     let session_manager = worker::LocalSessionManager::new(audit_db_path.clone(), &global_pepper)?;
-    
+
     // ... rest of hot-reload block ...
-    
+
     let storage = Arc::new(worker::WorkerStorage::new(
-        &audit_db_path, 
+        &audit_db_path,
         &knowledge_path,
-        global_pepper, 
-        Some((*queue).clone()), 
+        global_pepper,
+        Some((*queue).clone()),
         remote_forwarder,
     ).await?);
 
@@ -186,8 +186,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mcp_handle = if warden_mode == "hybrid" || warden_mode == "mcp" {
         let mcp_server = StdioMcpServer::new(
-            shield.clone(), 
-            storage.clone(), 
+            shield.clone(),
+            storage.clone(),
             router.clone(),
             session_manager.clone()
         );
@@ -204,7 +204,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwt_public_key = secrecy::SecretVec::new(jwt_public_key_raw);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-    
+
     let bridge_handle = if warden_mode == "hybrid" || warden_mode == "bridge" {
         let bridge_state = Arc::new(worker::BridgeState {
             shield: shield.clone(),
@@ -220,12 +220,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let full_addr = format!("{}:{}", bridge_bind, bridge_port);
 
         let bridge_router = worker::create_bridge_router(bridge_state.clone());
-        
+
         Some(tokio::spawn(async move {
             match tokio::net::TcpListener::bind(&full_addr).await {
                 Ok(listener) => {
                     let server = axum::serve(
-                        listener, 
+                        listener,
                         bridge_router.into_make_service_with_connect_info::<std::net::SocketAddr>()
                     );
                     let _ = server.with_graceful_shutdown(async {

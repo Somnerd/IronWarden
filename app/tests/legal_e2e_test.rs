@@ -15,14 +15,14 @@ async fn test_legal_e2e() {
     let shield: Arc<dyn PiiShield + Send + Sync> = Arc::new(engine);
     let queue = Arc::new(SearchBoostQueue::new("file::memory:?cache=shared".to_string(), &secret, Some(shield.clone()), None).unwrap());
     
-    let librarian = worker::LocalLibrarian::new("/home/somnerd/Projects/IronWarden/data/knowledge").await.unwrap();
-    let brief = std::fs::read_to_string("/home/somnerd/Projects/IronWarden/data/knowledge/greek_legal_brief.md").unwrap();
+    let librarian = worker::LocalLibrarian::new("data/knowledge").await.unwrap();
+    let brief = std::fs::read_to_string("../data/knowledge/greek_legal_brief.md").unwrap();
     librarian.add_document(&brief, "legal_user").await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
     let storage = WorkerStorage::new(
         "file::memory:?cache=shared",
-        "/home/somnerd/Projects/IronWarden/data/knowledge",
+        "data/knowledge",
         secret,
         Some((*queue).clone()),
         None

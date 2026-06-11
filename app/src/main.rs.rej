@@ -1,0 +1,21 @@
+--- app/src/main.rs
++++ app/src/main.rs
+@@ -46,6 +46,18 @@
+     dotenv().ok();
+     tracing_subscriber::fmt::init();
+
++    let env_mode = std::env::var("WARDEN_ENV").unwrap_or_else(|_| "development".to_string());
++    let is_ha = std::env::var("WARDEN_MODE").unwrap_or_default() == "HA" || std::env::var("WARDEN_MODE").unwrap_or_default() == "enterprise" || std::env::var("WARDEN_MODE").unwrap_or_default() == "multi-node" || std::env::var("REDIS_URL").is_ok() || std::env::var("DATABASE_URL").is_ok();
++
++    if is_ha && env_mode != "test" {
++        match std::env::var("REMOTE_AUDIT_ENDPOINT") {
++            Ok(endpoint) if !endpoint.is_empty() => {},
++            _ => {
++                panic!("FATAL: High Availability (HA) mode is enabled but REMOTE_AUDIT_ENDPOINT is not configured.");
++            }
++        }
++    }
++
+     let jwt_public_key_raw = std::env::var("JWT_PUBLIC_KEY").unwrap_or_else(|_| std::env::var("JWT_SECRET").unwrap_or_default()).into_bytes();
+     if jwt_public_key_raw.is_empty() {
+         panic!("Missing JWT_PUBLIC_KEY or JWT_SECRET");

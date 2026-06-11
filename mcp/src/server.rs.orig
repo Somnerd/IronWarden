@@ -31,7 +31,7 @@ impl StdioMcpServer {
         let host_user = std::env::var("WARDEN_USER")
             .or_else(|_| std::env::var("USER"))
             .unwrap_or_else(|_| "anonymous".to_string());
-            
+
         info!(host_user = %host_user, "StdioMcpServer initialized with trusted host identity.");
 
         Self {
@@ -48,7 +48,7 @@ impl StdioMcpServer {
     pub async fn run(&self) -> io::Result<()> {
         let stdin = io::stdin();
         let mut reader = BufReader::new(stdin).lines();
-        
+
         // --- SECURITY FIX (Section 1.1): Unique connection identity ---
         let connection_id = uuid::Uuid::new_v4().to_string();
         info!(connection_id = %connection_id, "Stdio connection initialized with unique session scope.");
@@ -69,7 +69,7 @@ impl StdioMcpServer {
         while let Some(line) = reader.next_line().await? {
             let request_id = uuid::Uuid::new_v4().to_string();
             info!(request_id = %request_id, bytes = line.len(), "Processing inbound request");
-            
+
             let shield = self.shield.clone();
             let storage = self.storage.clone();
             let router = self.router.clone();
@@ -81,7 +81,7 @@ impl StdioMcpServer {
 
             tokio::spawn(async move {
                 let response = handle_request_internal(line, shield, storage, router, session_manager, semaphore, host_user, connection_id_clone).await;
-                
+
                 match response {
                     Ok(res_json) => {
                         let _ = out_tx.send(res_json).await;
@@ -127,10 +127,10 @@ async fn handle_request_internal(
     }
 
     let params = req.params.as_ref().ok_or_else(|| SovereignError::InternalError("Method requires parameters".into()))?;
-    
+
     // --- SECURITY FIX (Section 1.1): Connection-scoped anonymity ---
     let username = if let Some(u) = params.get("username").and_then(|u| u.as_str()) {
-        if u != host_user && !u.starts_with(&format!("{}:", host_user)) && std::env::var("WARDEN_ENV").unwrap_or_else(|_| "".to_string()) != "test" {
+        if u != host_user && !u.starts_with(&format!("{}:", host_user)) {
             return Err(SovereignError::InternalError(format!("Identity Spoofing Blocked: Request claimed user '{}' but trusted host identity is '{}'.", u, host_user)));
         }
         u.to_string()
@@ -139,20 +139,20 @@ async fn handle_request_internal(
         // which prevents separate stdio sessions from colliding if they don't specify a user.
         format!("anonymous:{}", connection_id)
     };
-    
+
     let user_session: Arc<SessionContext> = session_manager.get_session(&username).await
         .map_err(|e| SovereignError::InternalError(format!("Session Retrieval Failed: {}", e)))?;
-    
+
     // METHOD: Sanitize Only
     if req.method == "mcp_sanitize_prompt" {
         let user_prompt = params.get("prompt").or_else(|| params.get("text"))
             .and_then(|p| p.as_str())
             .ok_or_else(|| SovereignError::InternalError("Method requires a 'prompt' or 'text' parameter".into()))?;
-            
+
         let shield_clone = shield.clone();
         let prompt_clone = user_prompt.to_string();
         let session_clone = user_session.clone();
-        
+
         // --- DEADLOCK FIX: Scope permit to AI block ---
         let report = {
             let _permit = semaphore.acquire().await.map_err(|e| SovereignError::InternalError(e.to_string()))?;
@@ -173,13 +173,13 @@ async fn handle_request_internal(
         let response_text = params.get("response").or_else(|| params.get("text"))
             .and_then(|p| p.as_str())
             .ok_or_else(|| SovereignError::InternalError("Method requires a 'response' or 'text' parameter".into()))?;
-            
+
         let mut map: HashMap<String, String> = HashMap::new();
         for entry in user_session.token_to_pii.iter() {
             let (k, v): (String, String) = (entry.key().clone(), entry.value().clone());
             map.insert(k, v);
         }
-        
+
         let clean_response = shield.restore_prompt(response_text, &map)?;
         let resp = JsonRpcResponse::success(id, json!(clean_response));
         return serde_json::to_string(&resp).map_err(|e| SovereignError::InternalError(e.to_string()));
@@ -202,22 +202,22 @@ async fn handle_request_internal(
     // METHOD: Kill-Switch (WP #94)
     if req.method == "mcp_halt_system" {
         // Only the trusted host identity can trigger a full system halt
-        if username != host_user && std::env::var("WARDEN_ENV").unwrap_or_else(|_| "".to_string()) != "test" {
+        if username != host_user {
              return Err(SovereignError::UnauthorizedAccess("Only the primary host administrator can trigger a system halt.".into()));
         }
 
         info!("CRITICAL: Remote Kill-Switch triggered via MCP by {}. Initiating emergency halt...", host_user);
-        
+
         // In a real system, this would signal the main loop to exit.
         // For this implementation, we'll return a confirmation and then the caller can handle the process exit if needed,
         // or we could use std::process::exit(1) but that's a bit extreme for a library call.
         // However, the WP says "Implementation of Kill-Switch", so I will provide the mechanism.
         let resp = JsonRpcResponse::success(id, json!({ "status": "HALTED", "message": "System is entering a fail-closed state." }));
-        
-        // We trigger an intentional panic or similar if we want a "hard" halt, 
+
+        // We trigger an intentional panic or similar if we want a "hard" halt,
         // but it's better to just set the healthy flag to false in storage if possible.
         let _ = storage.check_health().await; // Just to see
-        
+
         return serde_json::to_string(&resp).map_err(|e| SovereignError::InternalError(e.to_string()));
     }
 
@@ -237,7 +237,7 @@ async fn handle_request_internal(
             shield_clone.sanitize_prompt(&prompt_clone, Some(&session_clone))
         }).await.map_err(|e| SovereignError::InternalError(format!("Task execution failed: {}", e)))??
     };
-    
+
     if let Err(e) = storage.log_audit_event(&query_report, user_prompt, &username).await {
         return Err(SovereignError::InternalError(format!("CRITICAL: Audit log failed: {}", e)));
     }
@@ -246,9 +246,9 @@ async fn handle_request_internal(
     let _ = session_manager.save_session(&username, &user_session).await;
 
     if query_report.is_blocked {
-        let result = json!({ 
+        let result = json!({
             "text": "[POLICY VIOLATION] Your request was blocked due to sensitive data leakage.",
-            "policy_report": query_report.redactions 
+            "policy_report": query_report.redactions
         });
         let resp = JsonRpcResponse::success(id, result);
         return serde_json::to_string(&resp).map_err(|e| SovereignError::InternalError(e.to_string()));
@@ -257,13 +257,13 @@ async fn handle_request_internal(
     // 2. Ground (Sovereign RAG)
     // --- SECURITY FIX (V-02): Use original prompt for retrieval utility ---
     let raw_context = storage.fetch_context(user_prompt, &username).await?;
-    
+
     let mut sanitized_context = Vec::new();
     for snippet in raw_context {
         let shield_inner = shield.clone();
         let snippet_clone = snippet.clone();
         let session_inner = user_session.clone();
-        
+
         // --- DEADLOCK FIX: Inner permit for snippet scrubbing ---
         let snippet_report = {
             let _permit = semaphore.acquire().await.map_err(|e| SovereignError::InternalError(e.to_string()))?;
@@ -271,12 +271,12 @@ async fn handle_request_internal(
                 shield_inner.sanitize_prompt(&snippet_clone, Some(&session_inner))
             }).await.map_err(|e| SovereignError::InternalError(format!("Task execution failed: {}", e)))??
         };
-        
+
         // --- INTEGRITY FIX: Fail-Closed on Blocked Context ---
         if snippet_report.is_blocked {
             return Err(SovereignError::InternalError("CRITICAL: Knowledge base snippet triggered a BLOCK policy. Request aborted for safety.".into()));
         }
-        
+
         if let Err(e) = storage.log_audit_event(&snippet_report, &snippet, &username).await {
             return Err(SovereignError::InternalError(format!("CRITICAL: Audit log failed for context snippet: {}", e)));
         }
@@ -290,7 +290,7 @@ async fn handle_request_internal(
     let clean_response = shield.restore_prompt(&llm_response, &query_report.token_map)?;
     let result = json!({ "text": clean_response });
     let resp = JsonRpcResponse::success(id, result);
-    
+
     let _ = session_manager.save_session(&username, &user_session).await;
 
     serde_json::to_string(&resp).map_err(|e| SovereignError::InternalError(e.to_string()))
@@ -301,12 +301,12 @@ impl McpServer for StdioMcpServer {
     async fn handle_request(&self, request: String) -> Result<String, SovereignError> {
         // Use a default stable connection ID for trait-based calls if not in a run() loop
         let connection_id = "trait-default".to_string();
-        
+
         handle_request_internal(
-            request, 
-            self.shield.clone(), 
-            self.storage.clone(), 
-            self.router.clone(), 
+            request,
+            self.shield.clone(),
+            self.storage.clone(),
+            self.router.clone(),
             self.session_manager.clone(),
             self.ai_semaphore.clone(),
             self.host_user.clone(),
@@ -348,7 +348,7 @@ mod tests {
         async fn validate_job_access(&self, _id: &str, _user: &str) -> Result<bool, SovereignError> { Ok(true) }
         async fn purge_user_data(&self, _user: &str) -> Result<(), SovereignError> { Ok(()) }
         async fn check_health(&self) -> Result<(), SovereignError> { Ok(()) }
-        async fn get_compliance_report(&self) -> Result<ComplianceReport, SovereignError> { 
+        async fn get_compliance_report(&self) -> Result<ComplianceReport, SovereignError> {
             Ok(ComplianceReport {
                 timestamp: "".into(),
                 total_redactions: 0,
@@ -426,10 +426,10 @@ mod tests {
         let start = std::time::Instant::now();
         let f1 = handle_request_internal(req.to_string(), shield.clone(), storage.clone(), router.clone(), sm.clone(), sem.clone(), "test_user".to_string(), "conn1".to_string());
         let f2 = handle_request_internal(req.to_string(), shield.clone(), storage.clone(), router.clone(), sm.clone(), sem.clone(), "test_user".to_string(), "conn1".to_string());
-        
+
         let (r1, r2) = tokio::join!(f1, f2);
         let elapsed = start.elapsed().as_millis();
-        
+
         assert!(r1.is_ok());
         assert!(r2.is_ok());
         // 2 sequential tasks of 50ms each should take at least 100ms
@@ -447,16 +447,16 @@ mod tests {
         let req = json!({
             "jsonrpc": "2.0",
             "method": "mcp_sanitize_prompt",
-            "params": { 
+            "params": {
                 "username": "victim",
-                "prompt": "Hello" 
+                "prompt": "Hello"
             },
             "id": "1"
         });
 
         // host_user is "attacker"
         let res = handle_request_internal(req.to_string(), shield.clone(), storage.clone(), router.clone(), sm.clone(), sem.clone(), "attacker".to_string(), "conn1".to_string()).await;
-        
+
         assert!(res.is_err());
         if let Err(SovereignError::InternalError(msg)) = res {
             assert!(msg.contains("Identity Spoofing Blocked"));
@@ -476,16 +476,16 @@ mod tests {
         let req = json!({
             "jsonrpc": "2.0",
             "method": "mcp_sanitize_prompt",
-            "params": { 
+            "params": {
                 "username": "user1:sessionA",
-                "prompt": "Hello" 
+                "prompt": "Hello"
             },
             "id": "1"
         });
 
         // host_user is "user1"
         let res = handle_request_internal(req.to_string(), shield.clone(), storage.clone(), router.clone(), sm.clone(), sem.clone(), "user1".to_string(), "conn1".to_string()).await;
-        
+
         assert!(res.is_ok());
     }
 }

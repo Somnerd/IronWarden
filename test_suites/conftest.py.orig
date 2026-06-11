@@ -6,23 +6,12 @@ import os
 import signal
 import threading
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from jwt_keys import PUBLIC_KEY, PRIVATE_KEY
-
-@pytest.fixture(scope="session")
-def jwt_keys():
-    return {"private": PRIVATE_KEY, "public": PUBLIC_KEY}
-
-
-
 class IronWardenRunner:
     def __init__(self, bin_path, env_overrides=None):
         self.bin_path = bin_path
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         unique_id = f"{int(time.time() * 1000)}"
-        
+
         # Locate libtorch for runtime loading
         ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
         ld_preload = os.environ.get("LD_PRELOAD", "")
@@ -33,7 +22,7 @@ class IronWardenRunner:
             torch_lib_dirs.sort(key=os.path.getmtime, reverse=True)
             latest_lib_dir = torch_lib_dirs[0]
             ld_library_path = f"{latest_lib_dir}:{ld_library_path}"
-            
+
             # Preload libc10 to fix symbol lookup errors
             libc10 = os.path.join(latest_lib_dir, "libc10.so")
             if os.path.exists(libc10):
@@ -41,22 +30,16 @@ class IronWardenRunner:
 
         self.env = {
             **os.environ,
-            "WARDEN_MODE": "hybrid",
+            "WARDEN_MODE": "ephemeral",
             "WARDEN_PEPPER": "a_very_secret_pepper_32_bytes_long",
             "OPENAI_API_KEY": "sk-mock-key",
             "JWT_SECRET": "another_very_secret_key_32_bytes_long",
-            "JWT_PRIVATE_KEY": PRIVATE_KEY,
-            "JWT_PUBLIC_KEY": PUBLIC_KEY,
-
-            "IGNORE_HA_ENFORCEMENT": "1",
             "DATABASE_URL": "postgres://somnerd:postgres@localhost:5432/ironwarden",
             "REDIS_URL": "redis://localhost:6379",
             "AUDIT_DB_PATH": os.path.join(project_root, f"test_audit_{unique_id}.db"),
             "LANCEDB_PATH": os.path.join(project_root, f"test_lancedb_{unique_id}"),
             "WARDEN_CONFIG_PATH": os.path.join(project_root, "config/regions"),
             "BRIDGE_PORT": "14141",
-            "WARDEN_JWT_AUDIENCE": "test_audience",
-            "WARDEN_JWT_ISSUER": "test_issuer",
             "LOG_FORMAT": "text",
             "LD_LIBRARY_PATH": ld_library_path,
             "LD_PRELOAD": ld_preload,
@@ -65,17 +48,9 @@ class IronWardenRunner:
         self.process = None
         self.stderr_output = []
 
-    def start(self, env_vars=None, **kwargs):
-        # We use self.env from __init__ instead of overwriting with os.environ.copy()
-        if env_vars:
-            self.env.update(env_vars)
-
-        self.env["WARDEN_ENV"] = "test"
-        self.env["WARDEN_MODE"] = "hybrid"
-        self.env["REMOTE_AUDIT_ENDPOINT"] = "http://127.0.0.1:9999/mock-audit"
-
+    def start(self):
         # Cleanup old files
-        if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
+        if os.path.exists(self.env["AUDIT_DB_PATH"]):
             os.remove(self.env["AUDIT_DB_PATH"])
 
         self.process = subprocess.Popen(
@@ -87,12 +62,12 @@ class IronWardenRunner:
             bufsize=1,
             env=self.env
         )
-        
+
         # Start stderr reader thread
         self.stop_event = threading.Event()
         self.stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
         self.stderr_thread.start()
-        
+
         # Wait for "IronWarden Forge ignited" in stderr or just timeout
         start_time = time.time()
         ignited = False
@@ -109,7 +84,7 @@ class IronWardenRunner:
              stderr = "\n".join(self.stderr_output)
              self.stop()
              raise RuntimeError(f"IronWarden timed out starting. Stderr:\n{stderr}")
-        
+
         # Settle delay to ensure background DB tasks are fully committed
         time.sleep(1)
 
@@ -190,24 +165,20 @@ def warden_bin():
     return os.path.join(project_root, "target", "debug", "app")
 
 @pytest.fixture
-def warden(warden_bin, jwt_keys):
+def warden(warden_bin):
     runner = IronWardenRunner(warden_bin)
-    runner.start(env_vars={"JWT_PRIVATE_KEY": jwt_keys["private"], "JWT_PUBLIC_KEY": jwt_keys["public"]})
+    runner.start()
     yield runner
     runner.stop()
 
 @pytest.fixture
-def jwt_factory(jwt_keys):
+def jwt_factory(warden):
     import jwt
-    def _create_token(username_or_payload):
-        if isinstance(username_or_payload, str):
-            payload = {
-                "sub": username_or_payload,
-                "aud": "test_audience",
-                "iss": "test_issuer",
-                "exp": int(time.time()) + 3600
-            }
-        else:
-            payload = username_or_payload
-        return jwt.encode(payload, jwt_keys["private"], algorithm="RS256")
+    def _create_token(username):
+        secret = warden.env["JWT_SECRET"]
+        payload = {
+            "sub": username,
+            "exp": int(time.time()) + 3600
+        }
+        return jwt.encode(payload, secret, algorithm="HS256")
     return _create_token

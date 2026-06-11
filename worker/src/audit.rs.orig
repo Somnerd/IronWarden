@@ -64,7 +64,7 @@ impl RemoteAuditForwarder for HttpAuditForwarder {
             .send()
             .await
             .map_err(|e| SovereignError::InternalError(format!("Remote Audit Streaming Failed: {}", e)))?;
-        
+
         Ok(())
     }
 }
@@ -81,13 +81,13 @@ impl AsyncAuditor {
         let (tx, mut rx) = mpsc::channel(4096);
         let path = db_path.to_string();
         let is_healthy = Arc::new(std::sync::atomic::AtomicBool::new(true));
-        
+
         let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret());
-        
+
         let mut hmac_key_bytes = [0u8; 32];
         hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes)
             .map_err(|e| SovereignError::InternalError(format!("KDF Expansion Failure: {}", e)))?;
-        
+
         let mut genesis_hash = [0u8; 32];
         hk.expand(KDF_SALT_GENESIS, &mut genesis_hash)
             .map_err(|e| SovereignError::InternalError(format!("KDF Expansion Failure: {}", e)))?;
@@ -98,7 +98,7 @@ impl AsyncAuditor {
         let path_thread = path.clone();
         std::thread::spawn(move || {
             info!("Warden Audit Worker (Dedicated Writer Thread) ignited.");
-            
+
             let mut conn: Option<Connection> = None;
             let mut last_hash: Vec<u8> = vec![0u8; 32];
             let mut last_id: i64 = 0;
@@ -123,7 +123,7 @@ impl AsyncAuditor {
                 match msg {
                     AuditMessage::LogReport(report, mut raw_input, username, ack_tx) => {
                         let mut result = Err(SovereignError::InternalError("Auditor not initialized or connection lost".to_string()));
-                        
+
                         if !healthy_thread.load(std::sync::atomic::Ordering::SeqCst) {
                             let _ = ack_tx.send(Err(SovereignError::InternalError("Auditor in Panic State: Health check failed".into())));
                             raw_input.zeroize();
@@ -167,18 +167,17 @@ impl AsyncAuditor {
                                             continue;
                                         }
                                     };
-                                    
+
                                     mac.update(&last_hash);
                                     mac.update(timestamp.as_bytes());
                                     mac.update(username.as_bytes()); // Bind username to integrity chain
                                     mac.update(&[report.is_blocked as u8]);
                                     mac.update(&redactions_bin);
                                     mac.update(&payload_hash); // Bind payload to chain
-                                    
+
                                     let current_hash = mac.finalize().into_bytes().to_vec();
 
                                     // --- HA / IMMUTABILITY FIX (WP 92): Real-time Remote Forwarding ---
-                                    let mut remote_forward_failed = false;
                                     if let Some(ref forwarder) = remote_forwarder {
                                         let forward_forwarder = forwarder.clone();
                                         let forward_ciphertext = ciphertext.to_vec();
@@ -186,22 +185,14 @@ impl AsyncAuditor {
                                         let forward_hash = current_hash.clone();
                                         let forward_report = report.clone();
                                         let forward_username = username.clone();
-                                        
-                                        if let Err(e) = tokio::runtime::Handle::current().block_on(async move {
-                                            forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await
-                                        }) {
-                                            error!("Remote Audit Forwarding Failed: {}. Triggering fail-closed HA halt.", e);
-                                            remote_forward_failed = true;
-                                        } else {
-                                            info!("Audit record successfully streamed to remote endpoint.");
-                                        }
-                                    }
 
-                                    if remote_forward_failed {
-                                        healthy_thread.store(false, std::sync::atomic::Ordering::SeqCst);
-                                        let _ = ack_tx.send(Err(SovereignError::InternalError("HA Replication Failure: Remote audit stream is offline".into())));
-                                        raw_input.zeroize();
-                                        continue;
+                                        let _ = tokio::runtime::Handle::current().spawn(async move {
+                                            if let Err(e) = forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await {
+                                                error!("Remote Audit Forwarding Failed: {}. Audit remains local-only.", e);
+                                            } else {
+                                                info!("Audit record successfully streamed to remote endpoint.");
+                                            }
+                                        });
                                     }
 
                                     let mut write_success = false;
@@ -220,7 +211,7 @@ impl AsyncAuditor {
                                         result = Err(map_err(e));
                                     } else {
                                         let res2 = c.execute(
-                                            "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", 
+                                            "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                                             (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(&payload_hash), hex::encode(&current_hash))
                                         );
                                         if let Err(e) = res2 {
@@ -245,7 +236,7 @@ impl AsyncAuditor {
                                             }
                                         }
                                     }
-                                    
+
                                     if !write_success {
                                         error!("Audit log failed to persist: {:?}. Sending fail-closed signal.", result);
                                     }
@@ -263,7 +254,7 @@ impl AsyncAuditor {
                             let _ = c.execute("BEGIN IMMEDIATE TRANSACTION", []);
                             let res1 = c.execute("DELETE FROM audit_reports WHERE username = ?1", [&username]);
                             let res2 = c.execute("DELETE FROM ephemeral_raw_logs WHERE username = ?1", [&username]);
-                            
+
                             if res1.is_err() || res2.is_err() {
                                 let _ = c.execute("ROLLBACK", []);
                                 Err(SovereignError::StorageError("Failed to purge user audit data".into()))
@@ -282,11 +273,11 @@ impl AsyncAuditor {
                             let cutoff_logs = Utc::now() - Duration::days(30);
                             let cutoff_logs_str = cutoff_logs.format("%Y-%m-%d %H:%M:%S").to_string();
                             let _ = c.execute("DELETE FROM ephemeral_raw_logs WHERE timestamp < ?1", [&cutoff_logs_str]);
-                            
+
                             let cutoff_sessions = Utc::now() - Duration::hours(24);
                             let cutoff_sessions_str = cutoff_sessions.format("%Y-%m-%d %H:%M:%S").to_string();
                             let _ = c.execute("DELETE FROM sessions WHERE updated_at < ?1", [&cutoff_sessions_str]);
-                            
+
                             info!("Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).");
                         }
                     }
@@ -320,7 +311,7 @@ impl AsyncAuditor {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
             loop {
                 interval.tick().await;
-                
+
                 // --- DISK CAPACITY CHECK ---
                 unsafe {
                     let mut stat: libc::statvfs = std::mem::zeroed();
@@ -340,7 +331,7 @@ impl AsyncAuditor {
                         break;
                     }
                 }
-                
+
                 let anchor_path = format!("{}.anchor", path_monitor);
                 if !std::path::Path::new(&anchor_path).exists() {
                     error!("HARD-STOP MONITOR: Audit anchor file missing! Triggering Fail-Closed state.");
@@ -378,7 +369,7 @@ impl AsyncAuditor {
                     error!("HARD-STOP MONITOR: Cannot open Audit DB. Triggering Fail-Closed state.");
                     healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
                 }
-                
+
                 if !healthy_monitor.load(std::sync::atomic::Ordering::SeqCst) {
                     break;
                 }
@@ -392,7 +383,7 @@ impl AsyncAuditor {
         let conn = Connection::open(path)?;
         conn.busy_timeout(std::time::Duration::from_millis(5000))?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
-        
+
         conn.execute("CREATE TABLE IF NOT EXISTS audit_reports (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', is_blocked BOOLEAN, redactions_json TEXT, payload_hash TEXT, integrity_hash TEXT)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS ephemeral_raw_logs (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', encrypted_data BLOB, nonce BLOB)", [])?;
 
@@ -404,9 +395,9 @@ impl AsyncAuditor {
 
         let (last_id, last_hash) = {
             let mut stmt = conn.prepare("
-                SELECT ar.id, ar.timestamp, ar.is_blocked, ar.redactions_json, ar.payload_hash, ar.integrity_hash, erl.encrypted_data, erl.nonce, ar.username 
-                FROM audit_reports ar 
-                LEFT JOIN ephemeral_raw_logs erl ON ar.id = erl.id 
+                SELECT ar.id, ar.timestamp, ar.is_blocked, ar.redactions_json, ar.payload_hash, ar.integrity_hash, erl.encrypted_data, erl.nonce, ar.username
+                FROM audit_reports ar
+                LEFT JOIN ephemeral_raw_logs erl ON ar.id = erl.id
                 ORDER BY ar.id ASC
             ")?;
             let mut rows = stmt.query([])?;
