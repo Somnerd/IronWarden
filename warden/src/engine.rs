@@ -154,9 +154,9 @@ struct UnifiedMatch {
 
 fn is_standalone_word(text: &str, sub: &str) -> bool {
     if let Some(idx) = text.find(sub) {
-        let before_ok = text[..idx].chars().last().map_or(true, |c| !c.is_alphanumeric());
+        let before_ok = !text[..idx].ends_with(|c: char| c.is_alphanumeric());
         let after_idx = idx + sub.len();
-        let after_ok = text[after_idx..].chars().next().map_or(true, |c| !c.is_alphanumeric());
+        let after_ok = !text[after_idx..].starts_with(|c: char| c.is_alphanumeric());
         before_ok && after_ok
     } else {
         false
@@ -202,8 +202,8 @@ impl PiiShield for WardenEngine {
         // 1. Collect Dictionary Matches (on ASCII for homoglyphs)
         for mat in self.dictionary_automaton.find_overlapping_iter(&norm_res.normalized_ascii) {
             // Word boundary enforcement for dictionary matches
-            let before_ok = mat.start() == 0 || !norm_res.normalized_ascii[..mat.start()].chars().last().is_some_and(|c| c.is_alphanumeric());
-            let after_ok = mat.end() == norm_res.normalized_ascii.len() || !norm_res.normalized_ascii[mat.end()..].chars().next().is_some_and(|c| c.is_alphanumeric());
+            let before_ok = mat.start() == 0 || !norm_res.normalized_ascii[..mat.start()].ends_with(|c: char| c.is_alphanumeric());
+            let after_ok = mat.end() == norm_res.normalized_ascii.len() || !norm_res.normalized_ascii[mat.end()..].starts_with(|c: char| c.is_alphanumeric());
             if !before_ok || !after_ok {
                 continue;
             }
