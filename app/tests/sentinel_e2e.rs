@@ -47,6 +47,7 @@ async fn test_v19_session_isolation_aad_adversarial() {
     
     match result {
         Err(SovereignError::InternalError(e)) => {
+            assert!(e.contains("Decryption failed") || e.contains("Session decryption failed"), "Expected decryption failure, got: {}", e);
             assert!(e.contains("Decryption failed"), "Expected decryption failure, got: {}", e);
         },
         _ => panic!("V-19 FAILURE: Swapped session should have failed decryption! Got: {:?}", result),

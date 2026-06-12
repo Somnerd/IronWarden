@@ -1,3 +1,4 @@
+use tempfile::tempdir;
 use std::sync::Arc;
 use tokio;
 use iw_core::{PiiShield, StorageProvider};
@@ -15,18 +16,23 @@ async fn test_legal_e2e() {
     let shield: Arc<dyn PiiShield + Send + Sync> = Arc::new(engine);
     let queue = Arc::new(SearchBoostQueue::new("file::memory:?cache=shared".to_string(), &secret, Some(shield.clone()), None).unwrap());
     
-    let librarian = worker::LocalLibrarian::new("/home/somnerd/Projects/IronWarden/data/knowledge").await.unwrap();
-    let brief = std::fs::read_to_string("/home/somnerd/Projects/IronWarden/data/knowledge/greek_legal_brief.md").unwrap();
+    // Create temp dir
+    let temp_dir = tempfile::tempdir().unwrap();
+    let temp_path = temp_dir.path().to_str().unwrap();
+
+    let librarian = worker::LocalLibrarian::new(temp_path).await.unwrap();
+    let brief = "Nikolas Alexandrakis AFM: 123456789".to_string();
     librarian.add_document(&brief, "legal_user").await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
     let storage = WorkerStorage::new(
         "file::memory:?cache=shared",
-        "/home/somnerd/Projects/IronWarden/data/knowledge",
+        temp_path,
         secret,
         Some((*queue).clone()),
         None
     ).await.expect("Failed to initialize storage");
+
     
     let start = std::time::Instant::now();
     let contexts = storage.fetch_context("Nikolas Alexandrakis AFM", "legal_user").await.expect("Search failed");
