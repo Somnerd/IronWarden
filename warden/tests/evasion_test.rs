@@ -2,8 +2,8 @@ use iw_warden::engine::WardenEngine;
 use iw_core::traits::{EnforcementAction, PiiShield};
 use iw_core::PiiCategory;
 
-#[tokio::test]
-async fn test_v15_homoglyph_evasion() {
+#[test]
+fn test_v15_homoglyph_evasion() {
     let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
     let rules = vec![
         ("rule1".to_string(), "Alice".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName),

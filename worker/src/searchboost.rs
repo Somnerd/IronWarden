@@ -303,6 +303,7 @@ impl SearchBoostQueue {
             }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??
         };
 
+        let pepper = self.pepper.clone();
         match result_data {
             Some((username, data)) => {
                 if !is_admin && username != requester {
@@ -310,15 +311,19 @@ impl SearchBoostQueue {
                 }
                 if data.is_empty() { return Ok(None); }
                 
-                // Decrypt result using centralized AadCipher (WP-98)
-                let decrypted_bytes = AadCipher::decrypt(
-                    &data,
-                    &username,
-                    self.pepper.expose_secret(),
-                    b"warden-v1-queue-encryption"
-                )?;
-                
-                Ok(Some(String::from_utf8(decrypted_bytes).map_err(|e| SovereignError::InternalError(e.to_string()))?))
+                let decrypted_string = tokio::task::spawn_blocking(move || {
+                    // Decrypt result using centralized AadCipher (WP-98)
+                    let decrypted_bytes = AadCipher::decrypt(
+                        &data,
+                        &username,
+                        pepper.expose_secret(),
+                        b"warden-v1-queue-encryption"
+                    )?;
+
+                    String::from_utf8(decrypted_bytes).map_err(|e| SovereignError::InternalError(e.to_string()))
+                }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
+
+                Ok(Some(decrypted_string))
             },
             None => Ok(None)
         }
@@ -416,19 +421,23 @@ impl LocalSessionManager {
             }
         }
 
+        let username_str = username.to_string();
+        let pepper = self.pepper.clone();
         let ctx = match encrypted_data {
             Some(data) => {
-                // Decrypt session using centralized AadCipher (WP-98)
-                let decrypted = AadCipher::decrypt(
-                    &data,
-                    username,
-                    self.pepper.expose_secret(),
-                    b"warden-v1-session-encryption"
-                )?;
-                
-                let state: SessionState = serde_json::from_slice(&decrypted)
-                    .map_err(|e| SovereignError::InternalError(format!("Session corruption: {}", e)))?;
-                Arc::new(SessionContext::from(state))
+                tokio::task::spawn_blocking(move || {
+                    // Decrypt session using centralized AadCipher (WP-98)
+                    let decrypted = AadCipher::decrypt(
+                        &data,
+                        &username_str,
+                        pepper.expose_secret(),
+                        b"warden-v1-session-encryption"
+                    )?;
+
+                    let state: SessionState = serde_json::from_slice(&decrypted)
+                        .map_err(|e| SovereignError::InternalError(format!("Session corruption: {}", e)))?;
+                    Ok::<Arc<SessionContext>, SovereignError>(Arc::new(SessionContext::from(state)))
+                }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??
             },
             None => Arc::new(SessionContext::new()),
         };
@@ -442,26 +451,19 @@ impl LocalSessionManager {
         let state = SessionState::from(ctx);
         let json_bytes = serde_json::to_vec(&state).unwrap_or_default();
         
-        // Encrypt session using centralized AadCipher (WP-98)
-        let combined = AadCipher::encrypt(
-            &json_bytes,
-            username,
-            self.pepper.expose_secret(),
-            b"warden-v1-session-encryption"
-        )?;
-
-        // --- HA FIX (WP 90): Write to Redis for HA Clustered Access ---
-        if let Some(ref client) = self.redis_client {
-            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
-                let redis_key = format!("iw:session:{}", username);
-                let _: Result<(), _> = con.set_ex(&redis_key, &combined, 86400).await; // 24h TTL
-            }
-        }
-
         let username_str = username.to_string();
         let conn_arc = self.conn.clone();
+        let pepper = self.pepper.clone();
         
-        tokio::task::spawn_blocking(move || {
+        let combined = tokio::task::spawn_blocking(move || {
+            // Encrypt session using centralized AadCipher (WP-98)
+            let combined = AadCipher::encrypt(
+                &json_bytes,
+                &username_str,
+                pepper.expose_secret(),
+                b"warden-v1-session-encryption"
+            )?;
+
             let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
             conn.execute(
                 "INSERT INTO sessions (username, session_data, updated_at) VALUES (?1, ?2, CURRENT_TIMESTAMP)
@@ -474,8 +476,16 @@ impl LocalSessionManager {
                     SovereignError::StorageError(format!("Session persistence failed: {}", e))
                 }
             })?;
-            Ok::<(), SovereignError>(())
+            Ok::<Vec<u8>, SovereignError>(combined)
         }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
+
+        // --- HA FIX (WP 90): Write to Redis for HA Clustered Access ---
+        if let Some(ref client) = self.redis_client {
+            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+                let redis_key = format!("iw:session:{}", username);
+                let _: Result<(), _> = con.set_ex(&redis_key, &combined, 86400).await; // 24h TTL
+            }
+        }
 
         Ok(())
     }

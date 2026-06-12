@@ -79,5 +79,5 @@ async fn test_v19_session_isolation_aad() {
     
     // Decryption MUST fail because AAD (username) will be "user_b" but ciphertext was bound to "user_a"
     assert!(res_b.is_err());
-    assert!(res_b.unwrap_err().to_string().contains("Session decryption failed"));
+    assert!(res_b.unwrap_err().to_string().contains("Decryption failed (Integrity Mismatch or Incorrect AAD)"));
 }

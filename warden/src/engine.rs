@@ -253,24 +253,16 @@ impl PiiShield for WardenEngine {
                 let unicode_end = norm_res.original_to_unicode[orig_end];
 
                 // Enforce word boundaries on the original input for flexible matching
-                let has_before = {
-                    let mut chars = input[..orig_start].chars().rev();
-                    let mut found = false;
-                    while let Some(c) = chars.next() {
-                        if c.is_whitespace() { break; }
-                        if c.is_alphanumeric() { found = true; break; }
-                    }
-                    found
-                };
-                let has_after = {
-                    let mut chars = input[orig_end..].chars();
-                    let mut found = false;
-                    while let Some(c) = chars.next() {
-                        if c.is_whitespace() { break; }
-                        if c.is_alphanumeric() { found = true; break; }
-                    }
-                    found
-                };
+                let has_before = input[..orig_start]
+                    .chars()
+                    .rev()
+                    .take_while(|c| !c.is_whitespace())
+                    .any(|c| c.is_alphanumeric());
+
+                let has_after = input[orig_end..]
+                    .chars()
+                    .take_while(|c| !c.is_whitespace())
+                    .any(|c| c.is_alphanumeric());
                 if has_before || has_after {
                     continue;
                 }

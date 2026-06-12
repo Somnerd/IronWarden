@@ -214,11 +214,14 @@ def warden(warden_bin, jwt_keys):
 @pytest.fixture
 def jwt_factory(warden):
     import jwt
-    def _create_token(username):
+    def _create_token(username, roles=None):
+        if roles is None:
+            roles = ["admin"]
         secret = warden.env["JWT_SECRET"]
         payload = {
             "sub": username,
-            "exp": int(time.time()) + 3600
+            "exp": int(time.time()) + 3600,
+            "roles": roles
         }
         return jwt.encode(payload, secret, algorithm="HS256")
     return _create_token
