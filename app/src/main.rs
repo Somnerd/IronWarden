@@ -47,12 +47,20 @@ impl iw_core::GroundingShield for DynamicShield {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env_mode = std::env::var("WARDEN_ENV").unwrap_or_else(|_| "development".to_string());
     let deployment_profile = std::env::var("WARDEN_MODE").unwrap_or_else(|_| "hybrid".to_string());
-    let is_ha = deployment_profile == "HA" || deployment_profile == "enterprise" || deployment_profile == "multi-node" || (std::env::var("REDIS_URL").is_ok() && std::env::var("IGNORE_HA_ENFORCEMENT").is_err()) || (std::env::var("DATABASE_URL").is_ok() && std::env::var("IGNORE_HA_ENFORCEMENT").is_err());
+    let is_ha = deployment_profile == "HA"
+        || deployment_profile == "enterprise"
+        || deployment_profile == "multi-node"
+        || (std::env::var("REDIS_URL").is_ok() && std::env::var("IGNORE_HA_ENFORCEMENT").is_err())
+        || (std::env::var("DATABASE_URL").is_ok() && std::env::var("IGNORE_HA_ENFORCEMENT").is_err());
 
     if is_ha && env_mode != "test" {
         match std::env::var("REMOTE_AUDIT_ENDPOINT") {
             Ok(endpoint) if !endpoint.is_empty() => {},
             _ => {
+                tracing::error!(
+                    "HA deployment profile ({}) enabled but REMOTE_AUDIT_ENDPOINT is not configured. Set REMOTE_AUDIT_ENDPOINT to a highly-available sink or use IGNORE_HA_ENFORCEMENT to override.",
+                    deployment_profile
+                );
                 panic!("FATAL: High Availability (HA) mode is enabled but REMOTE_AUDIT_ENDPOINT is not configured.");
             }
         }
