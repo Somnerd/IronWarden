@@ -143,9 +143,6 @@ impl ShadowNer {
         let trimmed = before.trim_end();
         if trimmed.is_empty() { return true; }
         
-        match trimmed.chars().last() {
-            Some(last_char) => matches!(last_char, '.' | '!' | '?'),
-            None => true,
-        }
+        trimmed.ends_with(['.', '!', '?'])
     }
 }
