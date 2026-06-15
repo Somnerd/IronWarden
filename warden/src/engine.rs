@@ -32,6 +32,13 @@ static INJECTION_BLOCKLIST: LazyLock<AhoCorasick> = LazyLock::new(|| {
         .unwrap()
 });
 
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct GuardrailPayload<'a> {
+    prompt: &'a str,
+}
+
 fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
     use std::io::{Write, Read};
     let socket_path = "/tmp/warden_llamaguard.sock";
@@ -45,7 +52,10 @@ fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
             stream.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
             stream.set_write_timeout(Some(std::time::Duration::from_millis(100))).ok();
             
-            let payload = format!(r#"{{"prompt":"{}"}}"#, input.replace("\"", "\\\""));
+            let payload_struct = GuardrailPayload { prompt: input };
+            let payload = serde_json::to_string(&payload_struct)
+                .map_err(|_| SovereignError::InternalError("Failed to serialize Guardrail payload".into()))?;
+
             if stream.write_all(payload.as_bytes()).is_ok() {
                 let mut buf = [0u8; 1024];
                 if let Ok(n) = stream.read(&mut buf) {
