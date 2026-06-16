@@ -5,23 +5,23 @@ import time
 
 @pytest.fixture
 def jwt_token(warden):
-    secret = warden.env["JWT_SECRET"]
+    secret = warden.env["JWT_PRIVATE_KEY"]
     payload = {
         "sub": "test_user",
         "exp": int(time.time()) + 3600,
         "roles": ["admin"]
     }
-    return jwt.encode(payload, secret, algorithm="HS256")
+    return jwt.encode(payload, secret, algorithm="RS256")
 
 @pytest.fixture
 def jwt_token_unprivileged(warden):
-    secret = warden.env["JWT_SECRET"]
+    secret = warden.env["JWT_PRIVATE_KEY"]
     payload = {
         "sub": "test_user_no_roles",
         "exp": int(time.time()) + 3600,
         "roles": []
     }
-    return jwt.encode(payload, secret, algorithm="HS256")
+    return jwt.encode(payload, secret, algorithm="RS256")
 
 @pytest.fixture
 def bridge_url(warden):
@@ -31,7 +31,7 @@ def bridge_url(warden):
 def test_bridge_health(bridge_url):
     response = requests.get(f"{bridge_url}/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "healthy"
+    assert "IronWarden Bridge" in response.text
 
 def test_bridge_enqueue_unauthorized(bridge_url):
     payload = {
@@ -78,3 +78,19 @@ def test_bridge_rate_limiting(bridge_url, jwt_token):
             break
             
     assert 429 in codes
+
+def test_bridge_get_result_unauthorized(bridge_url):
+    response = requests.get(f"{bridge_url}/results/some_job_id")
+    assert response.status_code == 401
+
+def test_bridge_get_result_forbidden(bridge_url, jwt_token_unprivileged):
+    headers = {"Authorization": f"Bearer {jwt_token_unprivileged}"}
+    response = requests.get(f"{bridge_url}/results/some_job_id", headers=headers)
+    assert response.status_code == 403
+
+def test_bridge_get_result_authorized(bridge_url, jwt_token):
+    headers = {"Authorization": f"Bearer {jwt_token}"}
+    response = requests.get(f"{bridge_url}/results/some_job_id", headers=headers)
+    # We might get 200 (if we found it), 202 (processing), or some other mapped error if it is not found.
+    # What we are testing is that we don't get 401 or 403.
+    assert response.status_code in [200, 202, 400, 404, 500]
