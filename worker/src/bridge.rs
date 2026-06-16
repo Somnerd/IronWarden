@@ -118,7 +118,7 @@ async fn handle_enqueue(
         return (StatusCode::FORBIDDEN, "Insufficient privileges. Requires 'admin' or 'privileged_search' role.").into_response();
     }
 
-    let username = token_data.claims.sub;
+    let username = token_data.claims.sub.clone();
 
     // 2. Local Session Retrieval
     let user_context = match state.session_manager.get_session(&username).await {
@@ -224,8 +224,13 @@ async fn handle_get_result(
         }
     };
 
-    let username = token_data.claims.sub;
+    let username = token_data.claims.sub.clone();
+    let has_required_role = token_data.claims.roles.contains(&"admin".to_string()) || token_data.claims.roles.contains(&"privileged_search".to_string());
     let is_admin = token_data.claims.roles.contains(&"admin".to_string());
+    if !has_required_role {
+        tracing::error!("RBAC Enforcement Failure: {} lacks required roles", username);
+        return (StatusCode::FORBIDDEN, "Insufficient privileges. Requires 'admin' or 'privileged_search' role.").into_response();
+    }
 
     match state.queue.get_result(&job_id, &username, is_admin).await {
         Ok(Some(res)) => (StatusCode::OK, res).into_response(),
