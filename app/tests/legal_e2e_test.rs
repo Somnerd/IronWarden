@@ -15,21 +15,26 @@ async fn test_legal_e2e() {
     let shield: Arc<dyn PiiShield + Send + Sync> = Arc::new(engine);
     let queue = Arc::new(SearchBoostQueue::new("file::memory:?cache=shared".to_string(), &secret, Some(shield.clone()), None).unwrap());
     
-    let librarian = worker::LocalLibrarian::new("/home/somnerd/Projects/IronWarden/data/knowledge").await.unwrap();
-    let brief = std::fs::read_to_string("/home/somnerd/Projects/IronWarden/data/knowledge/greek_legal_brief.md").unwrap();
-    librarian.add_document(&brief, "legal_user").await.unwrap();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let kb_path = temp_dir.path().join("knowledge").to_str().unwrap().to_string();
+
+    let librarian = worker::LocalLibrarian::new(&kb_path).await.unwrap();
+    let brief = "Ο πελάτης Νικόλαος Αλεξανδράκης με ΑΦΜ 123456789 εμπλέκεται στην υπόθεση.";
+    librarian.add_document(brief, "legal_user").await.unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
     let storage = WorkerStorage::new(
         "file::memory:?cache=shared",
-        "/home/somnerd/Projects/IronWarden/data/knowledge",
+        &kb_path,
         secret,
         Some((*queue).clone()),
         None
     ).await.expect("Failed to initialize storage");
     
     let start = std::time::Instant::now();
-    let contexts = storage.fetch_context("Nikolas Alexandrakis AFM", "legal_user").await.expect("Search failed");
+    // The librarian uses a keyword search with stop word filtering and to_lowercase().
+    // "ΑΦΜ" in the query matches the document.
+    let contexts = storage.fetch_context("ΑΦΜ 123456789", "legal_user").await.expect("Search failed");
     let elapsed = start.elapsed();
     
     assert!(elapsed.as_millis() < 500, "Latency must be sub-500ms");

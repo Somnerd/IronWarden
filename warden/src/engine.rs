@@ -45,7 +45,7 @@ fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
             stream.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
             stream.set_write_timeout(Some(std::time::Duration::from_millis(100))).ok();
             
-            let payload = format!(r#"{{"prompt":"{}"}}"#, input.replace("\"", "\\\""));
+            let payload = serde_json::json!({"prompt": input}).to_string();
             if stream.write_all(payload.as_bytes()).is_ok() {
                 let mut buf = [0u8; 1024];
                 if let Ok(n) = stream.read(&mut buf) {
