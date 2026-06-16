@@ -42,3 +42,4 @@ data/knowledge/.managed.json
 data/knowledge/meta.json
 data/knowledge/*.lock
 
+worker/audit_stress_test.db*
