@@ -1,3 +1,4 @@
+use tempfile::tempdir;
 use std::sync::Arc;
 use tokio;
 use iw_core::{PiiShield, StorageProvider};
@@ -30,6 +31,7 @@ async fn test_legal_e2e() {
         Some((*queue).clone()),
         None
     ).await.expect("Failed to initialize storage");
+
     
     let start = std::time::Instant::now();
     // The librarian uses a keyword search with stop word filtering and to_lowercase().

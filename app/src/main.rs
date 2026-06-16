@@ -45,6 +45,27 @@ impl iw_core::GroundingShield for DynamicShield {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let env_mode = std::env::var("WARDEN_ENV").unwrap_or_else(|_| "development".to_string());
+    let deployment_profile = std::env::var("WARDEN_MODE").unwrap_or_else(|_| "hybrid".to_string());
+    let is_ha = deployment_profile == "HA"
+        || deployment_profile == "enterprise"
+        || deployment_profile == "multi-node"
+        || (std::env::var("REDIS_URL").is_ok() && std::env::var("IGNORE_HA_ENFORCEMENT").is_err())
+        || (std::env::var("DATABASE_URL").is_ok() && std::env::var("IGNORE_HA_ENFORCEMENT").is_err());
+
+    if is_ha && env_mode != "test" {
+        match std::env::var("REMOTE_AUDIT_ENDPOINT") {
+            Ok(endpoint) if !endpoint.is_empty() => {},
+            _ => {
+                tracing::error!(
+                    "HA deployment profile ({}) enabled but REMOTE_AUDIT_ENDPOINT is not configured. Set REMOTE_AUDIT_ENDPOINT to a highly-available sink or use IGNORE_HA_ENFORCEMENT to override.",
+                    deployment_profile
+                );
+                panic!("FATAL: High Availability (HA) mode is enabled but REMOTE_AUDIT_ENDPOINT is not configured.");
+            }
+        }
+    }
+
     // 1. Initialize Tracing (Structured JSON for Production)
     let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
     if log_format == "json" {
@@ -164,10 +185,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router = Arc::new(worker::OpenAIGateway::new(api_key, base_url));
 
     // 6. Initialize Parallel Control Planes (MCP + Bridge)
-    let warden_mode = std::env::var("WARDEN_MODE").unwrap_or_else(|_| "hybrid".to_string());
-    tracing::info!("IronWarden Deployment Profile: {}", warden_mode.to_uppercase());
+    tracing::info!("IronWarden Deployment Profile: {}", deployment_profile.to_uppercase());
 
-    let mcp_handle = if warden_mode == "hybrid" || warden_mode == "mcp" {
+    let mcp_handle = if deployment_profile == "hybrid" || deployment_profile == "mcp" {
         let mcp_server = StdioMcpServer::new(
             shield.clone(), 
             storage.clone(), 
@@ -188,7 +208,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
     
-    let bridge_handle = if warden_mode == "hybrid" || warden_mode == "bridge" {
+    let bridge_handle = if deployment_profile == "hybrid" || deployment_profile == "bridge" {
         let bridge_state = Arc::new(worker::BridgeState {
             shield: shield.clone(),
             grounding_shield: grounding_shield.clone(),
