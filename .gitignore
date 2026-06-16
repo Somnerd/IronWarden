@@ -42,3 +42,7 @@ data/knowledge/.managed.json
 data/knowledge/meta.json
 data/knowledge/*.lock
 
+*.pyc
+__pycache__/
+*.db-shm
+*.db-wal
