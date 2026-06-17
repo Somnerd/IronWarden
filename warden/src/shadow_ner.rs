@@ -143,6 +143,8 @@ impl ShadowNer {
         let trimmed = before.trim_end();
         if trimmed.is_empty() { return true; }
         
-        trimmed.ends_with(['.', '!', '?'])
+        // ⚡ Bolt: Use slice bounds instead of character iterators for O(1) byte matching
+        // (Using slice instead of char array to ensure compat on older Rust compilers)
+        trimmed.ends_with('.') || trimmed.ends_with('!') || trimmed.ends_with('?')
     }
 }
