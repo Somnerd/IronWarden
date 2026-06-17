@@ -37,7 +37,7 @@ impl WorkerStorage {
             .map_err(|e| SovereignError::StorageError(format!("Failed to open storage DB: {}", e)))?;
         conn.call(|c| {
             c.busy_timeout(std::time::Duration::from_millis(2000))?;
-            c.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+            c.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA secure_delete = ON;")?;
             Ok::<(), rusqlite::Error>(())
         }).await.map_err(|e| SovereignError::StorageError(format!("Failed to set PRAGMAs: {}", e)))?;
 

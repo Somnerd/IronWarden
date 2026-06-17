@@ -42,6 +42,7 @@ impl SearchBoostQueue {
         conn.execute_batch("
             PRAGMA journal_mode = WAL; 
             PRAGMA synchronous = NORMAL;
+            PRAGMA secure_delete = ON;
             CREATE TABLE IF NOT EXISTS search_jobs (
                 id TEXT PRIMARY KEY, 
                 username TEXT, 
@@ -361,6 +362,7 @@ impl LocalSessionManager {
         conn.execute_batch("
             PRAGMA journal_mode = WAL; 
             PRAGMA synchronous = NORMAL;
+            PRAGMA secure_delete = ON;
             CREATE TABLE IF NOT EXISTS sessions (username TEXT PRIMARY KEY, session_data TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
         ").map_err(|e| SovereignError::StorageError(format!("Failed to set PRAGMAs or create sessions table: {}", e)))?;
 
