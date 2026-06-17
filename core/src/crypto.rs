@@ -5,6 +5,26 @@ use rand::RngCore;
 use zeroize::Zeroize;
 use crate::error::SovereignError;
 
+pub fn build_hkdf_info(info: &[u8], aad: &str) -> Vec<u8> {
+    let aad_bytes = aad.as_bytes();
+
+    // Pre-allocate the exact capacity to avoid reallocations
+    // 4 bytes for info length + info payload + 4 bytes for aad length + aad payload
+    let mut bound_context = Vec::with_capacity(8 + info.len() + aad_bytes.len());
+
+    // 1. Push the length of `info` as a 32-bit Big-Endian integer
+    bound_context.extend_from_slice(&(info.len() as u32).to_be_bytes());
+    // 2. Push the `info` bytes
+    bound_context.extend_from_slice(info);
+
+    // 3. Push the length of `aad` as a 32-bit Big-Endian integer
+    bound_context.extend_from_slice(&(aad_bytes.len() as u32).to_be_bytes());
+    // 4. Push the `aad` bytes
+    bound_context.extend_from_slice(aad_bytes);
+
+    bound_context
+}
+
 /// Centralized utility for AAD-bound encryption using AES-256-GCM and HKDF.
 /// This implementation ensures all sensitive data is bound to a specific user/tenant identity.
 pub struct AadCipher;
@@ -21,10 +41,12 @@ impl AadCipher {
         rand::thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
+        let bound_info = build_hkdf_info(info, aad);
+
         // Derive key using HKDF to ensure unique keys per context
         let hk = Hkdf::<Sha256>::new(None, pepper);
         let mut key_bytes = [0u8; 32];
-        hk.expand(info, &mut key_bytes)
+        hk.expand(&bound_info, &mut key_bytes)
             .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
         
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
@@ -60,10 +82,12 @@ impl AadCipher {
         let (nonce_bytes, ciphertext) = combined.split_at(12);
         let nonce = Nonce::from_slice(nonce_bytes);
 
+        let bound_info = build_hkdf_info(info, aad);
+
         // Derive key using HKDF (must match encryption parameters)
         let hk = Hkdf::<Sha256>::new(None, pepper);
         let mut key_bytes = [0u8; 32];
-        hk.expand(info, &mut key_bytes)
+        hk.expand(&bound_info, &mut key_bytes)
             .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
         
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);

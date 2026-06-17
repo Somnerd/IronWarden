@@ -117,8 +117,7 @@ async fn test_encryption_roundtrip() {
     let tmp_file = NamedTempFile::new().unwrap();
     let db_path = tmp_file.path().to_str().unwrap();
     let pepper = b"a_very_secret_pepper_32_bytes_long".to_vec();
-    let (enc_key, _, genesis_hash) = derive_keys(&pepper);
-    let cipher = Aes256Gcm::new(&enc_key);
+    let (_, _, genesis_hash) = derive_keys(&pepper);
 
     let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.unwrap();
     let raw_input = "Extremely Sensitive Data";
@@ -146,6 +145,15 @@ async fn test_encryption_roundtrip() {
     let mut composite_aad = String::new();
     composite_aad.push_str(&hex::encode(&genesis_hash));
     composite_aad.push_str("user_1");
+
+    let bound_info = iw_core::crypto::build_hkdf_info(KDF_SALT_ENCRYPTION, &composite_aad);
+
+    // Derive key using HKDF to ensure unique keys per context
+    let hk = Hkdf::<Sha256>::new(None, &pepper);
+    let mut key_bytes = [0u8; 32];
+    hk.expand(&bound_info, &mut key_bytes).unwrap();
+    let enc_key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(enc_key);
 
     let payload = aes_gcm::aead::Payload {
         msg: encrypted_data.as_slice(),
