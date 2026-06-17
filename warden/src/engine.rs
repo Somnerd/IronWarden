@@ -56,6 +56,7 @@ fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
             let payload = serde_json::to_string(&payload_struct)
                 .map_err(|_| SovereignError::InternalError("Failed to serialize Guardrail payload".into()))?;
 
+            let payload = serde_json::json!({"prompt": input}).to_string();
             if stream.write_all(payload.as_bytes()).is_ok() {
                 let mut buf = [0u8; 1024];
                 if let Ok(n) = stream.read(&mut buf) {

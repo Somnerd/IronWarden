@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Semaphore};
-use serde_json::json;
+use serde::Serialize;
 use async_trait::async_trait;
 use iw_core::{PiiShield, StorageProvider, InferenceGateway, McpServer, SovereignError, SessionContext, ComplianceReport, ScrubbingReport};
 use worker::LocalSessionManager;
@@ -100,7 +100,7 @@ impl StdioMcpServer {
                     }
                     Err(e) => {
                         error!(request_id = %request_id, "Request handling failed: {}", e);
-                        let err_resp = JsonRpcResponse::error(None, -32603, format!("Orchestration Failed: {}", e));
+                        let err_resp: JsonRpcResponse<serde_json::Value> = JsonRpcResponse::error(None, -32603, format!("Orchestration Failed: {}", e));
                         if let Ok(err_json) = serde_json::to_string(&err_resp) {
                             let _ = out_tx.send(err_json).await;
                         }
@@ -129,11 +129,24 @@ async fn handle_request_internal(
     let id = req.id.clone();
 
     if req.method == "initialize" {
-        let result = json!({
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "serverInfo": { "name": "IronWarden", "version": "1.2.0-STABLE" }
-        });
+        #[derive(Serialize)]
+        struct ServerInfo {
+            name: &'static str,
+            version: &'static str,
+        }
+        #[derive(Serialize)]
+        struct InitializeResult {
+            #[serde(rename = "protocolVersion")]
+            protocol_version: &'static str,
+            capabilities: serde_json::Value,
+            #[serde(rename = "serverInfo")]
+            server_info: ServerInfo,
+        }
+        let result = InitializeResult {
+            protocol_version: "2024-11-05",
+            capabilities: serde_json::Value::Object(serde_json::Map::new()),
+            server_info: ServerInfo { name: "IronWarden", version: "1.2.0-STABLE" },
+        };
         let resp = JsonRpcResponse::success(id, result);
         return serde_json::to_string(&resp).map_err(|e| SovereignError::InternalError(e.to_string()));
     }
@@ -235,7 +248,7 @@ async fn handle_request_internal(
         storage.log_audit_event(&report, user_prompt, &username).await?;
         let _ = session_manager.save_session(&username, &user_session).await;
 
-        let resp = JsonRpcResponse::success(id, json!(report));
+        let resp = JsonRpcResponse::success(id, report);
         return serde_json::to_string(&resp).map_err(|e| SovereignError::InternalError(e.to_string()));
     }
 
@@ -252,14 +265,14 @@ async fn handle_request_internal(
         }
         
         let clean_response = shield.restore_prompt(response_text, &map)?;
-        let resp = JsonRpcResponse::success(id, json!(clean_response));
+        let resp = JsonRpcResponse::success(id, clean_response);
         return serde_json::to_string(&resp).map_err(|e| SovereignError::InternalError(e.to_string()));
     }
 
     // METHOD: Compliance Reporting (WP #84)
     if req.method == "mcp_get_compliance_report" {
         let report = storage.get_compliance_report().await?;
-        let resp = JsonRpcResponse::success(id, json!(report));
+        let resp = JsonRpcResponse::success(id, report);
         return serde_json::to_string(&resp).map_err(|e| SovereignError::InternalError(e.to_string()));
     }
 
@@ -283,7 +296,16 @@ async fn handle_request_internal(
         // For this implementation, we'll return a confirmation and then the caller can handle the process exit if needed,
         // or we could use std::process::exit(1) but that's a bit extreme for a library call.
         // However, the WP says "Implementation of Kill-Switch", so I will provide the mechanism.
-        let resp = JsonRpcResponse::success(id, json!({ "status": "HALTED", "message": "System is entering a fail-closed state." }));
+        #[derive(Serialize)]
+        struct HaltResult {
+            status: &'static str,
+            message: &'static str,
+        }
+        let result = HaltResult {
+            status: "HALTED",
+            message: "System is entering a fail-closed state.",
+        };
+        let resp = JsonRpcResponse::success(id, result);
         
         // We trigger an intentional panic or similar if we want a "hard" halt, 
         // but it's better to just set the healthy flag to false in storage if possible.
@@ -317,10 +339,15 @@ async fn handle_request_internal(
     let _ = session_manager.save_session(&username, &user_session).await;
 
     if query_report.is_blocked {
-        let result = json!({ 
-            "text": "[POLICY VIOLATION] Your request was blocked due to sensitive data leakage.",
-            "policy_report": query_report.redactions 
-        });
+        #[derive(Serialize)]
+        struct BlockedResult<'a> {
+            text: &'static str,
+            policy_report: &'a Vec<iw_core::traits::Redaction>,
+        }
+        let result = BlockedResult {
+            text: "[POLICY VIOLATION] Your request was blocked due to sensitive data leakage.",
+            policy_report: &query_report.redactions,
+        };
         let resp = JsonRpcResponse::success(id, result);
         return serde_json::to_string(&resp).map_err(|e| SovereignError::InternalError(e.to_string()));
     }
@@ -359,7 +386,11 @@ async fn handle_request_internal(
 
     // 4. Restore & Egress
     let clean_response = shield.restore_prompt(&llm_response, &query_report.token_map)?;
-    let result = json!({ "text": clean_response });
+    #[derive(Serialize)]
+    struct FinalResult {
+        text: String,
+    }
+    let result = FinalResult { text: clean_response };
     let resp = JsonRpcResponse::success(id, result);
     
     let _ = session_manager.save_session(&username, &user_session).await;
