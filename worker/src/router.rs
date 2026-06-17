@@ -1,7 +1,19 @@
 use async_trait::async_trait;
 use iw_core::{InferenceGateway, SovereignError};
 use reqwest::Client;
-use serde_json::json;
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct OpenAIMessage<'a> {
+    role: &'a str,
+    content: &'a str,
+}
+
+#[derive(Serialize)]
+struct OpenAIPayload<'a> {
+    model: &'a str,
+    messages: Vec<OpenAIMessage<'a>>,
+}
 
 /// An InferenceGateway implementation for interacting with OpenAI-compatible APIs.
 pub struct OpenAIGateway {
@@ -44,21 +56,22 @@ impl InferenceGateway for OpenAIGateway {
 
         // Construct the grounding instruction from the provided context strings
         let system_context = context.join("\n");
+        let system_message_content = format!("You are a secure assistant. Use the following context to provide factual answers: \n\n{}", system_context);
         
-        // Build the OpenAI-compatible JSON payload dynamically using the json! macro
-        let payload = json!({
-            "model": "gpt-4",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": format!("You are a secure assistant. Use the following context to provide factual answers: \n\n{}", system_context)
+        // Build the OpenAI-compatible JSON payload dynamically using strictly typed structs to avoid json! macro DOM tree allocation overhead
+        let payload = OpenAIPayload {
+            model: "gpt-4",
+            messages: vec![
+                OpenAIMessage {
+                    role: "system",
+                    content: &system_message_content,
                 },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        });
+                OpenAIMessage {
+                    role: "user",
+                    content: prompt,
+                },
+            ],
+        };
 
         // Execute the POST request with the required Authorization header
         let response = self.client
