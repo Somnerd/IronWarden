@@ -168,11 +168,18 @@ async fn handle_enqueue(
         username,
     ).await {
         Ok(job_id) => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "status": "queued",
-                "id": job_id,
-                "pii_scrubbed": report.token_map.len() > 0
-            }))).into_response()
+            #[derive(Serialize)]
+            struct EnqueueResponse<'a> {
+                status: &'a str,
+                id: &'a str,
+                pii_scrubbed: bool,
+            }
+            let response = EnqueueResponse {
+                status: "queued",
+                id: &job_id,
+                pii_scrubbed: !report.token_map.is_empty(),
+            };
+            (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
             tracing::error!("Failed to enqueue SearchBoost job: {}", e);

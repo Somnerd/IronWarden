@@ -118,10 +118,13 @@ cwIDAQAB
     let url = format!("http://{}/enqueue", addr);
 
     // Test rejection for low-privileged tokens
-    let payload = serde_json::json!({
-        "query": "Hello Bob",
-        "thread_id": "test_thread"
-    });
+    #[derive(serde::Serialize)]
+    struct StressPayload<'a> {
+        query: &'a str,
+        thread_id: &'a str,
+    }
+
+    let payload = StressPayload { query: "Hello Bob", thread_id: "test_thread" };
     let res = client.post(&url)
         .header("Authorization", format!("Bearer {}", token_no_roles))
         .json(&payload)
@@ -139,10 +142,10 @@ cwIDAQAB
         let token = token.clone();
         
         handlers.push(tokio::spawn(async move {
-            let payload = serde_json::json!({
-                "query": if i % 2 == 0 { "Hello Alice" } else { "Hello Bob" },
-                "thread_id": "test_thread"
-            });
+            let payload = StressPayload {
+                query: if i % 2 == 0 { "Hello Alice" } else { "Hello Bob" },
+                thread_id: "test_thread",
+            };
             
             let res = client.post(&url)
                 .header("Authorization", format!("Bearer {}", token))
