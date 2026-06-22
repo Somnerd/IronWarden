@@ -47,6 +47,7 @@ pub struct SearchBoostQueue {
     tx: flume::Sender<(String, String, Vec<u8>)>,
     rx: flume::Receiver<(String, String, Vec<u8>)>,
     db_tx: flume::Sender<DbCommand>,
+    results: Arc<DashMap<String, (String, Vec<u8>)>>,
 }
 
 impl SearchBoostQueue {
@@ -195,6 +196,7 @@ impl SearchBoostQueue {
             tx,
             rx,
             db_tx,
+            results: Arc::new(DashMap::new()),
         };
 
         Ok(queue)
@@ -340,8 +342,10 @@ impl SearchBoostQueue {
 
             let _ = self.db_tx.send(DbCommand::UpdateResult {
                 id: id.clone(),
-                result: encrypted_result,
+                result: encrypted_result.clone(),
             });
+
+            self.results.insert(id.clone(), (username.clone(), encrypted_result));
 
             info!(job_id = %id, "SearchBoost job completed and encrypted.");
         }
@@ -434,9 +438,15 @@ impl SearchBoostQueue {
     ) -> Result<Option<String>, SovereignError> {
         let job_id_str = job_id.to_string();
 
-        // --- HA FIX (WP 90): Check Redis first for result ---
+        // --- MEMORY CACHE (Zero Latency) ---
         let mut redis_data: Option<(String, Vec<u8>)> = None;
-        if let Some(ref client) = self.redis_client {
+        if let Some(res) = self.results.get(job_id) {
+            redis_data = Some((res.0.clone(), res.1.clone()));
+        }
+
+        // --- HA FIX (WP 90): Check Redis first for result ---
+        if redis_data.is_none() {
+            if let Some(ref client) = self.redis_client {
             if let Ok(mut con) = client.get_multiplexed_async_connection().await {
                 let redis_key = format!("iw:sb:job:{}", job_id);
                 if let Ok(data) = con.hgetall::<_, HashMap<String, Vec<u8>>>(&redis_key).await {
@@ -453,6 +463,7 @@ impl SearchBoostQueue {
                     }
                 }
             }
+        }
         }
 
         let result_data = if let Some(d) = redis_data {

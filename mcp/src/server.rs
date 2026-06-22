@@ -524,6 +524,7 @@ mod tests {
     use iw_core::{ComplianceReport, ScrubbingReport, TokenMap};
     use serde_json::json;
     use std::time::Duration;
+    use serde_json::json;
 
     struct MockShield;
     #[async_trait]

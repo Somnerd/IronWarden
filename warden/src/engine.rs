@@ -412,7 +412,15 @@ impl PiiShield for WardenEngine {
                             action,
                             category,
                         });
-                        search_start = mat.start() + 1;
+                        if mat.start() == mat.end() {
+                            if let Some(c) = normalized[search_start..].chars().next() {
+                                search_start += c.len_utf8();
+                            } else {
+                                break;
+                            }
+                        } else {
+                            search_start = mat.start() + normalized[mat.start()..].chars().next().unwrap().len_utf8();
+                        }
                     } else {
                         break;
                     }
