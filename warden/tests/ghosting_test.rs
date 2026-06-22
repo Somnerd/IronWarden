@@ -1,3 +1,4 @@
+// This file runs an integration test checking PII sanitization and tokenization for "Alice" (Dictionary) and email patterns (Regex) within a shared SessionContext session.
 use iw_core::{SessionContext, PiiShield};
 use iw_warden::{WardenConfig};
 use std::fs;

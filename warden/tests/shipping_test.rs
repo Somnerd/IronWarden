@@ -1,3 +1,4 @@
+// This file tests loading of shipping configuration rules and verifies the redaction of logistics/shipping PII (Bill of Lading, IMO numbers, Container IDs, Air Waybills, HS Codes, invoices, logistics organizations, and vessels).
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 use std::sync::Arc;

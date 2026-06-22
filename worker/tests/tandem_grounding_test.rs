@@ -1,3 +1,4 @@
+// Integration tests verifying V-14 leak prevention and mandatory sanitization during the tandem grounding search workflow, and checking AAD binding integrity.
 use worker::{SearchBoostQueue, LocalLibrarian};
 use iw_warden::WardenEngine;
 use iw_core::{PiiShield};
@@ -58,7 +59,10 @@ async fn test_v14_leak_prevention_enforced() {
     ).await.unwrap();
 
     // Step C: Background Worker Processing
-    queue.process_next_job(librarian.clone()).await.expect("Worker processing failed");
+    let queue_clone = queue.clone();
+    let lib_clone = librarian.clone();
+    queue_clone.spawn_worker(lib_clone);
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Step D: Verify Result
     let result = queue.get_result(&job_id, "test_user", true).await.unwrap().expect("Job should be complete");

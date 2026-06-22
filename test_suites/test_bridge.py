@@ -1,3 +1,8 @@
+"""
+HTTP/REST API tests for the IronWarden Bridge endpoint.
+Validates authentication, role-based access control (401/403 status codes), rate limiting,
+health checks, and job status retrieval via JWT tokens.
+"""
 import pytest
 import requests
 import jwt

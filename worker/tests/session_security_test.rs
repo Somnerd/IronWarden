@@ -1,3 +1,4 @@
+// Security integration tests verifying V-19 session swap protection, ensuring session decryption fails with an integrity mismatch if session data is requested for a different username than it was originally bound to.
 use worker::searchboost::LocalSessionManager;
 use iw_core::traits::EnforcementAction;
 use iw_core::PiiCategory;

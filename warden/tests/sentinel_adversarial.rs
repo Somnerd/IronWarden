@@ -1,3 +1,4 @@
+// This file contains adversarial testing for homoglyph dictionary evasion, Shadow NER with Greek name homoglyphs, and semantic cache lookups with homoglyphs.
 use iw_warden::WardenConfig;
 use iw_core::{PiiShield};
 use secrecy::SecretVec;

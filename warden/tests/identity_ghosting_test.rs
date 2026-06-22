@@ -1,3 +1,4 @@
+// This file tests prevention of identity ghosting/corruption by verifying Type Isolation (separating names and emails) and Word Boundary Enforcement (preventing substring matches like "Alicia" or "Malice" from matching "Alice").
 use iw_core::{SessionContext, PiiShield};
 use iw_warden::{WardenConfig};
 use secrecy::SecretVec;

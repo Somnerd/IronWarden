@@ -1,3 +1,4 @@
+// Stress tests verifying log purge, HMAC chain integrity, and adversarial database tamper detection using the `iw-cli` tool.
 use std::process::Command;
 use worker::audit::AsyncAuditor;
 use iw_core::{ScrubbingReport, Redaction, EnforcementAction};

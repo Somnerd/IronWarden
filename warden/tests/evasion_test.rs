@@ -1,3 +1,4 @@
+// This file tests homoglyph evasion detection, verifying that unicode homoglyphs (such as Cyrillic 'A' in "Alice") are normalized and successfully redacted.
 use iw_warden::engine::WardenEngine;
 use iw_core::traits::{EnforcementAction, PiiShield};
 use iw_core::PiiCategory;

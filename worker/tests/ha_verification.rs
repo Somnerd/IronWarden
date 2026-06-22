@@ -1,3 +1,4 @@
+// Integration tests verifying SearchBoostQueue initialization behavior under High Availability (HA) detection, confirming it starts correctly both with and without the `REDIS_URL` environment variable.
 use worker::searchboost::SearchBoostQueue;
 use secrecy::SecretVec;
 

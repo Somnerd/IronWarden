@@ -1,3 +1,4 @@
+// This file tests Sentinel QA capabilities, including semantic cache resilience to homoglyphs, Shadow NER heuristic promotion without AI, and Shadow NER homoglyph resilience.
 use iw_warden::{WardenEngine};
 use iw_core::{PiiShield, SessionContext};
 use secrecy::SecretVec;

@@ -1,3 +1,4 @@
+// This file tests global identity fusion, verifying that complex names containing connectors (such as Spanish names like "Juan Pablo Garcia de la Cruz") are correctly fused into a single token during prompt sanitization.
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 

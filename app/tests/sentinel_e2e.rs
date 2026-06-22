@@ -1,3 +1,4 @@
+// End-to-end security tests verifying session isolation AAD checks, RAG blindness in output scrubbing (V-14), anchor tampering detection (V-13), engine rule matching, and ephemeral log tampering detection (V-55).
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use warden::{WardenConfig};
@@ -84,8 +85,11 @@ rules:
     let storage = WorkerStorage::new(&db_path, &kb_path, pepper2, Some((*queue).clone()), None).await.unwrap();
     
     // 1. Add sensitive document to Librarian
-    let librarian = worker::LocalLibrarian::new(&kb_path).await.unwrap();
+    let librarian = Arc::new(worker::LocalLibrarian::new(&kb_path).await.unwrap());
     librarian.add_document("The document contains TOP_SECRET_PROJECT info.", "test_user").await.unwrap();
+    
+    // Spawn background worker for queue
+    queue.spawn_worker(librarian.clone());
     
     // 2. Enqueue a job with ONLY sanitized text (V-14 Enforced)
     // Query: "tell me about TOP_SECRET_PROJECT" -> sanitized to "tell me about [TOKEN_1]"

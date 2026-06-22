@@ -1,3 +1,4 @@
+// Integration tests verifying auditor database creation, HMAC chain integrity, AES-256-GCM encryption roundtrips, database busy fail-closed behavior, and HMAC chain breakage detection.
 use worker::audit::AsyncAuditor;
 use iw_core::{ScrubbingReport, Redaction, EnforcementAction};
 use tempfile::NamedTempFile;

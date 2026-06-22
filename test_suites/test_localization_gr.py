@@ -1,3 +1,8 @@
+"""
+Localization and PII detection rule tests for the Greek (GR) region.
+Verifies detection and sanitization of Greek AFM (Tax ID), Greek AMKA (Social Security Number),
+and common Greek names, including boundary checks and mixed Greek-Latin script scenarios.
+"""
 import pytest
 import json
 

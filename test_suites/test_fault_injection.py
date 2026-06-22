@@ -1,3 +1,8 @@
+"""
+Fault injection and resilience tests for IronWarden's database and session managers.
+Simulates a read-only audit database, database lock contention, and database session state
+corruption to verify proper fail-open/fail-closed behaviors and graceful error handling.
+"""
 import pytest
 import os
 import time

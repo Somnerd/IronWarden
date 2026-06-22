@@ -1,3 +1,4 @@
+// Integration tests verifying LocalLibrarian (Tantivy) search behavior under redacted queries, validating semantic blindness when querying with tokens instead of raw PII.
 #![recursion_limit = "1024"]
 use worker::LocalLibrarian;
 use tempfile::tempdir;

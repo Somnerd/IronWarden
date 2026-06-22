@@ -1,3 +1,4 @@
+// Integration tests verifying the Model Context Protocol (MCP) server pipeline, including StdioMcpServer orchestration, context retrieval via LocalLibrarian (Tantivy), and post-inference token de-redaction.
 use std::sync::Arc;
 use mcp::StdioMcpServer;
 use iw_core::{InferenceGateway, SovereignError, McpServer};

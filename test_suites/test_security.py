@@ -1,3 +1,8 @@
+"""
+Security vulnerability, evasion, and cryptographic integrity tests.
+Verifies homoglyph normalization, zero-width space filtering, session isolation across users,
+integrity hash-chaining in audit reports, and JWT key signature validation.
+"""
 import pytest
 import json
 import sqlite3

@@ -1,3 +1,8 @@
+"""
+Adversarial security, payload validation, and resource contention tests.
+Checks security policy bypass mechanisms, config directory fallback safety, payload size limits
+(testing 413 Payload Too Large responses), and concurrent requests under AI mutex contention.
+"""
 import pytest
 import requests
 import time

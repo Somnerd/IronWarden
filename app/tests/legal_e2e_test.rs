@@ -1,3 +1,4 @@
+// End-to-end integration tests verifying regional legal-compliance rule compilation, document ingestion with Greek PII (AFM), query matching within latency constraints, and correct post-retrieval redaction.
 use tempfile::tempdir;
 use std::sync::Arc;
 use tokio;

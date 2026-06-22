@@ -1,3 +1,4 @@
+// Concurrency and stress tests for the worker storage audit logging backend verifying that multiple parallel audit events are written successfully via MPSC channels without record loss.
 use std::sync::Arc;
 use worker::WorkerStorage;
 use iw_core::{ScrubbingReport, TokenMap, StorageProvider};

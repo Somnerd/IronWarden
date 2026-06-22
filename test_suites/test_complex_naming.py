@@ -1,3 +1,8 @@
+"""
+Redaction and token restoration tests for complex and culturally diverse names.
+Verifies the handling of multi-word names (Western, Latin, Arabic, Greek, Compound),
+ensures proper multi-token restoration, and checks name fragment session collision behavior.
+"""
 import pytest
 import json
 

@@ -1,3 +1,4 @@
+// This file tests loading of legal configuration rules and verifies the redaction of legal PII (attorney bar numbers, court dockets, confidential markers, and AFM numbers).
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 

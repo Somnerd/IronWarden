@@ -1,3 +1,4 @@
+// Hardened integration pipeline tests verifying Unicode normalization (homoglyph/zero-width character handling) with offset drift correction, audit persistence, and session tokenization consistency.
 use std::sync::Arc;
 use warden::{WardenConfig};
 use worker::{WorkerStorage};

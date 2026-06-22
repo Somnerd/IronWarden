@@ -1,3 +1,4 @@
+// This file executes a basic regex search test using a specialized pattern designed to match both English and Greek name structures (including uppercase and accented characters).
 use regex::Regex;
 
 fn main() {

@@ -1,3 +1,4 @@
+// This file tests identity linking, verifying that shared components (like the last name "Smith") do not cause separate individuals ("John Smith" and "Alice Smith") to merge or reuse the same token.
 #[cfg(test)]
 mod tests {
     use iw_core::{PiiShield, SessionContext};

@@ -1,3 +1,4 @@
+// Security invariant tests verifying auditor hard-stop functionality when the database anchor file is missing, and verifying V-19 session isolation/AAD binding of encrypted session data.
 use worker::WorkerStorage;
 use iw_core::{StorageProvider, ScrubbingReport, EnforcementAction, PiiCategory};
 use secrecy::SecretVec;

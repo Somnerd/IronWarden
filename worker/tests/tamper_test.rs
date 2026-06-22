@@ -1,3 +1,4 @@
+// Security integration tests verifying GAP-02 boot/handshake tamper detection, ensuring that the auditor fails to initialize if existing database record integrity has been modified.
 use std::time::Duration;
 use worker::AsyncAuditor;
 use secrecy::SecretVec;

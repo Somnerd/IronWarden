@@ -1,3 +1,4 @@
+// This file tests loading of medical configuration rules and verifies the redaction of medical PII (MRN, NPI, MBI, Rx, ICD-10) and audit-only logging behavior for medical heuristics (diseases, drugs).
 use iw_warden::WardenConfig;
 use iw_core::{PiiShield, EnforcementAction};
 

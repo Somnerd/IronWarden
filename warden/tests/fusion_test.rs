@@ -1,3 +1,4 @@
+// This file tests the fusion integrity of name heuristics and regex rules (e.g., Greek name components fused into a single token and AFM mapped) during prompt sanitization.
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 

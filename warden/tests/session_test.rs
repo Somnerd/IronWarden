@@ -1,3 +1,4 @@
+// This file tests session token consistency, ensuring that the same redaction tokens are consistently mapped to the same underlying PII entities across multiple sanitization passes using a shared SessionContext.
 use iw_warden::WardenConfig;
 use iw_core::{PiiShield, SessionContext};
 use tempfile::tempdir;

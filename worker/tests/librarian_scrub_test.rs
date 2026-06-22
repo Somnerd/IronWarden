@@ -1,3 +1,4 @@
+// Integration tests verifying the leak-proof Librarian flow, confirming that sensitive patterns in input context snippets are correctly redacted and replaced by tokens by the WardenEngine.
 use iw_core::{PiiShield};
 use iw_core::traits::{EnforcementAction, PiiCategory};
 use tempfile::tempdir;
