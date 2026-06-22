@@ -55,6 +55,7 @@ impl WorkerStorage {
         }
 
         let db_path_clone = audit_db_path.to_string();
+        let conn_clone = storage.conn.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
             loop {
@@ -68,8 +69,13 @@ impl WorkerStorage {
                     if total > 0 {
                         let percent_avail = (avail as f64 / total as f64) * 100.0;
                         if percent_avail < 10.0 {
-                            tracing::error!("CRITICAL: Disk space below 10% ({:.1}%). Halting system to preserve Zero-Failure compliance and protect cryptographic ledgers.", percent_avail);
-                            std::process::exit(1);
+                            tracing::warn!("WARNING: Disk space below 10% ({:.1}%). Triggering automatic purge of transient ephemeral logs older than 1 hour to prevent DatabaseFull hard-stops.", percent_avail);
+                            let _ = conn_clone.call(|c| {
+                                let cutoff = chrono::Utc::now() - chrono::Duration::hours(1);
+                                let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+                                c.execute("DELETE FROM ephemeral_raw_logs WHERE timestamp < ?1", [&cutoff_str])?;
+                                Ok::<(), rusqlite::Error>(())
+                            }).await;
                         }
                     }
                 }
