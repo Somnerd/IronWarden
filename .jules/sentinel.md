@@ -15,3 +15,8 @@
 **Vulnerability:** SQLite `DELETE FROM` statements only mark rows as free space without wiping the underlying disk data, allowing recovery of sensitive data like deleted audit logs and sessions from the `.db` or `.db-wal` files. Using `VACUUM` to wipe data causes severe performance degradation.
 **Learning:** For privacy compliance and secure data deletion, overwriting the disk is necessary, but full-table rebuilds (`VACUUM`) are too slow for high-throughput gateways. `PRAGMA secure_delete = ON;` provides immediate, localized zeroing of deleted content without full-table locks.
 **Prevention:** Always initialize SQLite connections handling sensitive data with `PRAGMA secure_delete = ON;` to ensure physical disk wipe of deleted rows.
+
+## 2026-06-22 - [Critical] Undefined Behavior via `unsafe impl Sync` on UnsafeCell
+**Vulnerability:** The `OnnxNer` struct in `warden/src/ai.rs` wraps `ort::Session` in an `UnsafeCell` (necessary to bypass `&mut self` requirements in `Session::run()`), but explicitly implemented `unsafe impl Sync`. If an instance was ever shared across threads (e.g., via `Arc<OnnxNer>`), multiple threads could simultaneously mutate the inner session via `&self` -> `UnsafeCell::get()`, causing mutable aliasing and Undefined Behavior (data races).
+**Learning:** Never implement `Sync` on types containing `UnsafeCell` if the inner data is accessed mutably through shared (`&`) references without interior mutability primitives (like `Mutex` or `RwLock`).
+**Prevention:** Removed `unsafe impl Sync` from `OnnxNer`. In our architecture (`HybridNerPool`), instances are passed by value over bounded channels to achieve exclusive access, so `Send` is sufficient and safe, but `Sync` is unnecessary and fundamentally unsound.

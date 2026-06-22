@@ -37,7 +37,6 @@ pub struct OnnxNer {
 
 // SAFETY: OnnxNer is only accessed by one thread at a time via HybridNerPool.
 unsafe impl Send for OnnxNer {}
-unsafe impl Sync for OnnxNer {}
 
 impl OnnxNer {
     pub fn new(model_path: &Path, tokenizer_path: &Path, threshold: f64) -> Result<Self, String> {
