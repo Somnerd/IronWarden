@@ -151,10 +151,10 @@ pub struct WardenEngine {
 }
 
 #[derive(Clone, Debug)]
-struct UnifiedMatch {
+struct UnifiedMatch<'a> {
     start: usize,
     end: usize,
-    text: String,
+    text: std::borrow::Cow<'a, str>,
     rule_id: String,
     is_confirmed: bool,
     action: EnforcementAction,
@@ -182,8 +182,7 @@ impl PiiShield for WardenEngine {
         // Layer 1: Robust Heuristic Tree
         let aggressive_normalized: String = input.chars()
             .filter(|c| c.is_alphanumeric())
-            .collect::<String>()
-            .to_lowercase();
+            .collect();
 
         if INJECTION_BLOCKLIST.is_match(&aggressive_normalized) {
             return Err(SovereignError::UnauthorizedAccess("Prompt injection attempt blocked by Layer 1 Heuristic Guardrail".into()));
@@ -205,8 +204,8 @@ impl PiiShield for WardenEngine {
         let mut potential_misses = Vec::new();
         let mut is_blocked = false;
         
-        let mut all_confirmed: Vec<UnifiedMatch> = Vec::new();
-        let mut all_potentials: Vec<UnifiedMatch> = Vec::new();
+        let mut all_confirmed: Vec<UnifiedMatch<'_>> = Vec::new();
+        let mut all_potentials: Vec<UnifiedMatch<'_>> = Vec::new();
 
         // 1. Collect Dictionary Matches (on ASCII for homoglyphs)
         for mat in self.dictionary_automaton.find_overlapping_iter(&norm_res.normalized_ascii) {
@@ -229,7 +228,7 @@ impl PiiShield for WardenEngine {
                 all_confirmed.push(UnifiedMatch {
                     start: unicode_start,
                     end: unicode_end,
-                    text: normalized[unicode_start..unicode_end].to_string(),
+                    text: std::borrow::Cow::Borrowed(&normalized[unicode_start..unicode_end]),
                     rule_id: id.clone(),
                     is_confirmed: true,
                     action: *action,
@@ -279,7 +278,7 @@ impl PiiShield for WardenEngine {
                 all_confirmed.push(UnifiedMatch {
                     start: unicode_start,
                     end: unicode_end,
-                    text: normalized[unicode_start..unicode_end].to_string(),
+                    text: std::borrow::Cow::Borrowed(&normalized[unicode_start..unicode_end]),
                     rule_id: format!("{}_flexible", id),
                     is_confirmed: true,
                     action: *action,
@@ -295,17 +294,30 @@ impl PiiShield for WardenEngine {
             let id = &self.rule_ids[absolute_idx];
             let action = self.rule_actions[absolute_idx];
             let category = self.rule_categories[absolute_idx];
-
-            for mat in re.find_iter(normalized) {
-                all_confirmed.push(UnifiedMatch {
-                    start: mat.start(),
-                    end: mat.end(),
-                    text: mat.as_str().to_string(),
-                    rule_id: id.clone(),
-                    is_confirmed: true,
-                    action,
-                    category,
-                });
+            let mut search_start = 0;
+            while search_start < normalized.len() {
+                if let Some(mat) = re.find_at(normalized, search_start) {
+                    all_confirmed.push(UnifiedMatch {
+                        start: mat.start(),
+                        end: mat.end(),
+                        text: std::borrow::Cow::Borrowed(mat.as_str()),
+                        rule_id: id.clone(),
+                        is_confirmed: true,
+                        action,
+                        category,
+                    });
+                    if mat.start() == mat.end() {
+                        if let Some(c) = normalized[search_start..].chars().next() {
+                            search_start += c.len_utf8();
+                        } else {
+                            break;
+                        }
+                    } else {
+                        search_start = mat.start() + normalized[mat.start()..].chars().next().unwrap().len_utf8();
+                    }
+                } else {
+                    break;
+                }
             }
         }
 
@@ -316,30 +328,44 @@ impl PiiShield for WardenEngine {
             let id = &self.rule_ids[absolute_idx];
             let action = self.rule_actions[absolute_idx];
             let category = self.rule_categories[absolute_idx];
+            let mut search_start = 0;
+            let ascii_str = &norm_res.normalized_ascii;
+            while search_start < ascii_str.len() {
+                if let Some(mat) = re.find_at(ascii_str, search_start) {
+                    // Map ASCII offsets to Original, then to Unicode for consistent internal state
+                    let orig_start = norm_res.ascii_to_original.get_original_offset(mat.start());
+                    let orig_end = norm_res.ascii_to_original.get_original_offset(mat.end());
+                    
+                    let unicode_start = norm_res.original_to_unicode[orig_start];
+                    let unicode_end = norm_res.original_to_unicode[orig_end];
 
-            for mat in re.find_iter(&norm_res.normalized_ascii) {
-                // Map ASCII offsets to Original, then to Unicode for consistent internal state
-                let orig_start = norm_res.ascii_to_original.get_original_offset(mat.start());
-                let orig_end = norm_res.ascii_to_original.get_original_offset(mat.end());
-                
-                let unicode_start = norm_res.original_to_unicode[orig_start];
-                let unicode_end = norm_res.original_to_unicode[orig_end];
-
-                // --- SECURITY FIX: Deduplicate against Unicode pass ---
-                let is_duplicate = all_confirmed.iter().any(|m| {
-                    m.start == unicode_start && m.end == unicode_end && m.rule_id == *id
-                });
-                
-                if !is_duplicate {
-                    all_confirmed.push(UnifiedMatch {
-                        start: unicode_start,
-                        end: unicode_end,
-                        text: normalized[unicode_start..unicode_end].to_string(),
-                        rule_id: format!("{}_ascii", id),
-                        is_confirmed: true,
-                        action,
-                        category,
+                    // --- SECURITY FIX: Deduplicate against Unicode pass ---
+                    let is_duplicate = all_confirmed.iter().any(|m| {
+                        m.start == unicode_start && m.end == unicode_end && m.rule_id == *id
                     });
+                    
+                    if !is_duplicate {
+                        all_confirmed.push(UnifiedMatch {
+                            start: unicode_start,
+                            end: unicode_end,
+                            text: std::borrow::Cow::Borrowed(&normalized[unicode_start..unicode_end]),
+                            rule_id: format!("{}_ascii", id),
+                            is_confirmed: true,
+                            action,
+                            category,
+                        });
+                    }
+                    if mat.start() == mat.end() {
+                        if let Some(c) = ascii_str[search_start..].chars().next() {
+                            search_start += c.len_utf8();
+                        } else {
+                            break;
+                        }
+                    } else {
+                        search_start = mat.start() + ascii_str[mat.start()..].chars().next().unwrap().len_utf8();
+                    }
+                } else {
+                    break;
                 }
             }
         }
@@ -391,7 +417,7 @@ impl PiiShield for WardenEngine {
                 all_confirmed.push(UnifiedMatch {
                     start: unicode_start,
                     end: unicode_end,
-                    text: miss.text,
+                    text: std::borrow::Cow::Owned(miss.text.clone()),
                     rule_id: format!("ai_cache_{}", label),
                     is_confirmed: true,
                     action: shadow.action,
@@ -405,7 +431,7 @@ impl PiiShield for WardenEngine {
                 all_confirmed.push(UnifiedMatch {
                     start: unicode_start,
                     end: unicode_end,
-                    text: miss.text,
+                    text: std::borrow::Cow::Owned(miss.text.clone()),
                     rule_id: shadow.label.clone(),
                     is_confirmed: true,
                     action: shadow.action,
@@ -430,7 +456,7 @@ impl PiiShield for WardenEngine {
                             all_confirmed.push(UnifiedMatch {
                                 start: unicode_start,
                                 end: unicode_end,
-                                text: miss.text,
+                                text: std::borrow::Cow::Owned(miss.text.clone()),
                                 rule_id: format!("ai_hybrid_{}", shadow.label),
                                 is_confirmed: true,
                                 action: shadow.action,
@@ -440,7 +466,7 @@ impl PiiShield for WardenEngine {
                             all_potentials.push(UnifiedMatch {
                                 start: unicode_start,
                                 end: unicode_end,
-                                text: miss.text,
+                                text: std::borrow::Cow::Owned(miss.text.clone()),
                                 rule_id: shadow.label.clone(),
                                 is_confirmed: false,
                                 action: shadow.action,
@@ -451,7 +477,7 @@ impl PiiShield for WardenEngine {
                          all_confirmed.push(UnifiedMatch {
                             start: unicode_start,
                             end: unicode_end,
-                            text: miss.text,
+                            text: std::borrow::Cow::Owned(miss.text.clone()),
                             rule_id: format!("heuristic_promotion_{}", shadow.label),
                             is_confirmed: true,
                             action: shadow.action,
@@ -461,7 +487,7 @@ impl PiiShield for WardenEngine {
                         all_potentials.push(UnifiedMatch {
                             start: unicode_start,
                             end: unicode_end,
-                            text: miss.text,
+                            text: std::borrow::Cow::Owned(miss.text.clone()),
                             rule_id: shadow.label.clone(),
                             is_confirmed: false,
                             action: shadow.action,
@@ -475,7 +501,7 @@ impl PiiShield for WardenEngine {
                          all_confirmed.push(UnifiedMatch {
                             start: unicode_start,
                             end: unicode_end,
-                            text: miss.text,
+                            text: std::borrow::Cow::Owned(miss.text.clone()),
                             rule_id: format!("pool_timeout_promotion_{}", shadow.label),
                             is_confirmed: true,
                             action: shadow.action,
@@ -487,7 +513,7 @@ impl PiiShield for WardenEngine {
                 all_confirmed.push(UnifiedMatch {
                     start: unicode_start,
                     end: unicode_end,
-                    text: miss.text,
+                    text: std::borrow::Cow::Owned(miss.text.clone()),
                     rule_id: format!("heuristic_promotion_{}", shadow.label),
                     is_confirmed: true,
                     action: shadow.action,
@@ -497,7 +523,7 @@ impl PiiShield for WardenEngine {
                 all_potentials.push(UnifiedMatch {
                     start: unicode_start,
                     end: unicode_end,
-                    text: miss.text,
+                    text: std::borrow::Cow::Owned(miss.text.clone()),
                     rule_id: shadow.label.clone(),
                     is_confirmed: false,
                     action: shadow.action,
@@ -510,7 +536,7 @@ impl PiiShield for WardenEngine {
         all_confirmed.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
 
         // --- GLOBAL IDENTITY FIX: Aggressive confirmed+potential fusion ---
-        let mut final_matches: Vec<UnifiedMatch> = Vec::new();
+        let mut final_matches: Vec<UnifiedMatch<'_>> = Vec::new();
         for mat in all_confirmed {
             let mut merged = mat;
             
@@ -525,8 +551,8 @@ impl PiiShield for WardenEngine {
                     let pot = all_potentials.remove(pos);
                     let gap = &normalized[merged.end..pot.start];
                     merged.end = pot.end;
-                    merged.text.push_str(gap);
-                    merged.text.push_str(&pot.text);
+                    merged.text.to_mut().push_str(gap);
+                    merged.text.to_mut().push_str(&pot.text);
                     merged.rule_id = format!("{}+fused", merged.rule_id);
                     merged.action = combine_actions(merged.action, pot.action);
                 } else {
@@ -539,8 +565,8 @@ impl PiiShield for WardenEngine {
                     let gap = &normalized[last.end..merged.start];
                     if gap.trim().is_empty() || gap == ", " {
                         last.end = merged.end;
-                        last.text.push_str(gap);
-                        last.text.push_str(&merged.text);
+                        last.text.to_mut().push_str(gap);
+                        last.text.to_mut().push_str(&merged.text);
                         last.rule_id = format!("{}+{}", last.rule_id, merged.rule_id);
                         last.action = combine_actions(last.action, merged.action);
                         continue;
@@ -553,7 +579,7 @@ impl PiiShield for WardenEngine {
                     if merged.end > last.end {
                         let overlap_start = last.end - merged.start;
                         if overlap_start < merged.text.len() {
-                            last.text.push_str(&merged.text[overlap_start..]);
+                            last.text.to_mut().push_str(&merged.text[overlap_start..]);
                         }
                     }
                     
@@ -572,7 +598,7 @@ impl PiiShield for WardenEngine {
             final_matches.push(merged);
         }
 
-        let mut sanitized_text = String::new();
+        let mut sanitized_text = String::with_capacity(normalized.len() + 128);
         let mut last_pos = 0;
         let mut local_unique_tokens: HashMap<String, String> = HashMap::new();
 
@@ -630,6 +656,7 @@ impl PiiShield for WardenEngine {
                     
                     // 3. Greedy Expansion (Parent -> Child)
                     if existing_token.is_none() {
+                        let mut inserted_new = false;
                         for entry in ctx.identities.iter() {
                             let known_id = entry.key();
                             if is_standalone_word(&text_lower, known_id) && known_id.len() > 3 {
@@ -637,8 +664,13 @@ impl PiiShield for WardenEngine {
                                 existing_token = Some(token.clone());
                                 // Upgrade identity storage to the fuller name
                                 ctx.identities.insert(text_lower.clone(), token);
+                                inserted_new = true;
                                 break;
                             }
+                        }
+                        // To avoid borrowing issues
+                        if inserted_new {
+                            // already inserted
                         }
                     }
                 }
@@ -651,7 +683,7 @@ impl PiiShield for WardenEngine {
                     ctx.pii_to_token.entry(key).or_insert_with(|| {
                         let id = ctx.next_id.fetch_add(1, Ordering::SeqCst);
                         let t = format!("[TOKEN_{}]", id);
-                        ctx.token_to_pii.insert(t.clone(), mat.text.clone());
+                        ctx.token_to_pii.insert(t.clone(), mat.text.to_string());
                         
                         // Register as identity if it's a person or fused name
                         if is_person_like {
@@ -661,13 +693,13 @@ impl PiiShield for WardenEngine {
                     }).value().clone()
                 };
                 
-                token_map.insert(t.clone(), mat.text.clone());
+                token_map.insert(t.clone(), mat.text.to_string());
                 t
             } else {
                 let next_id = local_unique_tokens.len() + 1;
                 local_unique_tokens.entry(mat.text.to_lowercase()).or_insert_with(|| {
                     let t = format!("[TOKEN_{}]", next_id);
-                    token_map.insert(t.clone(), mat.text.clone());
+                    token_map.insert(t.clone(), mat.text.to_string());
                     t
                 }).clone()
             };
@@ -697,7 +729,7 @@ impl PiiShield for WardenEngine {
             });
             if !is_covered {
                 potential_misses.push(PotentialMiss {
-                    text: mat.text,
+                    text: mat.text.to_string(),
                     offset: offset_map.get_original_offset(mat.start),
                     label: mat.rule_id,
                 });

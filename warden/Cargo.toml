@@ -43,3 +43,6 @@ harness = false
 name = "ner_benchmark"
 harness = false
 
+[build-dependencies]
+cc = "1.2.65"
+

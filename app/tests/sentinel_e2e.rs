@@ -84,8 +84,10 @@ rules:
     let storage = WorkerStorage::new(&db_path, &kb_path, pepper2, Some((*queue).clone()), None).await.unwrap();
     
     // 1. Add sensitive document to Librarian
-    let librarian = worker::LocalLibrarian::new(&kb_path).await.unwrap();
+    let librarian = Arc::new(worker::LocalLibrarian::new(&kb_path).await.unwrap());
     librarian.add_document("The document contains TOP_SECRET_PROJECT info.", "test_user").await.unwrap();
+    
+    queue.spawn_worker(librarian.clone());
     
     // 2. Enqueue a job with ONLY sanitized text (V-14 Enforced)
     // Query: "tell me about TOP_SECRET_PROJECT" -> sanitized to "tell me about [TOKEN_1]"
