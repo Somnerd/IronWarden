@@ -5,5 +5,7 @@ members = [
 	"mcp",
 	"warden",
 	"worker",
-	"app"
-, "cli"]
+	"app",
+	"cli",
+	"integration_tests"
+]

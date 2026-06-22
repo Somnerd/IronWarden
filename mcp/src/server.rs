@@ -424,6 +424,7 @@ mod tests {
     use async_trait::async_trait;
     use iw_core::{ScrubbingReport, TokenMap, ComplianceReport};
     use std::time::Duration;
+    use serde_json::json;
 
     struct MockShield;
     impl PiiShield for MockShield {
