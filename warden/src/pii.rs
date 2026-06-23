@@ -3,6 +3,7 @@ use iw_core::{PiiShield, SovereignError, TokenMap, ScrubbingReport, Redaction, E
 use regex::Regex;
 use std::collections::HashMap;
 use std::time::Instant;
+use async_trait::async_trait;
 
 pub struct AhoCorasickShield {
     automaton: AhoCorasick,
@@ -27,89 +28,91 @@ impl AhoCorasickShield {
     }
 }
 
+#[async_trait]
 impl PiiShield for AhoCorasickShield {
-    fn sanitize_prompt(
+    async fn sanitize_prompt(
         &self,
-        prompt: &str,
+        prompt: bytes::Bytes,
         _session: Option<&SessionContext>,
     ) -> Result<ScrubbingReport, SovereignError> {
         let start_time = Instant::now();
+        let prompt_str = std::str::from_utf8(&prompt).unwrap_or("");
         
-        // --- Stage 0: Normalization (Bypass Protection) ---
-        let norm_res = crate::normalize::Normalizer::normalize(prompt);
-        // --- SECURITY FIX (V-07): Use ASCII normalization to prevent homoglyph bypasses ---
-        let normalized_prompt = &norm_res.normalized_ascii;
-        let offset_map = &norm_res.ascii_to_original;
+        crate::normalize::Normalizer::with_normalized(prompt_str, |norm_res| {
+            // --- SECURITY FIX (V-07): Use ASCII normalization to prevent homoglyph bypasses ---
+            let normalized_prompt = &norm_res.normalized_ascii;
+            let offset_map = &norm_res.ascii_to_original;
 
-        let mut token_map = TokenMap::new();
-        let mut redactions = Vec::new();
-        let is_blocked = false;
+            let mut token_map = TokenMap::new();
+            let mut redactions = Vec::new();
+            let is_blocked = false;
 
-        // --- Step 1: Scan for SSN Pattern using Regex ---
-        let mut ssn_counter = 0;
-        let ssn_sanitized = self.ssn_regex.replace_all(&normalized_prompt, |caps: &regex::Captures| {
-            ssn_counter += 1;
-            let token = format!("[SSN_{}]", ssn_counter);
-            let matched_text = caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string();
+            // --- Step 1: Scan for SSN Pattern using Regex ---
+            let mut ssn_counter = 0;
+            let ssn_sanitized = self.ssn_regex.replace_all(&normalized_prompt, |caps: &regex::Captures| {
+                ssn_counter += 1;
+                let token = format!("[SSN_{}]", ssn_counter);
+                let matched_text = caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string();
+                
+                let m = caps.get(0);
+                let start = m.map(|m| m.start()).unwrap_or(0);
+                let end = m.map(|m| m.end()).unwrap_or(0);
+                let orig_start = offset_map.get_original_offset(start);
+                let orig_end = offset_map.get_original_offset(end);
+
+                redactions.push(Redaction {
+                    rule_id: "regex_ssn".into(),
+                    action: EnforcementAction::Redact,
+                    offset: orig_start,
+                    length: if orig_end >= orig_start { orig_end - orig_start } else { 0 },
+                    placeholder: token.clone(),
+                    category: PiiCategory::IdentificationNumber,
+                });
+
+                token_map.insert(token.clone(), matched_text);
+                token
+            });
+
+            // --- Step 2: Scan for Dictionary Terms using Aho-Corasick ---
+            let mut term_counter = 0;
+            let mut final_result = String::new();
+            let mut last_end = 0;
+            let mut original_to_token: HashMap<String, String> = HashMap::new();
+
+            for mat in self.automaton.find_iter(&*ssn_sanitized) {
+                final_result.push_str(&ssn_sanitized[last_end..mat.start()]);
+                let original_text = &ssn_sanitized[mat.start()..mat.end()];
+                
+                let token = original_to_token.entry(original_text.to_string()).or_insert_with(|| {
+                    term_counter += 1;
+                    let t = format!("[TERM_{}]", term_counter);
+                    token_map.insert(t.clone(), original_text.to_string());
+                    t
+                });
+
+                redactions.push(Redaction {
+                    rule_id: "dict_match".into(),
+                    action: EnforcementAction::Redact,
+                    offset: mat.start(), // Note: These offsets are relative to ssn_sanitized, still drifted
+                    length: original_text.len(),
+                    placeholder: token.clone(),
+                    category: PiiCategory::Other,
+                });
+
+                final_result.push_str(token);
+                last_end = mat.end();
+            }
             
-            let m = caps.get(0);
-            let start = m.map(|m| m.start()).unwrap_or(0);
-            let end = m.map(|m| m.end()).unwrap_or(0);
-            let orig_start = offset_map.get_original_offset(start);
-            let orig_end = offset_map.get_original_offset(end);
+            final_result.push_str(&ssn_sanitized[last_end..]);
 
-            redactions.push(Redaction {
-                rule_id: "regex_ssn".into(),
-                action: EnforcementAction::Redact,
-                offset: orig_start,
-                length: if orig_end >= orig_start { orig_end - orig_start } else { 0 },
-                placeholder: token.clone(),
-                category: PiiCategory::IdentificationNumber,
-            });
-
-            token_map.insert(token.clone(), matched_text);
-            token
-        });
-
-        // --- Step 2: Scan for Dictionary Terms using Aho-Corasick ---
-        let mut term_counter = 0;
-        let mut final_result = String::new();
-        let mut last_end = 0;
-        let mut original_to_token: HashMap<String, String> = HashMap::new();
-
-        for mat in self.automaton.find_iter(&*ssn_sanitized) {
-            final_result.push_str(&ssn_sanitized[last_end..mat.start()]);
-            let original_text = &ssn_sanitized[mat.start()..mat.end()];
-            
-            let token = original_to_token.entry(original_text.to_string()).or_insert_with(|| {
-                term_counter += 1;
-                let t = format!("[TERM_{}]", term_counter);
-                token_map.insert(t.clone(), original_text.to_string());
-                t
-            });
-
-            redactions.push(Redaction {
-                rule_id: "dict_match".into(),
-                action: EnforcementAction::Redact,
-                offset: mat.start(), // Note: These offsets are relative to ssn_sanitized, still drifted
-                length: original_text.len(),
-                placeholder: token.clone(),
-                category: PiiCategory::Other,
-            });
-
-            final_result.push_str(token);
-            last_end = mat.end();
-        }
-        
-        final_result.push_str(&ssn_sanitized[last_end..]);
-
-        Ok(ScrubbingReport {
-            sanitized_text: final_result,
-            is_blocked, 
-            redactions,
-            token_map,
-            execution_time_ms: start_time.elapsed().as_millis() as u64,
-            potential_misses: Vec::new(),
+            Ok(ScrubbingReport {
+                sanitized_text: final_result.into(),
+                is_blocked, 
+                redactions,
+                token_map,
+                execution_time_ms: start_time.elapsed().as_millis() as u64,
+                potential_misses: Vec::new(),
+            })
         })
     }
 

@@ -1,0 +1,1039 @@
+   Compiling datafusion-catalog v52.5.0
+   Compiling datafusion-pruning v52.5.0
+   Compiling datafusion-datasource-arrow v52.5.0
+   Compiling datafusion-datasource-json v52.5.0
+   Compiling datafusion-datasource-csv v52.5.0
+warning: unused import: `error`
+ --> core/src/fips.rs:1:27
+  |
+1 | ...warn, error};
+  |          ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:42:28
+   |
+42 | ...e::from_slice(&no...
+   |       ^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:52:37
+   |
+52 | ...>::from_slice(&ke...
+   |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:83:28
+   |
+83 | ...e::from_slice(non...
+   |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:93:37
+   |
+93 | ...>::from_slice(&ke...
+   |       ^^^^^^^^^^
+
+warning: `iw_core` (lib) generated 5 warnings (run `cargo fix --lib -p iw_core` to apply 1 suggestion)
+   Compiling lance-table v4.0.0
+   Compiling iw-warden v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/warden)
+warning: use of deprecated method `hmac::digest::generic_array::GenericArray::<T, N>::as_slice`: please upgrade to generic-array 1.x
+   --> cli/src/main.rs:185:40
+    |
+185 | ...ash.as_slice() =...
+    |        ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `iw-cli` (bin "iw-cli" test) generated 1 warning
+warning: `iw_core` (lib test) generated 5 warnings (5 duplicates)
+warning: unused import: `regex::Regex`
+ --> warden/src/normalize.rs:2:5
+  |
+2 | use regex::Regex;
+  |     ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `once_cell::sync::Lazy`
+ --> warden/src/normalize.rs:3:5
+  |
+3 | use once_cell::sync::Lazy;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> warden/src/engine.rs:6:5
+  |
+6 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::atomic::Ordering`
+ --> warden/src/engine.rs:7:5
+  |
+7 | use std::sync::atomic::Ordering;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PotentialMiss`
+ --> warden/src/shadow_ner.rs:2:23
+  |
+2 | ...::{PotentialMiss, E...
+  |       ^^^^^^^^^^^^^
+
+warning: unused import: `crate::normalize::OffsetMap`
+ --> warden/src/shadow_ner.rs:4:5
+  |
+4 | use crate::normalize::OffsetMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PathBuf`
+ --> warden/src/ai.rs:5:23
+  |
+5 | ...ath, PathBuf};
+  |         ^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> warden/src/ai.rs:7:5
+  |
+7 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `crate::config::HeuristicConfig`
+   --> warden/src/engine.rs:588:9
+    |
+588 | ...se crate::config::HeuristicConfig;
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:110:37
+    |
+110 | ...>::from_slice(&k...
+    |       ^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:547:28
+    |
+547 | ...e::from_slice(&n...
+    |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:569:28
+    |
+569 | ...e::from_slice(no...
+    |       ^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> warden/src/engine.rs:269:17
+    |
+269 | ...or mut mat in ma...
+    |       ----^^^
+    |       |
+    |       help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `text_str`
+   --> warden/src/engine.rs:296:21
+    |
+296 | ...et text_str = st...
+    |       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_text_str`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `e`
+  --> warden/src/ai.rs:92:17
+   |
+92 | ...   Err(e) => retu...
+   |           ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `e`
+  --> warden/src/ai.rs:97:17
+   |
+97 | ...   Err(e) => retu...
+   |           ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `e`
+   --> warden/src/ai.rs:114:17
+    |
+114 | ... Err(e) => retur...
+    |         ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: constant `SEMANTIC_CACHE_THRESHOLD` is never used
+  --> warden/src/engine.rs:18:7
+   |
+18 | const SEMANTIC_CACHE_THRESHOLD: f...
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `is_confirmed` is never read
+   --> warden/src/engine.rs:167:5
+    |
+162 | struct UnifiedMatch {
+    |        ------------ field in this struct
+...
+167 |     is_confirmed: bool,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `UnifiedMatch` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `combine_actions` is never used
+   --> warden/src/engine.rs:533:4
+    |
+533 | fn combine_actions(a:...
+    |    ^^^^^^^^^^^^^^^
+
+warning: field `global_name_re` is never read
+  --> warden/src/shadow_ner.rs:18:5
+   |
+16 | pub struct ShadowNer {
+   |            --------- field in this struct
+17 |     patterns: Vec<(Rege...
+18 |     global_name_re: Regex,
+   |     ^^^^^^^^^^^^^^
+
+warning: field `threshold` is never read
+   --> warden/src/ai.rs:188:5
+    |
+185 | pub struct HybridNerPool {
+    |            ------------- field in this struct
+...
+188 |     threshold: f64,
+    |     ^^^^^^^^^
+
+   Compiling datafusion-physical-optimizer v52.5.0
+warning: `iw-warden` (lib) generated 21 warnings (run `cargo fix --lib -p iw-warden` to apply 13 suggestions)
+warning: `iw-warden` (lib test) generated 22 warnings (21 duplicates) (run `cargo fix --lib -p iw-warden --tests` to apply 1 suggestion)
+   Compiling datafusion-functions-table v52.5.0
+   Compiling datafusion-catalog-listing v52.5.0
+   Compiling datafusion v52.5.0
+   Compiling lance-datafusion v4.0.0
+   Compiling lance-index v4.0.0
+   Compiling lance v4.0.0
+   Compiling lance-namespace-impls v4.0.0
+   Compiling lancedb v0.27.2
+   Compiling worker v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/worker)
+warning: unused import: `warn`
+ --> worker/src/audit.rs:8:28
+  |
+8 | ...error, warn};
+  |           ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `rusqlite::ErrorCode`
+ --> worker/src/storage.rs:7:5
+  |
+7 | use rusqlite::ErrorCode;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `warn`
+ --> worker/src/librarian.rs:7:21
+  |
+7 | ...{info, warn};
+  |           ^^^^
+
+warning: use of deprecated method `hmac::digest::generic_array::GenericArray::<T, N>::as_slice`: please upgrade to generic-array 1.x
+   --> worker/src/audit.rs:451:44
+    |
+451 | ...ash.as_slice() !...
+    |        ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: value assigned to `conn` is never read
+   --> worker/src/audit.rs:102:48
+    |
+102 | ...ut conn: Option<Connection> = None;
+    |                                  ^^^^ this value is reassigned later and never used
+...
+108 | ...   conn = Some(c);
+    |       ---- `conn` is overwritten here before the previous value is read
+    |
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `last_id` is never read
+   --> worker/src/audit.rs:104:36
+    |
+104 | ...ut last_id: i64 = 0;
+    |                      ^ this value is reassigned later and never used
+...
+110 | ...   last_id = id;
+    |       ------------ `last_id` is overwritten here before the previous value is read
+
+warning: field `db_path` is never read
+  --> worker/src/storage.rs:17:5
+   |
+13 | pub struct WorkerStorage {
+   |            ------------- field in this struct
+...
+17 |     db_path: String,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `db_path` and `grounding_shield` are never read
+  --> worker/src/searchboost.rs:25:5
+   |
+24 | pub struct SearchBoostQueue {
+   |            ---------------- fields in this struct
+25 |     db_path: String,
+   |     ^^^^^^^
+...
+29 |     grounding_shield: Option<A...
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `SearchBoostQueue` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `db_path` is never read
+   --> worker/src/searchboost.rs:352:5
+    |
+350 | pub struct LocalSessionManager {
+    |            ------------------- field in this struct
+351 |     sessions: DashMap<String, Arc...
+352 |     db_path: String,
+    |     ^^^^^^^
+
+   Compiling mcp v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/mcp)
+warning: unused imports: `ComplianceReport` and `ScrubbingReport`
+ --> mcp/src/server.rs:7:104
+  |
+7 | ...t, ComplianceReport, ScrubbingReport};
+  |       ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `worker` (lib test) generated 9 warnings (9 duplicates)
+warning: `mcp` (lib) generated 1 warning (run `cargo fix --lib -p mcp` to apply 1 suggestion)
+warning: `worker` (lib) generated 9 warnings (run `cargo fix --lib -p worker` to apply 3 suggestions)
+   Compiling iw-integration-tests v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/integration_tests)
+   Compiling app v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/app)
+warning: unused import: `tokio::task`
+ --> integration_tests/tests/core/session_concurrency.rs:4:5
+  |
+4 | use tokio::task;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::sync::Arc`
+  --> integration_tests/tests/warden/sentinel_adversarial.rs:61:9
+   |
+61 |     use std::sync::Arc;
+   |         ^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> integration_tests/tests/warden/shipping_test.rs:4:5
+  |
+4 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `SecretVec`
+ --> integration_tests/tests/worker/adversarial_bridge_stress.rs:9:15
+  |
+9 | ...y::{SecretVec};
+  |        ^^^^^^^^^
+
+warning: unused imports: `EnforcementAction`, `PiiCategory`, and `ScrubbingReport`
+ --> integration_tests/tests/worker/security_invariant_test.rs:3:32
+  |
+3 | ...r, ScrubbingReport, EnforcementAction, PiiCategory};
+  |       ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> integration_tests/tests/worker/security_invariant_test.rs:5:5
+  |
+5 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `iw_core::traits::EnforcementAction`
+ --> integration_tests/tests/worker/session_security_test.rs:3:5
+  |
+3 | use iw_core::traits::EnforcementAction;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `iw_core::PiiCategory`
+ --> integration_tests/tests/worker/session_security_test.rs:4:5
+  |
+4 | use iw_core::PiiCategory;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> integration_tests/tests/worker/session_security_test.rs:6:5
+  |
+6 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `tempfile::tempdir`
+ --> integration_tests/tests/app/legal_e2e_test.rs:2:5
+  |
+2 | use tempfile::tempdir;
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `LocalSessionManager`
+ --> integration_tests/tests/app/legal_e2e_test.rs:6:29
+  |
+6 | ...e, LocalSessionManager, S...
+  |       ^^^^^^^^^^^^^^^^^^^
+
+warning: the `#![recursion_limit]` attribute can only be used at the crate root
+ --> integration_tests/tests/worker/rag_blindness_test.rs:2:1
+  |
+2 | #![recursion_limit = "1024"]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> integration_tests/tests/worker/audit_integrity.rs:24:24
+   |
+24 | ...>::from_slice(&en...
+   |       ^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> integration_tests/tests/worker/audit_integrity.rs:145:24
+    |
+145 | ...e::from_slice(&n...
+    |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> integration_tests/tests/worker/audit_integrity.rs:156:37
+    |
+156 | ...>::from_slice(&k...
+    |       ^^^^^^^^^^
+
+warning: unused import: `StorageProvider`
+ --> integration_tests/tests/app/sentinel_e2e.rs:6:42
+  |
+6 | ...r, StorageProvider};
+  |       ^^^^^^^^^^^^^^^
+
+warning: unused variable: `engine`
+  --> integration_tests/tests/warden/sentinel_adversarial.rs:69:9
+   |
+69 |     let engine = con...
+   |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_engine`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `base_dir`
+ --> integration_tests/tests/worker/librarian_scrub_test.rs:9:9
+  |
+9 | ...et base_dir = temp...
+  |       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_base_dir`
+
+warning: unused variable: `job_id`
+  --> integration_tests/tests/worker/tandem_grounding_test.rs:90:9
+   |
+90 |     let job_id = que...
+   |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_job_id`
+
+warning: unused variable: `storage`
+  --> integration_tests/tests/app/sentinel_e2e.rs:85:9
+   |
+85 | ...et storage = Work...
+   |       ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_storage`
+
+warning: unused variable: `pepper2`
+   --> integration_tests/tests/app/sentinel_e2e.rs:130:9
+    |
+130 | ...et pepper2 = Sec...
+    |       ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pepper2`
+
+warning: function `main` is never used
+ --> integration_tests/tests/warden/ghosting_test.rs:8:10
+  |
+8 | async fn main() {
+  |          ^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `main` is never used
+ --> integration_tests/tests/warden/greek_regex_test.rs:5:10
+  |
+5 | async fn main() {
+  |          ^^^^
+
+warning: unused `Result` that must be used
+  --> integration_tests/tests/worker/audit_integrity.rs:36:5
+   |
+36 | /     auditor.log_report(ScrubbingReport {
+37 | |         sanitized_text: "".into(),
+38 | |         is_blocked: false,
+39 | |         redactions: vec![],
+...  |
+42 | |         execution_time_ms: 0,
+43 | |     }, "".into(), "test_user".into()).await;
+   | |___________________________________________^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+   = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+   |
+36 |     let _ = auditor.log_report(ScrubbingReport {
+   |     +++++++
+
+warning: unused `Result` that must be used
+  --> integration_tests/tests/worker/audit_integrity.rs:89:5
+   |
+89 |     auditor...).await;
+   |     ^^^^^^^...^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+   |
+89 |     let _ = auditor.log_report(report.clone(), "Hello Alice".to_string(), "Alice".into()).await;
+   |     +++++++
+
+warning: unused `Result` that must be used
+   --> integration_tests/tests/worker/audit_integrity.rs:135:5
+    |
+135 |     auditor...).await;
+    |     ^^^^^^^...^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+135 |     let _ = auditor.log_report(report, raw_input.to_string(), "user_1".into()).await;
+    |     +++++++
+
+warning: `mcp` (lib test) generated 1 warning (1 duplicate)
+warning: `iw-integration-tests` (test "integration_tests") generated 26 warnings (run `cargo fix --test "integration_tests" -p iw-integration-tests` to apply 16 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 16s
+     Running unittests src/main.rs (target/debug/deps/app-740c2fe209157797)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/iw_cli-6e073ac22de7d627)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/integration_tests.rs (target/debug/deps/integration_tests-b8a0db0b806d692c)
+
+running 48 tests
+[2m2026-06-23T23:57:43.428443Z[0m [33m WARN[0m [2miw_warden::ai[0m[2m:[0m ONNX model files not found. Running in Heuristic-Only mode.
+[2m2026-06-23T23:57:43.428510Z[0m [32m INFO[0m [2miw_warden::config[0m[2m:[0m Hybrid Intelligence Pool initialized with 4 workers
+[2m2026-06-23T23:57:43.428875Z[0m [33m WARN[0m [2miw_warden::ai[0m[2m:[0m ONNX model files not found. Running in Heuristic-Only mode.
+[2m2026-06-23T23:57:43.428910Z[0m [32m INFO[0m [2miw_warden::config[0m[2m:[0m Hybrid Intelligence Pool initialized with 4 workers
+[2m2026-06-23T23:57:43.429080Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+test core::session_concurrency::test_session_concurrency ... ok
+[2m2026-06-23T23:57:43.431189Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+test warden::evasion_test::test_v15_homoglyph_evasion ... FAILED
+test warden::global_fusion_test::test_global_identity_fusion ... FAILED
+test warden::legal_test::test_legal_rules_loading ... ok
+[2m2026-06-23T23:57:43.435712Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+test warden::greek_test::test_greek_pii_detection ... FAILED
+test app::sentinel_e2e::test_engine_rule_matching_diagnostic ... FAILED
+test warden::fusion_test::test_papadopoulos_fusion_integrity ... FAILED
+test warden::identity_ghosting_test::test_identity_ghosting_prevention ... FAILED
+test app::hardened_integration::test_stateful_tokenization_session_consistency ... FAILED
+test warden::medical_test::test_medical_rules_loading ... ok
+test warden::sentinel_adversarial::test_v13_homoglyph_dictionary_evasion ... FAILED
+test warden::identity_linking_test::tests::test_identity_linking_john_and_alice_smith ... FAILED
+test warden::sentinel_qa::test_semantic_cache_homoglyph_resilience ... FAILED
+test warden::sentinel_adversarial::test_v15_shadow_ner_greek_homoglyph ... FAILED
+test warden::sentinel_qa::test_shadow_ner_homoglyph_resilience ... FAILED
+test warden::sentinel_qa::test_shadow_ner_promotion_without_ai ... FAILED
+test warden::sentinel_adversarial::test_semantic_cache_poisoning ... FAILED
+[2m2026-06-23T23:57:43.441807Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:43.442005Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+test warden::session_test::test_session_token_consistency ... FAILED
+[2m2026-06-23T23:57:43.443871Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:43.443993Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:43.539888Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: Creating new LanceDB table 'documents'
+[2m2026-06-23T23:57:43.541228Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpS9SoOb_knowledge/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:43.541313Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpS9SoOb_knowledge/documents.lance" [3mmode[0m[2m=[0mCreate
+[2m2026-06-23T23:57:43.541821Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpS9SoOb_knowledge/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:43.543401Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:43.544402Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpS9SoOb_knowledge/documents.lance" [3mread_version[0m[2m=[0m0 [3mcommitted_version[0m[2m=[0m1 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Overwrite"
+[2m2026-06-23T23:57:43.544526Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmpS9SoOb_knowledge
+[2m2026-06-23T23:57:43.545299Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpS9SoOb_knowledge/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mversion[0m[2m=[0m1 [3mstatus[0m[2m=[0m"success"
+[2m2026-06-23T23:57:43.546173Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpS9SoOb_knowledge/documents.lance" [3mmode[0m[2m=[0mAppend
+test warden::legal_test::test_legal_pii_redaction ... FAILED
+[2m2026-06-23T23:57:43.548383Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"data" [3mpath[0m[2m=[0m"111101010010110001111100567ed04856bfc2713462063a4c.lance"
+[2m2026-06-23T23:57:43.548675Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:43.549476Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+test warden::medical_test::test_medical_heuristics_audit_only ... FAILED
+[2m2026-06-23T23:57:43.549884Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpS9SoOb_knowledge/documents.lance" [3mread_version[0m[2m=[0m1 [3mcommitted_version[0m[2m=[0m2 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Append"
+[2m2026-06-23T23:57:43.550124Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+test warden::shipping_test::test_logistics_heuristics ... FAILED
+[2m2026-06-23T23:57:43.551055Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+test warden::shipping_test::test_shipping_rules_loading ... FAILED
+test warden::medical_test::test_medical_pii_redaction ... FAILED
+[2m2026-06-23T23:57:44.050827Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:44.051239Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.051343Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.051511Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.052168Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmpS9SoOb_knowledge
+[2m2026-06-23T23:57:44.052521Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.052680Z[0m [32m INFO[0m [2mworker::storage[0m[2m:[0m SearchBoost background worker ignited.
+[2m2026-06-23T23:57:44.053526Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpS9SoOb_knowledge/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mversion[0m[2m=[0m2 [3mstatus[0m[2m=[0m"success"
+[2m2026-06-23T23:57:44.058836Z[0m [32m INFO[0m [1mDatasetRecordBatchStream[0m[2m:[0m [2mlance::execution[0m[2m:[0m [3mtype[0m[2m=[0m"plan_run" [3mplan_summary[0m[2m=[0m"FilteredRead" [3moutput_rows[0m[2m=[0m1 [3miops[0m[2m=[0m5 [3mrequests[0m[2m=[0m5 [3mbytes_read[0m[2m=[0m878 [3mindices_loaded[0m[2m=[0m0 [3mparts_loaded[0m[2m=[0m0 [3mindex_comparisons[0m[2m=[0m0
+test app::legal_e2e_test::test_legal_e2e ... ok
+test worker::librarian_scrub_test::test_leak_proof_librarian_flow ... ok
+test worker::rag_blindness_test::test_librarian_semantic_utility ... ignored
+[2m2026-06-23T23:57:44.073819Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:44.572716Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.572743Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.572821Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.572872Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.572919Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.572946Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.573641Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.574468Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.574611Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m Successfully encrypted and flushed 1 sessions to SQLite
+[2m2026-06-23T23:57:44.574627Z[0m [31mERROR[0m [2mworker::audit[0m[2m:[0m HARD-STOP MONITOR: Anchor Violation: Audit DB Truncation Detected! Expected last ID >= 999, but found 1. Triggering Fail-Closed state.
+[2m2026-06-23T23:57:44.576508Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:44.576981Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m Successfully encrypted and flushed 1 sessions to SQLite
+[2m2026-06-23T23:57:44.577066Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.577137Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.577149Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.577174Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.577181Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.577224Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.577266Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.577329Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.577348Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.577390Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+test worker::ha_verification::test_ha_logic_detection ... ok
+[2m2026-06-23T23:57:44.577438Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.577465Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.577482Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.577490Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.577503Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.577519Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.577547Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.577573Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.577641Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+test worker::ha_verification::test_ha_logic_disabled_without_env ... ok
+[2m2026-06-23T23:57:44.577656Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.577665Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.577913Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.578165Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:44.578517Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.578574Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.578618Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.578672Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: Creating new LanceDB table 'documents'
+[2m2026-06-23T23:57:44.578706Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.578785Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.578959Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: Creating new LanceDB table 'documents'
+[2m2026-06-23T23:57:44.578969Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.579107Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.579216Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.579241Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.579303Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: Creating new LanceDB table 'documents'
+[2m2026-06-23T23:57:44.579501Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.579510Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.579664Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.579976Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.580310Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.580434Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpv7xsYe/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.580434Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpPdWVYl_lancedb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.580513Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpv7xsYe/documents.lance" [3mmode[0m[2m=[0mCreate
+[2m2026-06-23T23:57:44.580528Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpPdWVYl_lancedb/documents.lance" [3mmode[0m[2m=[0mCreate
+[2m2026-06-23T23:57:44.580799Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmppPka1k_lancedb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.580876Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmppPka1k_lancedb/documents.lance" [3mmode[0m[2m=[0mCreate
+[2m2026-06-23T23:57:44.580895Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpv7xsYe/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.580912Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpPdWVYl_lancedb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.581021Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: Creating new LanceDB table 'documents'
+[2m2026-06-23T23:57:44.581273Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmppPka1k_lancedb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.581356Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: Creating new LanceDB table 'documents'
+[2m2026-06-23T23:57:44.581543Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpj0ryA9_kb_sb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.581601Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpj0ryA9_kb_sb/documents.lance" [3mmode[0m[2m=[0mCreate
+[2m2026-06-23T23:57:44.581955Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.581976Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmplQxJGz_kb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.582006Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmplQxJGz_kb/documents.lance" [3mmode[0m[2m=[0mCreate
+[2m2026-06-23T23:57:44.582117Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpj0ryA9_kb_sb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.582377Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.582562Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmplQxJGz_kb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.584264Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.584279Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.584264Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.584940Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpPdWVYl_lancedb/documents.lance" [3mread_version[0m[2m=[0m0 [3mcommitted_version[0m[2m=[0m1 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Overwrite"
+[2m2026-06-23T23:57:44.584974Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmppPka1k_lancedb/documents.lance" [3mread_version[0m[2m=[0m0 [3mcommitted_version[0m[2m=[0m1 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Overwrite"
+[2m2026-06-23T23:57:44.584995Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.585023Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmppPka1k_lancedb
+[2m2026-06-23T23:57:44.585026Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmpPdWVYl_lancedb
+[2m2026-06-23T23:57:44.584960Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.584951Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpv7xsYe/documents.lance" [3mread_version[0m[2m=[0m0 [3mcommitted_version[0m[2m=[0m1 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Overwrite"
+[2m2026-06-23T23:57:44.585115Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmpv7xsYe
+[2m2026-06-23T23:57:44.585721Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpj0ryA9_kb_sb/documents.lance" [3mread_version[0m[2m=[0m0 [3mcommitted_version[0m[2m=[0m1 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Overwrite"
+[2m2026-06-23T23:57:44.585771Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmplQxJGz_kb/documents.lance" [3mread_version[0m[2m=[0m0 [3mcommitted_version[0m[2m=[0m1 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Overwrite"
+[2m2026-06-23T23:57:44.586352Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmpj0ryA9_kb_sb
+[2m2026-06-23T23:57:44.586371Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmplQxJGz_kb
+test app::hardened_integration::test_end_to_end_hardened_pipeline ... FAILED
+[2m2026-06-23T23:57:44.587107Z[0m [32m INFO[0m [2mworker::storage[0m[2m:[0m SearchBoost background worker ignited.
+[2m2026-06-23T23:57:44.587232Z[0m [32m INFO[0m [2mworker::storage[0m[2m:[0m SearchBoost background worker ignited.
+[2m2026-06-23T23:57:44.587272Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:44.587485Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmpj0ryA9_kb_sb
+[2m2026-06-23T23:57:44.587610Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmplQxJGz_kb
+[2m2026-06-23T23:57:44.588200Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpj0ryA9_kb_sb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mversion[0m[2m=[0m1 [3mstatus[0m[2m=[0m"success"
+[2m2026-06-23T23:57:44.588237Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmplQxJGz_kb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mversion[0m[2m=[0m1 [3mstatus[0m[2m=[0m"success"
+[2m2026-06-23T23:57:44.588660Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmplQxJGz_kb/documents.lance" [3mmode[0m[2m=[0mAppend
+[2m2026-06-23T23:57:44.588660Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpj0ryA9_kb_sb/documents.lance" [3mmode[0m[2m=[0mAppend
+[2m2026-06-23T23:57:44.590696Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"data" [3mpath[0m[2m=[0m"101001111101101100001110c0bb144f56b0d8c440a72cd6b6.lance"
+[2m2026-06-23T23:57:44.590696Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"data" [3mpath[0m[2m=[0m"010110000101000010000101613bdc4f918ab2be349fc59230.lance"
+[2m2026-06-23T23:57:44.591614Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.591616Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.591983Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmplQxJGz_kb/documents.lance" [3mread_version[0m[2m=[0m1 [3mcommitted_version[0m[2m=[0m2 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Append"
+[2m2026-06-23T23:57:44.592013Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpj0ryA9_kb_sb/documents.lance" [3mread_version[0m[2m=[0m1 [3mcommitted_version[0m[2m=[0m2 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Append"
+[2m2026-06-23T23:57:44.592785Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m Successfully enqueued encrypted SearchBoost job (Sanitized) [3mjob_id[0m[2m=[0mSB-SESSION:alice:thread_1:865c835e-8d8d-4ecb-a0ac-062a41b12c4b
+[2m2026-06-23T23:57:44.592979Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m Processing SearchBoost job (Sanitized Grounding)... [3mjob_id[0m[2m=[0mSB-SESSION:alice:thread_1:865c835e-8d8d-4ecb-a0ac-062a41b12c4b [3muser[0m[2m=[0malice
+[2m2026-06-23T23:57:44.593542Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpj0ryA9_kb_sb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mversion[0m[2m=[0m2 [3mstatus[0m[2m=[0m"success"
+[2m2026-06-23T23:57:44.594403Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.594437Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:44.594864Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.594865Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.594925Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.595124Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.595300Z[0m [31mERROR[0m [2mworker::audit[0m[2m:[0m CRITICAL: Audit payload mismatch at record 1. Raw log has been tampered with!
+[2m2026-06-23T23:57:44.595389Z[0m [31mERROR[0m [2mworker::audit[0m[2m:[0m Audit DB anchoring failure: Query is not read-only. Aborting startup.
+test app::sentinel_e2e::test_v55_ephemeral_tampering_fail_closed ... ok
+[2m2026-06-23T23:57:44.595887Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: Creating new LanceDB table 'documents'
+[2m2026-06-23T23:57:44.596411Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:44.596550Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.596729Z[0m [32m INFO[0m [1mDatasetRecordBatchStream[0m[2m:[0m [2mlance::execution[0m[2m:[0m [3mtype[0m[2m=[0m"plan_run" [3mplan_summary[0m[2m=[0m"FilteredRead" [3moutput_rows[0m[2m=[0m1 [3miops[0m[2m=[0m5 [3mrequests[0m[2m=[0m5 [3mbytes_read[0m[2m=[0m731 [3mindices_loaded[0m[2m=[0m0 [3mparts_loaded[0m[2m=[0m0 [3mindex_comparisons[0m[2m=[0m0
+[2m2026-06-23T23:57:44.596773Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmp5W2Rw3_kb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.596803Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmp5W2Rw3_kb/documents.lance" [3mmode[0m[2m=[0mCreate
+[2m2026-06-23T23:57:44.597140Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmp5W2Rw3_kb/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.597227Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m SearchBoost job completed and encrypted. [3mjob_id[0m[2m=[0mSB-SESSION:alice:thread_1:865c835e-8d8d-4ecb-a0ac-062a41b12c4b
+[2m2026-06-23T23:57:44.598296Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.598958Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmp5W2Rw3_kb/documents.lance" [3mread_version[0m[2m=[0m0 [3mcommitted_version[0m[2m=[0m1 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Overwrite"
+[2m2026-06-23T23:57:44.598999Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmp5W2Rw3_kb
+[2m2026-06-23T23:57:44.634751Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.634809Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.634889Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+[2m2026-06-23T23:57:44.635907Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+test worker::security_invariant_test::test_v19_session_isolation_aad ... ok
+[2m2026-06-23T23:57:44.640543Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.640994Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Full-Chain Integrity Walk successful. Verified 0 records.
+[2m2026-06-23T23:57:44.641113Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Audit database anchored and verified at ID 0.
+test worker::session_security_test::test_v19_session_swap_integrity ... ok
+[2m2026-06-23T23:57:44.642778Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+[2m2026-06-23T23:57:44.643401Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: Creating new LanceDB table 'documents'
+[2m2026-06-23T23:57:44.644006Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpyushHk_knowledge_v14/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.644064Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpyushHk_knowledge_v14/documents.lance" [3mmode[0m[2m=[0mCreate
+[2m2026-06-23T23:57:44.644424Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpyushHk_knowledge_v14/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mstatus[0m[2m=[0m"error"
+[2m2026-06-23T23:57:44.645541Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.646291Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpyushHk_knowledge_v14/documents.lance" [3mread_version[0m[2m=[0m0 [3mcommitted_version[0m[2m=[0m1 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Overwrite"
+[2m2026-06-23T23:57:44.646810Z[0m [32m INFO[0m [2mworker::librarian[0m[2m:[0m Librarian: LanceDB Engine initialized at data/lancedb/_tmp_.tmpyushHk_knowledge_v14
+[2m2026-06-23T23:57:44.647379Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpyushHk_knowledge_v14/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mversion[0m[2m=[0m1 [3mstatus[0m[2m=[0m"success"
+[2m2026-06-23T23:57:44.647819Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"writing" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpyushHk_knowledge_v14/documents.lance" [3mmode[0m[2m=[0mAppend
+[2m2026-06-23T23:57:44.649261Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"data" [3mpath[0m[2m=[0m"1001000110111001000101102b61e14f9d88029ad2f32b65e0.lance"
+[2m2026-06-23T23:57:44.650001Z[0m [32m INFO[0m [2mlance::file_audit[0m[2m:[0m [3mmode[0m[2m=[0m"create" [3mtype[0m[2m=[0m"manifest" [3mpath[0m[2m=[0m"dummy"
+[2m2026-06-23T23:57:44.650325Z[0m [32m INFO[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"committed" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpyushHk_knowledge_v14/documents.lance" [3mread_version[0m[2m=[0m1 [3mcommitted_version[0m[2m=[0m2 [3mdetached[0m[2m=[0mfalse [3moperation[0m[2m=[0m"Append"
+[2m2026-06-23T23:57:44.670244Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m Successfully enqueued encrypted SearchBoost job (Sanitized) [3mjob_id[0m[2m=[0mSB-SESSION:alice:thread_1:8c02727e-483f-4348-9c9c-dbfab94b0b34
+test worker::tandem_grounding_test::test_aad_binding_integrity ... ok
+test app::sentinel_e2e::test_v19_session_isolation_aad_adversarial ... ok
+[2m2026-06-23T23:57:44.699595Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m Successfully encrypted and flushed 1 sessions to SQLite
+[2m2026-06-23T23:57:44.699909Z[0m [31mERROR[0m [2mworker::bridge[0m[2m:[0m JWT Validation Failure: Base64 error: Invalid symbol 34, offset 0.
+test worker::adversarial_bridge_stress::test_adversarial_bridge_stress_and_blocking ... FAILED
+[2m2026-06-23T23:57:44.847656Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:44.847875Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:44.848023Z[0m [31mERROR[0m [2mworker::audit[0m[2m:[0m CRITICAL: Audit log integrity violation detected at record 1. Chain is broken!
+[2m2026-06-23T23:57:44.848100Z[0m [31mERROR[0m [2mworker::audit[0m[2m:[0m Audit DB anchoring failure: Query is not read-only. Aborting startup.
+test worker::tamper_test::test_gap_02_boot_handshake_tamper_detection ... ok
+test worker::audit_integrity::test_audit_db_creation ... ok
+[2m2026-06-23T23:57:45.083519Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Warden Audit Worker (Dedicated Writer Thread) ignited.
+[2m2026-06-23T23:57:45.083748Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Initiating Full-Chain Integrity Walk...
+[2m2026-06-23T23:57:45.083886Z[0m [31mERROR[0m [2mworker::audit[0m[2m:[0m CRITICAL: Audit log integrity violation detected at record 1. Chain is broken!
+[2m2026-06-23T23:57:45.083955Z[0m [31mERROR[0m [2mworker::audit[0m[2m:[0m Audit DB anchoring failure: Query is not read-only. Aborting startup.
+test worker::audit_integrity::test_hmac_chain_breakage ... ok
+test app::mcp_integration_test::test_mcp_full_pipeline_with_tantivy ... FAILED
+test app::sentinel_e2e::test_v14_librarian_output_scrubbing ... ok
+test app::sentinel_e2e::test_v13_anchor_tampering_fail_closed ... ok
+[2m2026-06-23T23:57:45.664753Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m Successfully enqueued encrypted SearchBoost job (Sanitized) [3mjob_id[0m[2m=[0mSB-SESSION:test_user:thread_1:1a7b405c-cb15-4278-bb0a-ebc9e317ee05
+[2m2026-06-23T23:57:45.666217Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m Processing SearchBoost job (Sanitized Grounding)... [3mjob_id[0m[2m=[0mSB-SESSION:test_user:thread_1:1a7b405c-cb15-4278-bb0a-ebc9e317ee05 [3muser[0m[2m=[0mtest_user
+[2m2026-06-23T23:57:45.667057Z[0m [32m INFO[0m [1mload[0m[2m:[0m [2mlance::dataset_events[0m[2m:[0m [3mevent[0m[2m=[0m"loading" [3muri[0m[2m=[0m"data/lancedb/_tmp_.tmpyushHk_knowledge_v14/documents.lance" [3mtarget_ref[0m[2m=[0mNone [3mversion[0m[2m=[0m2 [3mstatus[0m[2m=[0m"success"
+[2m2026-06-23T23:57:45.669901Z[0m [32m INFO[0m [1mDatasetRecordBatchStream[0m[2m:[0m [2mlance::execution[0m[2m:[0m [3mtype[0m[2m=[0m"plan_run" [3mplan_summary[0m[2m=[0m"FilteredRead" [3moutput_rows[0m[2m=[0m1 [3miops[0m[2m=[0m5 [3mrequests[0m[2m=[0m5 [3mbytes_read[0m[2m=[0m733 [3mindices_loaded[0m[2m=[0m0 [3mparts_loaded[0m[2m=[0m0 [3mindex_comparisons[0m[2m=[0m0
+[2m2026-06-23T23:57:45.670298Z[0m [32m INFO[0m [2mworker::searchboost[0m[2m:[0m SearchBoost job completed and encrypted. [3mjob_id[0m[2m=[0mSB-SESSION:test_user:thread_1:1a7b405c-cb15-4278-bb0a-ebc9e317ee05
+test worker::auditor_concurrency_test::test_auditor_concurrency_stress ... ok
+   Compiling typenum v1.20.1
+   Compiling subtle v2.6.1
+   Compiling serde_core v1.0.228
+   Compiling smallvec v1.15.2
+   Compiling zerocopy v0.8.52
+   Compiling generic-array v0.14.9
+   Compiling cc v1.2.65
+   Compiling portable-atomic v1.13.1
+   Compiling num-traits v0.2.19
+   Compiling syn v2.0.118
+   Compiling hashbrown v0.15.5
+   Compiling uuid v1.23.3
+   Compiling tracing-core v0.1.36
+   Compiling serde_json v1.0.150
+   Compiling bitflags v2.13.0
+   Compiling memchr v2.8.2
+   Compiling parking_lot_core v0.9.12
+test worker::audit_integrity::test_encryption_roundtrip ... ok
+test worker::audit_integrity::test_hmac_chain_integrity ... ok
+   Compiling parking_lot v0.12.5
+   Compiling dashmap v6.2.1
+test worker::tandem_grounding_test::test_v14_leak_prevention_enforced ... ok
+   Compiling hashlink v0.10.0
+   Compiling moka v0.12.15
+   Compiling chrono v0.4.45
+   Compiling libsqlite3-sys v0.35.0
+   Compiling crypto-common v0.1.6
+   Compiling block-buffer v0.10.4
+   Compiling inout v0.1.4
+   Compiling digest v0.10.7
+   Compiling universal-hash v0.5.1
+   Compiling cipher v0.4.4
+   Compiling aead v0.5.2
+   Compiling polyval v0.6.2
+   Compiling hmac v0.12.1
+   Compiling sha2 v0.10.9
+   Compiling aes v0.8.4
+   Compiling ctr v0.9.2
+   Compiling ghash v0.5.1
+   Compiling hkdf v0.12.4
+   Compiling aes-gcm v0.10.3
+   Compiling serde_derive v1.0.228
+   Compiling zeroize_derive v1.5.0
+   Compiling thiserror-impl v2.0.18
+   Compiling tracing-attributes v0.1.31
+   Compiling clap_derive v4.6.1
+   Compiling async-trait v0.1.89
+   Compiling ppv-lite86 v0.2.21
+   Compiling zeroize v1.9.0
+   Compiling secrecy v0.8.0
+   Compiling rand_chacha v0.3.1
+   Compiling rand v0.8.6
+   Compiling thiserror v2.0.18
+   Compiling tracing v0.1.44
+   Compiling clap v4.6.1
+[2m2026-06-23T23:57:49.596417Z[0m [31mERROR[0m [2mworker::audit[0m[2m:[0m HARD-STOP MONITOR: Audit anchor file missing! Triggering Fail-Closed state.
+   Compiling serde v1.0.228
+   Compiling bytes v1.12.0
+   Compiling bincode v1.3.3
+   Compiling iw_core v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/core)
+test worker::security_invariant_test::test_hard_stop_monitor_anchor_missing ... ok
+warning: unused import: `error`
+ --> core/src/fips.rs:1:27
+  |
+1 | ...warn, error};
+  |          ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:42:28
+   |
+42 | ...e::from_slice(&no...
+   |       ^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:52:37
+   |
+52 | ...>::from_slice(&ke...
+   |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:83:28
+   |
+83 | ...e::from_slice(non...
+   |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:93:37
+   |
+93 | ...>::from_slice(&ke...
+   |       ^^^^^^^^^^
+
+warning: `iw_core` (lib) generated 5 warnings (run `cargo fix --lib -p iw_core` to apply 1 suggestion)
+   Compiling rusqlite v0.37.0
+   Compiling iw-cli v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/cli)
+warning: use of deprecated method `hmac::digest::generic_array::GenericArray::<T, N>::as_slice`: please upgrade to generic-array 1.x
+   --> cli/src/main.rs:185:40
+    |
+185 | ...ash.as_slice() =...
+    |        ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `iw-cli` (bin "iw-cli") generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.03s
+test worker::stress_fuzzer::test_time_travel_purge_and_hmac_integrity ... ok
+[2m2026-06-23T23:57:56.656612Z[0m [31mERROR[0m [2mworker::audit[0m[2m:[0m Audit log failed to persist: Err(DatabaseBusy("Audit DB busy (timeout)")). Sending fail-closed signal.
+[2m2026-06-23T23:57:56.657184Z[0m [32m INFO[0m [2mworker::audit[0m[2m:[0m Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).
+test worker::audit_integrity::test_database_busy_fail_closed ... ok
+
+failures:
+
+---- warden::evasion_test::test_v15_homoglyph_evasion stdout ----
+Sanitized text: b"Hello \xd0\x90lice, how are you?"
+
+thread 'warden::evasion_test::test_v15_homoglyph_evasion' (29341) panicked at integration_tests/tests/warden/evasion_test.rs:19:5:
+V-15: Homoglyph 'Alice' was not redacted!
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- warden::global_fusion_test::test_global_identity_fusion stdout ----
+Sanitized: b"My name is Juan Pablo Garcia de la Cruz and I live in Madrid."
+Token Map: {}
+
+thread 'warden::global_fusion_test::test_global_identity_fusion' (29343) panicked at integration_tests/tests/warden/global_fusion_test.rs:26:5:
+assertion failed: String::from_utf8_lossy(&report.sanitized_text).contains("[TOKEN_1]")
+
+---- warden::greek_test::test_greek_pii_detection stdout ----
+Sanitized: b"\xce\x9f \xcf\x87\xcf\x81\xce\xae\xcf\x83\xcf\x84\xce\xb7\xcf\x82 Nikolas Papadopoulos \xce\xbc\xce\xb5 \xce\x91\xce\xa6\xce\x9c 123456789."
+
+thread 'warden::greek_test::test_greek_pii_detection' (29344) panicked at integration_tests/tests/warden/greek_test.rs:25:5:
+Expected at least one redaction for Greek AFM
+
+---- app::sentinel_e2e::test_engine_rule_matching_diagnostic stdout ----
+
+thread 'app::sentinel_e2e::test_engine_rule_matching_diagnostic' (29335) panicked at integration_tests/tests/app/sentinel_e2e.rs:185:5:
+Engine failed to redact TOP_SECRET_PROJECT. Result: b"The document contains TOP_SECRET_PROJECT info."
+
+---- warden::fusion_test::test_papadopoulos_fusion_integrity stdout ----
+Sanitized: b"\xce\x93\xce\xb5\xce\xb9\xce\xb1 \xcf\x83\xce\xbf\xcf\x85, \xce\xb5\xce\xaf\xce\xbc\xce\xb1\xce\xb9 \xce\xbf \xce\x93\xce\xb5\xcf\x8e\xcf\x81\xce\xb3\xce\xb9\xce\xbf\xcf\x82 \xce\xa0\xce\xb1\xcf\x80\xce\xb1\xce\xb4\xcf\x8c\xcf\x80\xce\xbf\xcf\x85\xce\xbb\xce\xbf\xcf\x82 \xce\xba\xce\xb1\xce\xb9 \xcf\x84\xce\xbf \xce\x91\xce\xa6\xce\x9c \xce\xbc\xce\xbf\xcf\x85 \xce\xb5\xce\xaf\xce\xbd\xce\xb1\xce\xb9 123456789."
+Token Map: {}
+
+thread 'warden::fusion_test::test_papadopoulos_fusion_integrity' (29342) panicked at integration_tests/tests/warden/fusion_test.rs:33:5:
+assertion failed: String::from_utf8_lossy(&report.sanitized_text).contains("[TOKEN_1]")
+
+---- warden::identity_ghosting_test::test_identity_ghosting_prevention stdout ----
+
+thread 'warden::identity_ghosting_test::test_identity_ghosting_prevention' (29345) panicked at integration_tests/tests/warden/identity_ghosting_test.rs:34:5:
+assertion failed: String::from_utf8_lossy(&report1.sanitized_text).contains("[TOKEN_1]")
+
+---- app::hardened_integration::test_stateful_tokenization_session_consistency stdout ----
+
+thread 'app::hardened_integration::test_stateful_tokenization_session_consistency' (29332) panicked at integration_tests/tests/app/hardened_integration.rs:100:36:
+index out of bounds: the len is 0 but the index is 0
+
+---- warden::sentinel_adversarial::test_v13_homoglyph_dictionary_evasion stdout ----
+
+thread 'warden::sentinel_adversarial::test_v13_homoglyph_dictionary_evasion' (29356) panicked at integration_tests/tests/warden/sentinel_adversarial.rs:29:5:
+Alice with Cyrillic A should be blocked (V-13 fix)
+
+---- warden::identity_linking_test::tests::test_identity_linking_john_and_alice_smith stdout ----
+
+thread 'warden::identity_linking_test::tests::test_identity_linking_john_and_alice_smith' (29347) panicked at integration_tests/tests/warden/identity_linking_test.rs:40:9:
+assertion `left != right` failed: John and Alice should have distinct tokens
+  left: "[OTHER_1]"
+ right: "[OTHER_1]"
+
+---- warden::sentinel_qa::test_semantic_cache_homoglyph_resilience stdout ----
+
+thread 'warden::sentinel_qa::test_semantic_cache_homoglyph_resilience' (29358) panicked at integration_tests/tests/warden/sentinel_qa.rs:18:5:
+assertion `left == right` failed: Homoglyph should hit the ASCII-keyed cache
+  left: 0
+ right: 1
+
+---- warden::sentinel_adversarial::test_v15_shadow_ner_greek_homoglyph stdout ----
+Redactions: []
+
+thread 'warden::sentinel_adversarial::test_v15_shadow_ner_greek_homoglyph' (29357) panicked at integration_tests/tests/warden/sentinel_adversarial.rs:54:5:
+Shadow NER failed to detect name with homoglyphs
+
+---- warden::sentinel_qa::test_shadow_ner_homoglyph_resilience stdout ----
+
+thread 'warden::sentinel_qa::test_shadow_ner_homoglyph_resilience' (29359) panicked at integration_tests/tests/warden/sentinel_qa.rs:45:5:
+assertion `left == right` failed: Shadow NER should catch homoglyph input and promote it
+  left: 0
+ right: 1
+
+---- warden::sentinel_qa::test_shadow_ner_promotion_without_ai stdout ----
+
+thread 'warden::sentinel_qa::test_shadow_ner_promotion_without_ai' (29360) panicked at integration_tests/tests/warden/sentinel_qa.rs:32:5:
+assertion `left == right` failed: Greek name should be promoted without AI
+  left: 0
+ right: 1
+
+---- warden::sentinel_adversarial::test_semantic_cache_poisoning stdout ----
+
+thread 'warden::sentinel_adversarial::test_semantic_cache_poisoning' (29355) panicked at integration_tests/tests/warden/sentinel_adversarial.rs:89:5:
+Should have hit the semantic cache for 'Alice'
+
+---- warden::session_test::test_session_token_consistency stdout ----
+Initial: Alice -> "[OTHER_1]", Bob -> "[OTHER_2]"
+Repeat: Alice -> "[OTHER_1]" (CONSISTENT)
+
+thread 'warden::session_test::test_session_token_consistency' (29361) panicked at integration_tests/tests/warden/session_test.rs:52:75:
+called `Option::unwrap()` on a `None` value
+
+---- warden::legal_test::test_legal_pii_redaction stdout ----
+
+thread 'warden::legal_test::test_legal_pii_redaction' (29348) panicked at integration_tests/tests/warden/legal_test.rs:39:5:
+Court case docket should be redacted
+
+---- warden::medical_test::test_medical_heuristics_audit_only stdout ----
+
+thread 'warden::medical_test::test_medical_heuristics_audit_only' (29351) panicked at integration_tests/tests/warden/medical_test.rs:72:5:
+Disease should be logged in audit log
+
+---- warden::shipping_test::test_logistics_heuristics stdout ----
+
+thread 'warden::shipping_test::test_logistics_heuristics' (29362) panicked at integration_tests/tests/warden/shipping_test.rs:61:5:
+Logistics Org (Maersk Line) should be redacted
+
+---- warden::shipping_test::test_shipping_rules_loading stdout ----
+
+thread 'warden::shipping_test::test_shipping_rules_loading' (29363) panicked at integration_tests/tests/warden/shipping_test.rs:27:5:
+IMO should be redacted
+
+---- warden::medical_test::test_medical_pii_redaction stdout ----
+
+thread 'warden::medical_test::test_medical_pii_redaction' (29352) panicked at integration_tests/tests/warden/medical_test.rs:51:5:
+ICD-10 code should be redacted
+
+---- app::hardened_integration::test_end_to_end_hardened_pipeline stdout ----
+
+thread 'app::hardened_integration::test_end_to_end_hardened_pipeline' (29331) panicked at integration_tests/tests/app/hardened_integration.rs:46:5:
+assertion failed: String::from_utf8_lossy(&report.sanitized_text).contains("[TOKEN_1]")
+
+---- worker::adversarial_bridge_stress::test_adversarial_bridge_stress_and_blocking stdout ----
+
+thread 'worker::adversarial_bridge_stress::test_adversarial_bridge_stress_and_blocking' (29364) panicked at integration_tests/tests/worker/adversarial_bridge_stress.rs:133:5:
+assertion `left == right` failed: Unprivileged token should be rejected with 403 Forbidden
+  left: 401
+ right: 403
+
+---- app::mcp_integration_test::test_mcp_full_pipeline_with_tantivy stdout ----
+
+thread 'app::mcp_integration_test::test_mcp_full_pipeline_with_tantivy' (29334) panicked at mcp/src/server.rs:41:18:
+FATAL: WARDEN_MCP_SECRET environment variable is missing: NotPresent
+
+
+failures:
+    app::hardened_integration::test_end_to_end_hardened_pipeline
+    app::hardened_integration::test_stateful_tokenization_session_consistency
+    app::mcp_integration_test::test_mcp_full_pipeline_with_tantivy
+    app::sentinel_e2e::test_engine_rule_matching_diagnostic
+    warden::evasion_test::test_v15_homoglyph_evasion
+    warden::fusion_test::test_papadopoulos_fusion_integrity
+    warden::global_fusion_test::test_global_identity_fusion
+    warden::greek_test::test_greek_pii_detection
+    warden::identity_ghosting_test::test_identity_ghosting_prevention
+    warden::identity_linking_test::tests::test_identity_linking_john_and_alice_smith
+    warden::legal_test::test_legal_pii_redaction
+    warden::medical_test::test_medical_heuristics_audit_only
+    warden::medical_test::test_medical_pii_redaction
+    warden::sentinel_adversarial::test_semantic_cache_poisoning
+    warden::sentinel_adversarial::test_v13_homoglyph_dictionary_evasion
+    warden::sentinel_adversarial::test_v15_shadow_ner_greek_homoglyph
+    warden::sentinel_qa::test_semantic_cache_homoglyph_resilience
+    warden::sentinel_qa::test_shadow_ner_homoglyph_resilience
+    warden::sentinel_qa::test_shadow_ner_promotion_without_ai
+    warden::session_test::test_session_token_consistency
+    warden::shipping_test::test_logistics_heuristics
+    warden::shipping_test::test_shipping_rules_loading
+    worker::adversarial_bridge_stress::test_adversarial_bridge_stress_and_blocking
+
+test result: FAILED. 24 passed; 23 failed; 1 ignored; 0 measured; 0 filtered out; finished in 11.17s
+
+error: test failed, to rerun pass `-p iw-integration-tests --test integration_tests`

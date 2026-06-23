@@ -155,8 +155,8 @@ impl SearchBoostQueue {
             let mut scrubbed_results = Vec::new();
             if let Some(shield) = &self.shield {
                 for res in results {
-                    if let Ok(report) = shield.sanitize_prompt(&res, None) {
-                        scrubbed_results.push(report.sanitized_text);
+                    if let Ok(report) = shield.sanitize_prompt(axum::body::Bytes::from(res.to_string()), None).await {
+                        scrubbed_results.push(String::from_utf8_lossy(&report.sanitized_text).into_owned());
                     } else {
                         scrubbed_results.push("[REDACTION_FAILURE]".to_string());
                     }

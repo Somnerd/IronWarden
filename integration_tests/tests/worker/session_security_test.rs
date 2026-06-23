@@ -42,8 +42,8 @@ async fn test_v19_session_swap_integrity() {
     
     match result {
         Err(e) => {
-            println!("Got expected error: {}", e);
-            assert!(format!("{}", e).contains("Integrity Mismatch") || format!("{}", e).contains("decryption failed"));
+            println!("Got expected error: {:?}", e);
+            assert!(format!("{:?}", e).contains("Integrity Mismatch") || format!("{:?}", e).contains("decryption failed"));
         },
         Ok(_) => panic!("V-19: Session swap succeeded! Identity leak possible."),
     }

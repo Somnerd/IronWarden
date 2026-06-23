@@ -13,8 +13,8 @@ async fn test_session_concurrency() {
         let session_clone = session.clone();
         handles.push(tokio::spawn(async move {
             let id = session_clone.next_id();
-            let key = format!("user{}", i);
-            let val = format!("[PERSON_{}]", id);
+            let key = format!("user{:?}", i);
+            let val = format!("[PERSON_{:?}]", id);
             session_clone.pii_to_token.insert(key.clone(), val.clone());
             session_clone.token_to_pii.insert(val, key);
             session_clone.touch();

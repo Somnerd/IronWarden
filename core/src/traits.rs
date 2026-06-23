@@ -187,14 +187,14 @@ pub struct Redaction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PotentialMiss {
-    pub text: String,
+    pub text: bytes::Bytes,
     pub label: String,
     pub offset: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScrubbingReport {
-    pub sanitized_text: String,
+    pub sanitized_text: bytes::Bytes,
     pub is_blocked: bool,
     pub redactions: Vec<Redaction>,
     pub token_map: TokenMap,
@@ -208,12 +208,13 @@ pub trait McpServer: Send + Sync {
     async fn handle_request(&self, request: String) -> Result<String, SovereignError>;
 }
 
+#[async_trait]
 pub trait PiiShield: Send + Sync {
     /// Sanitizes a prompt using a multi-layer defense pipeline.
     /// Optionally accepts a SessionContext to maintain cross-request token consistency.
-    fn sanitize_prompt(
+    async fn sanitize_prompt(
         &self,
-        prompt: &str,
+        prompt: bytes::Bytes,
         session: Option<&SessionContext>,
     ) -> Result<ScrubbingReport, SovereignError>;
 

@@ -2,8 +2,8 @@
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 
-#[test]
-fn test_global_identity_fusion() {
+#[tokio::test]
+async fn test_global_identity_fusion() {
     let yaml = r#"
 ai_enabled: true
 ai_confidence_threshold: 0.85
@@ -16,14 +16,14 @@ ai_confidence_threshold: 0.85
     // A complex Spanish name with connectors
     let prompt = "My name is Juan Pablo Garcia de la Cruz and I live in Madrid.";
     
-    let report = engine.sanitize_prompt(prompt, None).unwrap();
+    let report = engine.sanitize_prompt(bytes::Bytes::from(prompt.to_string()),  None).await.unwrap();
     
-    println!("Sanitized: {}", report.sanitized_text);
+    println!("Sanitized: {:?}", report.sanitized_text);
     println!("Token Map: {:?}", report.token_map);
     
     // ASSERTIONS:
     // The entire name "Juan Pablo Garcia de la Cruz" should be one token
-    assert!(report.sanitized_text.contains("[TOKEN_1]"));
+    assert!(String::from_utf8_lossy(&report.sanitized_text).contains("[TOKEN_1]"));
     
     let full_name = report.token_map.get("[TOKEN_1]").unwrap();
     assert!(full_name.contains("Garcia de la Cruz"));

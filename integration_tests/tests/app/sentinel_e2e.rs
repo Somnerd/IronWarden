@@ -48,8 +48,8 @@ async fn test_v19_session_isolation_aad_adversarial() {
     
     match result {
         Err(SovereignError::InternalError(e)) => {
-            assert!(e.contains("Decryption failed") || e.contains("Session decryption failed"), "Expected decryption failure, got: {}", e);
-            assert!(e.contains("Decryption failed"), "Expected decryption failure, got: {}", e);
+            assert!(e.contains("Decryption failed") || e.contains("Session decryption failed"), "Expected decryption failure, got: {:?}", e);
+            assert!(e.contains("Decryption failed"), "Expected decryption failure, got: {:?}", e);
         },
         _ => panic!("V-19 FAILURE: Swapped session should have failed decryption! Got: {:?}", result),
     }
@@ -93,9 +93,9 @@ rules:
     
     // 2. Enqueue a job with ONLY sanitized text (V-14 Enforced)
     // Query: "tell me about TOP_SECRET_PROJECT" -> sanitized to "tell me about [TOKEN_1]"
-    let report = shield.sanitize_prompt("tell me about TOP_SECRET_PROJECT", None).unwrap();
+    let report = shield.sanitize_prompt(bytes::Bytes::from("tell me about TOP_SECRET_PROJECT".to_string()),  None).await.unwrap();
     let job_id = queue.enqueue(
-        report.sanitized_text, 
+        String::from_utf8_lossy(&report.sanitized_text).into_owned(), 
         std::collections::HashMap::new(), 
         "thread_1".to_string(), 
         "alice".to_string()
@@ -118,7 +118,7 @@ rules:
     // 4. Verification: Expect RAG Blindness (Safe Fail-Closed)
     // The librarian has the raw text, but received a sanitized token. It should NOT find a match.
     assert!(!result.contains("TOP_SECRET_PROJECT"), "Librarian leakage!");
-    assert!(result.contains("No relevant local policy context found."), "Expected RAG Blindness result, got: {}", result);
+    assert!(result.contains("No relevant local policy context found."), "Expected RAG Blindness result, got: {:?}", result);
 }
 
 #[tokio::test]
@@ -180,9 +180,9 @@ rules:
     let engine = config.compile_engine(&pepper).unwrap();
     
     let input = "The document contains TOP_SECRET_PROJECT info.";
-    let report = engine.sanitize_prompt(input, None).unwrap();
+    let report = engine.sanitize_prompt(bytes::Bytes::from(input.to_string()),  None).await.unwrap();
     
-    assert!(report.sanitized_text.contains("[TOKEN_1]"), "Engine failed to redact TOP_SECRET_PROJECT. Result: {}", report.sanitized_text);
+    assert!(String::from_utf8_lossy(&report.sanitized_text).contains("[TOKEN_1]"), "Engine failed to redact TOP_SECRET_PROJECT. Result: {:?}", report.sanitized_text);
 }
 
 #[tokio::test]
@@ -217,10 +217,10 @@ async fn test_v55_ephemeral_tampering_fail_closed() {
     
     match result {
         Err(SovereignError::InternalError(e)) => {
-            assert!(e.contains("DB Init Failed"), "Expected DB initialization failure, got: {}", e);
+            assert!(e.contains("DB Init Failed"), "Expected DB initialization failure, got: {:?}", e);
         },
         Ok(_) => panic!("V-55 FAILURE: Tampered raw log was not detected!"),
-        Err(e) => panic!("V-55 FAILURE: Unexpected error during boot: {}", e),
+        Err(e) => panic!("V-55 FAILURE: Unexpected error during boot: {:?}", e),
     }
 }
 

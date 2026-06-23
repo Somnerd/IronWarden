@@ -84,6 +84,7 @@ cwIDAQAB
         storage: storage.clone(),
         session_manager: session_manager.clone(),
         jwt_public_key,
+        ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
     });
 
     let router = create_bridge_router(state);
@@ -116,7 +117,7 @@ cwIDAQAB
     std::env::set_var("WARDEN_JWT_ISSUER", "test_iss");
 
     let client = reqwest::Client::new();
-    let url = format!("http://{}/enqueue", addr);
+    let url = format!("http://{:?}/enqueue", addr);
 
     // Test rejection for low-privileged tokens
     let payload = serde_json::json!({
@@ -124,7 +125,7 @@ cwIDAQAB
         "thread_id": "test_thread"
     });
     let res = client.post(&url)
-        .header("Authorization", format!("Bearer {}", token_no_roles))
+        .header("Authorization", format!("Bearer {:?}", token_no_roles))
         .json(&payload)
         .send()
         .await
@@ -146,7 +147,7 @@ cwIDAQAB
             });
             
             let res = client.post(&url)
-                .header("Authorization", format!("Bearer {}", token))
+                .header("Authorization", format!("Bearer {:?}", token))
                 .json(&payload)
                 .send()
                 .await
@@ -154,7 +155,7 @@ cwIDAQAB
             
             let status = res.status();
             if status == StatusCode::INTERNAL_SERVER_ERROR {
-                println!("500 Error: {}", res.text().await.unwrap());
+                println!("500 Error: {:?}", res.text().await.unwrap());
             }
             status
         }));
@@ -170,11 +171,11 @@ cwIDAQAB
             StatusCode::BAD_REQUEST => blocked_count += 1,
             StatusCode::OK => success_count += 1,
             StatusCode::TOO_MANY_REQUESTS => rate_limited_count += 1,
-            _ => panic!("Unexpected status code: {}", status),
+            _ => panic!("Unexpected status code: {:?}", status),
         }
     }
 
-    println!("Results: {} Blocked, {} Success, {} Rate Limited", blocked_count, success_count, rate_limited_count);
+    println!("Results: {:?} Blocked, {:?} Success, {:?} Rate Limited", blocked_count, success_count, rate_limited_count);
     
     // Half the requests contained "Alice" and should be blocked (unless rate limited)
     // The other half "Bob" should be successful (unless rate limited)

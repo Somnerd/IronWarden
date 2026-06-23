@@ -12,7 +12,7 @@ struct MockRouter;
 impl InferenceGateway for MockRouter {
     async fn route_prompt(&self, prompt: &str, context: &[String]) -> Result<String, SovereignError> {
         let context_str = context.join(" | ");
-        Ok(format!("Prompt: {}, Context: {}", prompt, context_str))
+        Ok(format!("Prompt: {:?}, Context: {:?}", prompt, context_str))
     }
 }
 
@@ -65,7 +65,7 @@ rules:
     let response_json = mcp.handle_request(request.to_string()).await.unwrap();
     let response: serde_json::Value = serde_json::from_str(&response_json).unwrap();
     
-    println!("Response: {}", response);
+    println!("Response: {:?}", response);
     
     let text = response["result"]["text"].as_str().unwrap();
     

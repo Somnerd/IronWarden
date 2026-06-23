@@ -1,0 +1,436 @@
+warning: unused import: `error`
+ --> core/src/fips.rs:1:27
+  |
+1 | ...warn, error};
+  |          ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:42:28
+   |
+42 | ...e::from_slice(&no...
+   |       ^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:52:37
+   |
+52 | ...>::from_slice(&ke...
+   |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:83:28
+   |
+83 | ...e::from_slice(non...
+   |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:93:37
+   |
+93 | ...>::from_slice(&ke...
+   |       ^^^^^^^^^^
+
+warning: `iw_core` (lib) generated 5 warnings (run `cargo fix --lib -p iw_core` to apply 1 suggestion)
+    Checking iw-warden v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/warden)
+warning: `iw_core` (lib test) generated 5 warnings (5 duplicates)
+warning: use of deprecated method `hmac::digest::generic_array::GenericArray::<T, N>::as_slice`: please upgrade to generic-array 1.x
+   --> cli/src/main.rs:185:40
+    |
+185 | ...ash.as_slice() =...
+    |        ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `iw-cli` (bin "iw-cli" test) generated 1 warning
+warning: unused import: `regex::Regex`
+ --> warden/src/normalize.rs:2:5
+  |
+2 | use regex::Regex;
+  |     ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `once_cell::sync::Lazy`
+ --> warden/src/normalize.rs:3:5
+  |
+3 | use once_cell::sync::Lazy;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> warden/src/engine.rs:6:5
+  |
+6 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::atomic::Ordering`
+ --> warden/src/engine.rs:7:5
+  |
+7 | use std::sync::atomic::Ordering;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PotentialMiss`
+ --> warden/src/shadow_ner.rs:2:23
+  |
+2 | ...::{PotentialMiss, E...
+  |       ^^^^^^^^^^^^^
+
+warning: unused import: `crate::normalize::OffsetMap`
+ --> warden/src/shadow_ner.rs:4:5
+  |
+4 | use crate::normalize::OffsetMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PathBuf`
+ --> warden/src/ai.rs:5:23
+  |
+5 | ...ath, PathBuf};
+  |         ^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> warden/src/ai.rs:7:5
+  |
+7 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `crate::config::HeuristicConfig`
+   --> warden/src/engine.rs:588:9
+    |
+588 | ...se crate::config::HeuristicConfig;
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:110:37
+    |
+110 | ...>::from_slice(&k...
+    |       ^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:547:28
+    |
+547 | ...e::from_slice(&n...
+    |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:569:28
+    |
+569 | ...e::from_slice(no...
+    |       ^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> warden/src/engine.rs:269:17
+    |
+269 | ...or mut mat in ma...
+    |       ----^^^
+    |       |
+    |       help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `text_str`
+   --> warden/src/engine.rs:296:21
+    |
+296 | ...et text_str = st...
+    |       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_text_str`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `e`
+  --> warden/src/ai.rs:92:17
+   |
+92 | ...   Err(e) => retu...
+   |           ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `e`
+  --> warden/src/ai.rs:97:17
+   |
+97 | ...   Err(e) => retu...
+   |           ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `e`
+   --> warden/src/ai.rs:114:17
+    |
+114 | ... Err(e) => retur...
+    |         ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: constant `SEMANTIC_CACHE_THRESHOLD` is never used
+  --> warden/src/engine.rs:18:7
+   |
+18 | const SEMANTIC_CACHE_THRESHOLD: f...
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `is_confirmed` is never read
+   --> warden/src/engine.rs:167:5
+    |
+162 | struct UnifiedMatch {
+    |        ------------ field in this struct
+...
+167 |     is_confirmed: bool,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `UnifiedMatch` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `combine_actions` is never used
+   --> warden/src/engine.rs:533:4
+    |
+533 | fn combine_actions(a:...
+    |    ^^^^^^^^^^^^^^^
+
+warning: field `global_name_re` is never read
+  --> warden/src/shadow_ner.rs:18:5
+   |
+16 | pub struct ShadowNer {
+   |            --------- field in this struct
+17 |     patterns: Vec<(Rege...
+18 |     global_name_re: Regex,
+   |     ^^^^^^^^^^^^^^
+
+warning: field `threshold` is never read
+   --> warden/src/ai.rs:188:5
+    |
+185 | pub struct HybridNerPool {
+    |            ------------- field in this struct
+...
+188 |     threshold: f64,
+    |     ^^^^^^^^^
+
+warning: `iw-warden` (lib) generated 21 warnings (run `cargo fix --lib -p iw-warden` to apply 13 suggestions)
+    Checking worker v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/worker)
+warning: unused import: `warn`
+ --> worker/src/audit.rs:8:28
+  |
+8 | ...error, warn};
+  |           ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `rusqlite::ErrorCode`
+ --> worker/src/storage.rs:7:5
+  |
+7 | use rusqlite::ErrorCode;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `warn`
+ --> worker/src/librarian.rs:7:21
+  |
+7 | ...{info, warn};
+  |           ^^^^
+
+warning: `iw-warden` (lib test) generated 22 warnings (21 duplicates) (run `cargo fix --lib -p iw-warden --tests` to apply 1 suggestion)
+warning: use of deprecated method `hmac::digest::generic_array::GenericArray::<T, N>::as_slice`: please upgrade to generic-array 1.x
+   --> worker/src/audit.rs:451:44
+    |
+451 | ...ash.as_slice() !...
+    |        ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: value assigned to `conn` is never read
+   --> worker/src/audit.rs:102:48
+    |
+102 | ...ut conn: Option<Connection> = None;
+    |                                  ^^^^ this value is reassigned later and never used
+...
+108 | ...   conn = Some(c);
+    |       ---- `conn` is overwritten here before the previous value is read
+    |
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `last_id` is never read
+   --> worker/src/audit.rs:104:36
+    |
+104 | ...ut last_id: i64 = 0;
+    |                      ^ this value is reassigned later and never used
+...
+110 | ...   last_id = id;
+    |       ------------ `last_id` is overwritten here before the previous value is read
+
+warning: field `db_path` is never read
+  --> worker/src/storage.rs:17:5
+   |
+13 | pub struct WorkerStorage {
+   |            ------------- field in this struct
+...
+17 |     db_path: String,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `db_path` and `grounding_shield` are never read
+  --> worker/src/searchboost.rs:25:5
+   |
+24 | pub struct SearchBoostQueue {
+   |            ---------------- fields in this struct
+25 |     db_path: String,
+   |     ^^^^^^^
+...
+29 |     grounding_shield: Option<A...
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `SearchBoostQueue` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `db_path` is never read
+   --> worker/src/searchboost.rs:352:5
+    |
+350 | pub struct LocalSessionManager {
+    |            ------------------- field in this struct
+351 |     sessions: DashMap<String, Arc...
+352 |     db_path: String,
+    |     ^^^^^^^
+
+warning: `worker` (lib test) generated 9 warnings (3 duplicates)
+warning: `worker` (lib) generated 9 warnings (6 duplicates) (run `cargo fix --lib -p worker` to apply 3 suggestions)
+    Checking mcp v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/mcp)
+error[E0433]: cannot find module or crate `bytes` in this scope
+   --> mcp/src/server.rs:244:45
+    |
+244 | ...ompt(bytes::Byte...
+    |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+    |
+    = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+    |
+  1 + use std::io::Bytes;
+    |
+  1 + use std::str::Bytes;
+    |
+  1 + use core::str::Bytes;
+    |
+help: if you import `Bytes`, refer to it directly
+    |
+244 -                 shield_clonesanitize_prompt(bytes::Bytes::from(prompt_clone),  Some(&session_clone).await)
+244 +                 shield_clonesanitize_prompt(Bytes::from(prompt_clone),  Some(&session_clone).await)
+    |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+   --> mcp/src/server.rs:330:41
+    |
+330 | ...ompt(bytes::Byte...
+    |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+    |
+    = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+    |
+  1 + use std::io::Bytes;
+    |
+  1 + use std::str::Bytes;
+    |
+  1 + use core::str::Bytes;
+    |
+help: if you import `Bytes`, refer to it directly
+    |
+330 -             shield_clonesanitize_prompt(bytes::Bytes::from(prompt_clone),  Some(&session_clone).await)
+330 +             shield_clonesanitize_prompt(Bytes::from(prompt_clone),  Some(&session_clone).await)
+    |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+   --> mcp/src/server.rs:369:45
+    |
+369 | ...ompt(bytes::Byte...
+    |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+    |
+    = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+    |
+  1 + use std::io::Bytes;
+    |
+  1 + use std::str::Bytes;
+    |
+  1 + use core::str::Bytes;
+    |
+help: if you import `Bytes`, refer to it directly
+    |
+369 -                 shield_innersanitize_prompt(bytes::Bytes::from(snippet_clone),  Some(&session_inner).await)
+369 +                 shield_innersanitize_prompt(Bytes::from(snippet_clone),  Some(&session_inner).await)
+    |
+
+warning: unused imports: `ComplianceReport` and `ScrubbingReport`
+ --> mcp/src/server.rs:7:104
+  |
+7 | ...t, ComplianceReport, ScrubbingReport};
+  |       ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0728]: `await` is only allowed inside `async` functions and blocks
+   --> mcp/src/server.rs:244:101
+    |
+243 | ...ng(move || {
+    |       ------- this is not `async`
+244 | ...prompt(bytes::Bytes::from(prompt_clone),  Some(&session_clone).await)
+    |                                                                   ^^^^^ only allowed inside `async` functions and blocks
+
+error[E0728]: `await` is only allowed inside `async` functions and blocks
+   --> mcp/src/server.rs:330:97
+    |
+329 | ...ng(move || {
+    |       ------- this is not `async`
+330 | ...prompt(bytes::Bytes::from(prompt_clone),  Some(&session_clone).await)
+    |                                                                   ^^^^^ only allowed inside `async` functions and blocks
+
+error[E0728]: `await` is only allowed inside `async` functions and blocks
+   --> mcp/src/server.rs:369:102
+    |
+368 | ...ng(move || {
+    |       ------- this is not `async`
+369 | ...prompt(bytes::Bytes::from(snippet_clone),  Some(&session_inner).await)
+    |                                                                    ^^^^^ only allowed inside `async` functions and blocks
+
+error[E0195]: lifetime parameters or bounds on method `sanitize_prompt` do not match the trait declaration
+   --> mcp/src/server.rs:431:27
+    |
+431 |   ...rompt(&self, p...
+    |           ^ lifetimes do not match method in trait
+    |
+   ::: core/src/traits.rs:215:5
+    |
+215 | /     async fn sanitize_prompt(
+216 | |         &self,
+217 | |         prompt: bytes::Bytes,
+218 | |         session: Option<&SessionContext>,
+219 | |     ) -> Result<ScrubbingReport, SovereignError>;
+    | |_________________________________________________- lifetimes in impl do not match this method in trait
+
+error[E0425]: cannot find function `shield_clonesanitize_prompt` in this scope
+   --> mcp/src/server.rs:244:17
+    |
+244 | ...   shield_clonesanitize_prompt(by...
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `shield_clonesanitize_prompt` in this scope
+   --> mcp/src/server.rs:330:13
+    |
+330 | ...   shield_clonesanitize_prompt(by...
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `shield_innersanitize_prompt` in this scope
+   --> mcp/src/server.rs:369:17
+    |
+369 | ...   shield_innersanitize_prompt(by...
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+Some errors have detailed explanations: E0425, E0433, E0728.
+For more information about an error, try `rustc --explain E0425`.
+error[E0308]: mismatched types
+   --> mcp/src/server.rs:434:33
+    |
+434 | ...t: prompt.to_string(),
+    |       ^^^^^^^^^^^^^^^^^^ expected `Bytes`, found `String`
+    |
+help: call `Into::into` on this expression to convert `std::string::String` into `bytes::bytes::Bytes`
+    |
+434 |                 sanitized_text: prompt.to_string().into(),
+    |                                                   +++++++
+
+warning: `mcp` (lib) generated 1 warning
+error: could not compile `mcp` (lib) due to 9 previous errors; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...
+Some errors have detailed explanations: E0195, E0308, E0425, E0433, E0728.
+For more information about an error, try `rustc --explain E0195`.
+warning: `mcp` (lib test) generated 1 warning (1 duplicate)
+error: could not compile `mcp` (lib test) due to 11 previous errors; 1 warning emitted

@@ -2,8 +2,8 @@
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 
-#[test]
-fn test_greek_pii_detection() {
+#[tokio::test]
+async fn test_greek_pii_detection() {
     let yaml = r#"
 rules:
   - id: "gr_afm_literal"
@@ -17,9 +17,9 @@ rules:
     
     let prompt = "Ο χρήστης Nikolas Papadopoulos με ΑΦΜ 123456789.";
     
-    let report = engine.sanitize_prompt(prompt, None).unwrap();
+    let report = engine.sanitize_prompt(bytes::Bytes::from(prompt.to_string()),  None).await.unwrap();
     
-    println!("Sanitized: {}", report.sanitized_text);
+    println!("Sanitized: {:?}", report.sanitized_text);
     
     // If it works, it should have a redaction for ΑΦΜ 123456789
     assert!(!report.redactions.is_empty(), "Expected at least one redaction for Greek AFM");

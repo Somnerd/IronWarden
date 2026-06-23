@@ -16,13 +16,13 @@ async fn test_auditor_concurrency_stress() {
     let num_requests = 100; // Stressing the MPSC channel
     let mut handles = vec![];
 
-    println!("🚀 Firing {} concurrent audit events...", num_requests);
+    println!("🚀 Firing {:?} concurrent audit events...", num_requests);
 
     for i in 0..num_requests {
         let storage_clone = storage.clone();
         let handle = tokio::spawn(async move {
             let report = ScrubbingReport {
-                sanitized_text: format!("Safe text {}", i),
+                sanitized_text: format!("Safe text {:?}", i).into(),
                 is_blocked: false,
                 redactions: vec![],
                 token_map: TokenMap::new(),
@@ -45,6 +45,6 @@ async fn test_auditor_concurrency_stress() {
     let conn = rusqlite::Connection::open(&db_path).unwrap();
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM audit_reports", [], |r| r.get(0)).unwrap();
     
-    println!("✅ Stress Test Complete. Logged {}/{} events.", count, num_requests);
+    println!("✅ Stress Test Complete. Logged {:?}/{:?} events.", count, num_requests);
     assert_eq!(count, num_requests as i64);
 }

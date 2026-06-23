@@ -39,7 +39,7 @@ impl AadCipher {
     ) -> Result<Vec<u8>, SovereignError> {
         let mut nonce_bytes = [0u8; 12];
         rand::thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::from(nonce_bytes);
 
         let bound_info = build_hkdf_info(info, aad);
 
@@ -49,15 +49,15 @@ impl AadCipher {
         hk.expand(&bound_info, &mut key_bytes)
             .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
         
-        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-        let cipher = Aes256Gcm::new(key);
+        let key = Key::<Aes256Gcm>::from(key_bytes);
+        let cipher = Aes256Gcm::new(&key);
 
         let aead_payload = aes_gcm::aead::Payload {
             msg: payload,
             aad: aad.as_bytes(),
         };
 
-        let ciphertext = cipher.encrypt(nonce, aead_payload)
+        let ciphertext = cipher.encrypt(&nonce, aead_payload)
             .map_err(|_| SovereignError::InternalError("Encryption failed".into()))?;
 
         // Securely erase key material from memory
@@ -80,6 +80,7 @@ impl AadCipher {
         }
 
         let (nonce_bytes, ciphertext) = combined.split_at(12);
+        #[allow(deprecated)]
         let nonce = Nonce::from_slice(nonce_bytes);
 
         let bound_info = build_hkdf_info(info, aad);
@@ -90,8 +91,8 @@ impl AadCipher {
         hk.expand(&bound_info, &mut key_bytes)
             .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
         
-        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-        let cipher = Aes256Gcm::new(key);
+        let key = Key::<Aes256Gcm>::from(key_bytes);
+        let cipher = Aes256Gcm::new(&key);
 
         let aead_payload = aes_gcm::aead::Payload {
             msg: ciphertext,

@@ -240,9 +240,7 @@ async fn handle_request_internal(
         // --- DEADLOCK FIX: Scope permit to AI block ---
         let report = {
             let _permit = semaphore.acquire().await.map_err(|e| SovereignError::InternalError(e.to_string()))?;
-            tokio::task::spawn_blocking(move || {
-                shield_clone.sanitize_prompt(&prompt_clone, Some(&session_clone))
-            }).await.map_err(|e| SovereignError::InternalError(format!("Task execution failed: {}", e)))??
+            shield_clone.sanitize_prompt(bytes::Bytes::from(prompt_clone), Some(&session_clone)).await?
         };
 
         storage.log_audit_event(&report, user_prompt, &username).await?;
@@ -326,9 +324,7 @@ async fn handle_request_internal(
         let session_clone = user_session.clone();
         // --- DEADLOCK FIX: Scope permit to AI block ---
         let _permit = semaphore.acquire().await.map_err(|e| SovereignError::InternalError(e.to_string()))?;
-        tokio::task::spawn_blocking(move || {
-            shield_clone.sanitize_prompt(&prompt_clone, Some(&session_clone))
-        }).await.map_err(|e| SovereignError::InternalError(format!("Task execution failed: {}", e)))??
+        shield_clone.sanitize_prompt(bytes::Bytes::from(prompt_clone), Some(&session_clone)).await?
     };
     
     if let Err(e) = storage.log_audit_event(&query_report, user_prompt, &username).await {
@@ -365,9 +361,7 @@ async fn handle_request_internal(
         // --- DEADLOCK FIX: Inner permit for snippet scrubbing ---
         let snippet_report = {
             let _permit = semaphore.acquire().await.map_err(|e| SovereignError::InternalError(e.to_string()))?;
-            tokio::task::spawn_blocking(move || {
-                shield_inner.sanitize_prompt(&snippet_clone, Some(&session_inner))
-            }).await.map_err(|e| SovereignError::InternalError(format!("Task execution failed: {}", e)))??
+            shield_inner.sanitize_prompt(bytes::Bytes::from(snippet_clone), Some(&session_inner)).await?
         };
         
         // --- INTEGRITY FIX: Fail-Closed on Blocked Context ---
@@ -378,11 +372,12 @@ async fn handle_request_internal(
         if let Err(e) = storage.log_audit_event(&snippet_report, &snippet, &username).await {
             return Err(SovereignError::InternalError(format!("CRITICAL: Audit log failed for context snippet: {}", e)));
         }
-        sanitized_context.push(snippet_report.sanitized_text);
+        sanitized_context.push(String::from_utf8_lossy(&snippet_report.sanitized_text).into_owned());
     }
 
     // 3. Inference
-    let llm_response = router.route_prompt(&query_report.sanitized_text, &sanitized_context).await?;
+    let query_str = String::from_utf8_lossy(&query_report.sanitized_text);
+    let llm_response = router.route_prompt(&query_str, &sanitized_context).await?;
 
     // 4. Restore & Egress
     let clean_response = shield.restore_prompt(&llm_response, &query_report.token_map)?;
@@ -427,11 +422,12 @@ mod tests {
     use serde_json::json;
 
     struct MockShield;
+    #[async_trait]
     impl PiiShield for MockShield {
-        fn sanitize_prompt(&self, prompt: &str, _session: Option<&SessionContext>) -> Result<ScrubbingReport, SovereignError> {
-            std::thread::sleep(Duration::from_millis(50));
+        async fn sanitize_prompt(&self, prompt: bytes::Bytes, _session: Option<&SessionContext>) -> Result<ScrubbingReport, SovereignError> {
+            tokio::time::sleep(Duration::from_millis(50)).await;
             Ok(ScrubbingReport {
-                sanitized_text: prompt.to_string(),
+                sanitized_text: prompt,
                 is_blocked: false,
                 redactions: vec![],
                 token_map: TokenMap::new(),

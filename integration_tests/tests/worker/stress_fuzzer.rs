@@ -13,14 +13,14 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     let pepper = b"test-pepper-12345678901234567890".to_vec(); // 32 bytes
     
     let _ = std::fs::remove_file(db_path);
-    let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    let _ = std::fs::remove_file(format!("{:?}.anchor", db_path));
 
     // 1. Initialize Auditor
     let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.expect("Failed to spawn auditor");
     
     // 2. Fuzz with malformed inputs
     let report1 = ScrubbingReport {
-        sanitized_text: "Test 1".to_string(),
+        sanitized_text: "Test 1".to_string().into(),
         is_blocked: false,
         redactions: vec![],
         token_map: Default::default(),
@@ -31,7 +31,7 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     let _ = auditor.log_report(report1.clone(), "Malicious prompt with \u{202e} right-to-left override".to_string(), "fuzzer_user".into()).await;
     
     let report2 = ScrubbingReport {
-        sanitized_text: "Test 2 [REDACTED]".to_string(),
+        sanitized_text: "Test 2 [REDACTED]".to_string().into(),
         is_blocked: true,
         redactions: vec![Redaction {
             rule_id: "test_rule".to_string(),

@@ -46,13 +46,13 @@ async fn test_v14_leak_prevention_enforced() {
     let raw_query = "Project Icarus";
     
     // Step A: Bridge-side Processing (Scrubbing Only)
-    let report = shield.sanitize_prompt(raw_query, None).unwrap();
-    assert!(report.sanitized_text.contains("[TOKEN_1]"));
-    assert!(!report.sanitized_text.contains("Icarus"));
+    let report = shield.sanitize_prompt(bytes::Bytes::from(raw_query.to_string()),  None).await.unwrap();
+    assert!(String::from_utf8_lossy(&report.sanitized_text).contains("[TOKEN_1]"));
+    assert!(!String::from_utf8_lossy(&report.sanitized_text).contains("Icarus"));
     
     // Step B: Enqueue (Signature now ONLY accepts 4 arguments, raw/sealed query is impossible)
     let job_id = queue.enqueue(
-        report.sanitized_text.clone(),
+        String::from_utf8_lossy(&report.sanitized_text).into_owned(),
         HashMap::new(),
         "thread_1".into(),
         username.into(),

@@ -4,7 +4,8 @@ use iw_warden::{WardenConfig};
 use std::fs;
 use tempfile::tempdir;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("rules.yaml");
     
@@ -25,11 +26,11 @@ rules:
 
     let session = SessionContext::new();
 
-    let report1 = shield.sanitize_prompt("Alice is here.", Some(&session)).unwrap();
+    let report1 = shield.sanitize_prompt(bytes::Bytes::from("Alice is here.".to_string()),  Some(&session)).await.unwrap();
     println!("Report1: {:?}", report1.sanitized_text);
     println!("Tokens: {:?}", report1.token_map);
 
-    let report2 = shield.sanitize_prompt("Email alice@example.com", Some(&session)).unwrap();
+    let report2 = shield.sanitize_prompt(bytes::Bytes::from("Email alice@example.com".to_string()),  Some(&session)).await.unwrap();
     println!("Report2: {:?}", report2.sanitized_text);
     println!("Tokens: {:?}", report2.token_map);
 }

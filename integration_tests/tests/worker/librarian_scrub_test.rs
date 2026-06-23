@@ -27,12 +27,12 @@ async fn test_leak_proof_librarian_flow() {
     let raw_snippet = "This document discusses the acquisition details for Project Omega.";
     
     // 3. THE LEAK PROOF BRIDGE: Scrubbing the Context
-    let report = engine.sanitize_prompt(raw_snippet, None).unwrap();
+    let report = engine.sanitize_prompt(bytes::Bytes::from(raw_snippet.to_string()),  None).await.unwrap();
     
-    println!("Raw Snippet: {}", raw_snippet);
-    println!("Scrubbed Snippet: {}", report.sanitized_text);
+    println!("Raw Snippet: {:?}", raw_snippet);
+    println!("Scrubbed Snippet: {:?}", report.sanitized_text);
 
     // ASSERTION: The secret "Project Omega" must be redacted even in the context
-    assert!(report.sanitized_text.contains("[TOKEN_1]"));
-    assert!(!report.sanitized_text.contains("Project Omega"));
+    assert!(String::from_utf8_lossy(&report.sanitized_text).contains("[TOKEN_1]"));
+    assert!(!String::from_utf8_lossy(&report.sanitized_text).contains("Project Omega"));
 }

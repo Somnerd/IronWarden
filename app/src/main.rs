@@ -11,14 +11,15 @@ struct DynamicShield {
     engine: ArcSwap<warden::WardenEngine>,
 }
 
+#[async_trait::async_trait]
 impl iw_core::PiiShield for DynamicShield {
-    fn sanitize_prompt(
+    async fn sanitize_prompt(
         &self,
-        input: &str,
+        input: bytes::Bytes,
         session: Option<&iw_core::SessionContext>,
     ) -> Result<iw_core::ScrubbingReport, iw_core::SovereignError> {
         let engine = self.engine.load();
-        engine.sanitize_prompt(input, session)
+        engine.sanitize_prompt(input, session).await
     }
 
     fn restore_prompt(
@@ -216,6 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             storage: storage.clone(),
             session_manager,
             jwt_public_key,
+            ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
         });
 
         let bridge_port = std::env::var("BRIDGE_PORT").unwrap_or_else(|_| "14141".to_string());

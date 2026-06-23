@@ -16,7 +16,7 @@ async fn test_gap_02_boot_handshake_tamper_detection() {
         let auditor = AsyncAuditor::spawn(db_path.to_str().unwrap(), pepper, None).await.unwrap();
         // Log one report to create a record
         let report = iw_core::ScrubbingReport {
-            sanitized_text: "test".to_string(),
+            sanitized_text: "test".to_string().into(),
             redactions: vec![],
             token_map: iw_core::TokenMap::new(),
             is_blocked: false,
@@ -40,7 +40,7 @@ async fn test_gap_02_boot_handshake_tamper_detection() {
         Ok(_) => panic!("Handshake should have failed due to tampering"),
         Err(e) => {
             let err_msg = e.to_string();
-            println!("Caught Expected Error: {}", err_msg);
+            println!("Caught Expected Error: {:?}", err_msg);
             assert!(err_msg.contains("DB Init Failed"), "Error should indicate DB initialization failure");
         }
     }

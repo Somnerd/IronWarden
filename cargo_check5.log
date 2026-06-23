@@ -1,0 +1,2312 @@
+warning: unused import: `error`
+ --> core/src/fips.rs:1:27
+  |
+1 | ...warn, error};
+  |          ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:42:28
+   |
+42 | ...e::from_slice(&no...
+   |       ^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:52:37
+   |
+52 | ...>::from_slice(&ke...
+   |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:83:28
+   |
+83 | ...e::from_slice(non...
+   |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> core/src/crypto.rs:93:37
+   |
+93 | ...>::from_slice(&ke...
+   |       ^^^^^^^^^^
+
+warning: `iw_core` (lib) generated 5 warnings (run `cargo fix --lib -p iw_core` to apply 1 suggestion)
+warning: unused import: `regex::Regex`
+ --> warden/src/normalize.rs:2:5
+  |
+2 | use regex::Regex;
+  |     ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `once_cell::sync::Lazy`
+ --> warden/src/normalize.rs:3:5
+  |
+3 | use once_cell::sync::Lazy;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> warden/src/engine.rs:6:5
+  |
+6 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::atomic::Ordering`
+ --> warden/src/engine.rs:7:5
+  |
+7 | use std::sync::atomic::Ordering;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PotentialMiss`
+ --> warden/src/shadow_ner.rs:2:23
+  |
+2 | ...::{PotentialMiss, E...
+  |       ^^^^^^^^^^^^^
+
+warning: unused import: `crate::normalize::OffsetMap`
+ --> warden/src/shadow_ner.rs:4:5
+  |
+4 | use crate::normalize::OffsetMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PathBuf`
+ --> warden/src/ai.rs:5:23
+  |
+5 | ...ath, PathBuf};
+  |         ^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> warden/src/ai.rs:7:5
+  |
+7 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:110:37
+    |
+110 | ...>::from_slice(&k...
+    |       ^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:547:28
+    |
+547 | ...e::from_slice(&n...
+    |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:569:28
+    |
+569 | ...e::from_slice(no...
+    |       ^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> warden/src/engine.rs:269:17
+    |
+269 | ...or mut mat in ma...
+    |       ----^^^
+    |       |
+    |       help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `text_str`
+   --> warden/src/engine.rs:296:21
+    |
+296 | ...et text_str = st...
+    |       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_text_str`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `e`
+  --> warden/src/ai.rs:92:17
+   |
+92 | ...   Err(e) => retu...
+   |           ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `e`
+  --> warden/src/ai.rs:97:17
+   |
+97 | ...   Err(e) => retu...
+   |           ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `e`
+   --> warden/src/ai.rs:114:17
+    |
+114 | ... Err(e) => retur...
+    |         ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: constant `SEMANTIC_CACHE_THRESHOLD` is never used
+  --> warden/src/engine.rs:18:7
+   |
+18 | const SEMANTIC_CACHE_THRESHOLD: f...
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `is_confirmed` is never read
+   --> warden/src/engine.rs:167:5
+    |
+162 | struct UnifiedMatch {
+    |        ------------ field in this struct
+...
+167 |     is_confirmed: bool,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `UnifiedMatch` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `combine_actions` is never used
+   --> warden/src/engine.rs:533:4
+    |
+533 | fn combine_actions(a:...
+    |    ^^^^^^^^^^^^^^^
+
+warning: field `global_name_re` is never read
+  --> warden/src/shadow_ner.rs:18:5
+   |
+16 | pub struct ShadowNer {
+   |            --------- field in this struct
+17 |     patterns: Vec<(Rege...
+18 |     global_name_re: Regex,
+   |     ^^^^^^^^^^^^^^
+
+warning: field `threshold` is never read
+   --> warden/src/ai.rs:188:5
+    |
+185 | pub struct HybridNerPool {
+    |            ------------- field in this struct
+...
+188 |     threshold: f64,
+    |     ^^^^^^^^^
+
+warning: `iw-warden` (lib) generated 21 warnings (run `cargo fix --lib -p iw-warden` to apply 13 suggestions)
+warning: unused import: `warn`
+ --> worker/src/audit.rs:8:28
+  |
+8 | ...error, warn};
+  |           ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `rusqlite::ErrorCode`
+ --> worker/src/storage.rs:7:5
+  |
+7 | use rusqlite::ErrorCode;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `warn`
+ --> worker/src/librarian.rs:7:21
+  |
+7 | ...{info, warn};
+  |           ^^^^
+
+warning: use of deprecated method `hmac::digest::generic_array::GenericArray::<T, N>::as_slice`: please upgrade to generic-array 1.x
+   --> worker/src/audit.rs:451:44
+    |
+451 | ...ash.as_slice() !...
+    |        ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: value assigned to `conn` is never read
+   --> worker/src/audit.rs:102:48
+    |
+102 | ...ut conn: Option<Connection> = None;
+    |                                  ^^^^ this value is reassigned later and never used
+...
+108 | ...   conn = Some(c);
+    |       ---- `conn` is overwritten here before the previous value is read
+    |
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `last_id` is never read
+   --> worker/src/audit.rs:104:36
+    |
+104 | ...ut last_id: i64 = 0;
+    |                      ^ this value is reassigned later and never used
+...
+110 | ...   last_id = id;
+    |       ------------ `last_id` is overwritten here before the previous value is read
+
+warning: field `db_path` is never read
+  --> worker/src/storage.rs:17:5
+   |
+13 | pub struct WorkerStorage {
+   |            ------------- field in this struct
+...
+17 |     db_path: String,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `db_path` and `grounding_shield` are never read
+  --> worker/src/searchboost.rs:25:5
+   |
+24 | pub struct SearchBoostQueue {
+   |            ---------------- fields in this struct
+25 |     db_path: String,
+   |     ^^^^^^^
+...
+29 |     grounding_shield: Option<A...
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `SearchBoostQueue` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `db_path` is never read
+   --> worker/src/searchboost.rs:352:5
+    |
+350 | pub struct LocalSessionManager {
+    |            ------------------- field in this struct
+351 |     sessions: DashMap<String, Arc...
+352 |     db_path: String,
+    |     ^^^^^^^
+
+warning: `worker` (lib) generated 9 warnings (run `cargo fix --lib -p worker` to apply 3 suggestions)
+warning: unused imports: `ComplianceReport` and `ScrubbingReport`
+ --> mcp/src/server.rs:7:104
+  |
+7 | ...t, ComplianceReport, ScrubbingReport};
+  |       ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `mcp` (lib) generated 1 warning (run `cargo fix --lib -p mcp` to apply 1 suggestion)
+warning: `mcp` (lib test) generated 1 warning (1 duplicate)
+warning: `worker` (lib test) generated 9 warnings (9 duplicates)
+warning: `iw_core` (lib test) generated 5 warnings (5 duplicates)
+    Checking app v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/app)
+    Checking iw-integration-tests v0.1.0 (/home/somnerd/Documents/Projects/IronWarden/integration_tests)
+warning: use of deprecated method `hmac::digest::generic_array::GenericArray::<T, N>::as_slice`: please upgrade to generic-array 1.x
+   --> cli/src/main.rs:185:40
+    |
+185 | ...ash.as_slice() =...
+    |        ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `iw-cli` (bin "iw-cli" test) generated 1 warning
+warning: unused import: `crate::config::HeuristicConfig`
+   --> warden/src/engine.rs:588:9
+    |
+588 | ...se crate::config::HeuristicConfig;
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `iw-warden` (lib test) generated 22 warnings (21 duplicates) (run `cargo fix --lib -p iw-warden --tests` to apply 1 suggestion)
+error: the `async` keyword is missing from the function declaration
+  --> integration_tests/tests/warden/sentinel_adversarial.rs:60:1
+   |
+60 | fn test_semantic_cac...
+   | ^^
+
+error[E0195]: lifetime parameters or bounds on method `sanitize_prompt` do not match the trait declaration
+   --> app/src/main.rs:15:23
+    |
+ 15 |   ...rompt(
+    |           ^ lifetimes do not match method in trait
+    |
+   ::: core/src/traits.rs:215:5
+    |
+215 | /     async fn sanitize_prompt(
+216 | |         &self,
+217 | |         prompt: bytes::Bytes,
+218 | |         session: Option<&SessionContext>,
+219 | |     ) -> Result<ScrubbingReport, SovereignError>;
+    | |_________________________________________________- lifetimes in impl do not match this method in trait
+
+error[E0308]: mismatched types
+   --> app/src/main.rs:21:32
+    |
+ 21 | ...ne.sanitize_prompt(input, s...
+    |       --------------- ^^^^^ expected `Bytes`, found `&str`
+    |       |
+    |       arguments to this method are incorrect
+    |
+note: method defined here
+   --> core/src/traits.rs:215:14
+    |
+215 | ...fn sanitize_prompt(
+    |       ^^^^^^^^^^^^^^^
+help: call `Into::into` on this expression to convert `&str` into `axum::body::Bytes`
+    |
+ 21 |         engine.sanitize_prompt(input.into(), session)
+    |                                     +++++++
+
+error[E0308]: mismatched types
+  --> app/src/main.rs:21:9
+   |
+19 | ... -> Result<...nError> {
+   |        -------...------- expected `Result<..., ...>` because of return type
+20 | ...   let engine = self.engine.load();
+21 | ...   engine.sanitize_prompt(input, session)
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<ScrubbingReport, SovereignError>`, found `Pin<Box<...>>`
+   |
+   = note: expected enum `Result<ScrubbingReport, SovereignError>`
+            found struct `Pin<Box<...>>`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/app-c2948424e507bf08.long-type-7352355324016412314.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+
+error[E0063]: missing field `ingress_semaphore` in initializer of `BridgeState`
+   --> app/src/main.rs:212:37
+    |
+212 | ...ew(worker::BridgeState {
+    |       ^^^^^^^^^^^^^^^^^^^ missing `ingress_semaphore`
+
+Some errors have detailed explanations: E0063, E0195, E0308.
+For more information about an error, try `rustc --explain E0063`.
+error: could not compile `app` (bin "app" test) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/evasion_test.rs:16:40
+   |
+16 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+16 -     let report = enginesanitize_prompt(bytes::Bytes::from(input.to_string()),  None).await.expect("Sanitization failed");
+16 +     let report = enginesanitize_prompt(Bytes::from(input.to_string()),  None).await.expect("Sanitization failed");
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/fusion_test.rs:26:40
+   |
+26 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+26 -     let report = enginesanitize_prompt(bytes::Bytes::from(prompt.to_string()),  None).await.unwrap();
+26 +     let report = enginesanitize_prompt(Bytes::from(prompt.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/ghosting_test.rs:28:41
+   |
+28 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+28 -     let report1 = shieldsanitize_prompt(bytes::Bytes::from("Alice is here.".to_string()),  Some(&session).await).unwrap();
+28 +     let report1 = shieldsanitize_prompt(Bytes::from("Alice is here.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/ghosting_test.rs:32:41
+   |
+32 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+32 -     let report2 = shieldsanitize_prompt(bytes::Bytes::from("Email alice@example.com".to_string()),  Some(&session).await).unwrap();
+32 +     let report2 = shieldsanitize_prompt(Bytes::from("Email alice@example.com".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/global_fusion_test.rs:19:40
+   |
+19 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+19 -     let report = enginesanitize_prompt(bytes::Bytes::from(prompt.to_string()),  None).await.unwrap();
+19 +     let report = enginesanitize_prompt(Bytes::from(prompt.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/greek_test.rs:20:40
+   |
+20 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+20 -     let report = enginesanitize_prompt(bytes::Bytes::from(prompt.to_string()),  None).await.unwrap();
+20 +     let report = enginesanitize_prompt(Bytes::from(prompt.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:33:41
+   |
+33 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+33 -     let report1 = shieldsanitize_prompt(bytes::Bytes::from("Hello Alice.".to_string()),  Some(&session).await).unwrap();
+33 +     let report1 = shieldsanitize_prompt(Bytes::from("Hello Alice.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:37:41
+   |
+37 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+37 -     let report2 = shieldsanitize_prompt(bytes::Bytes::from("Contact alice@example.com.".to_string()),  Some(&session).await).unwrap();
+37 +     let report2 = shieldsanitize_prompt(Bytes::from("Contact alice@example.com.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:43:41
+   |
+43 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+43 -     let report3 = shieldsanitize_prompt(bytes::Bytes::from("Meet Alicia.".to_string()),  Some(&session).await).unwrap();
+43 +     let report3 = shieldsanitize_prompt(Bytes::from("Meet Alicia.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:49:41
+   |
+49 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+49 -     let report4 = shieldsanitize_prompt(bytes::Bytes::from("Alice again.".to_string()),  Some(&session).await).unwrap();
+49 +     let report4 = shieldsanitize_prompt(Bytes::from("Alice again.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:54:41
+   |
+54 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+54 -     let report5 = shieldsanitize_prompt(bytes::Bytes::from("Do not match Malice.".to_string()),  Some(&session).await).unwrap();
+54 +     let report5 = shieldsanitize_prompt(Bytes::from("Do not match Malice.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/identity_linking_test.rs:22:45
+   |
+22 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 4 +     use std::io::Bytes;
+   |
+ 4 +     use std::str::Bytes;
+   |
+ 4 +     use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+22 -         let report1 = enginesanitize_prompt(bytes::Bytes::from("Hello John Smith.".to_string()),  Some(&session).await).unwrap();
+22 +         let report1 = enginesanitize_prompt(Bytes::from("Hello John Smith.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/identity_linking_test.rs:37:46
+   |
+37 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 4 +     use std::io::Bytes;
+   |
+ 4 +     use std::str::Bytes;
+   |
+ 4 +     use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+37 -         let report2 = engine2sanitize_prompt(bytes::Bytes::from("Hello Alice Smith.".to_string()),  Some(&session).await).unwrap();
+37 +         let report2 = engine2sanitize_prompt(Bytes::from("Hello Alice Smith.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/identity_linking_test.rs:55:46
+   |
+55 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 4 +     use std::io::Bytes;
+   |
+ 4 +     use std::str::Bytes;
+   |
+ 4 +     use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+55 -         let report3 = engine3sanitize_prompt(bytes::Bytes::from("Smith is here.".to_string()),  Some(&session).await).unwrap();
+55 +         let report3 = engine3sanitize_prompt(Bytes::from("Smith is here.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/legal_test.rs:33:44
+   |
+33 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+33 -     let report_bar = enginesanitize_prompt(bytes::Bytes::from(input_bar.to_string()),  None).await.unwrap();
+33 +     let report_bar = enginesanitize_prompt(Bytes::from(input_bar.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/legal_test.rs:38:47
+   |
+38 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+38 -     let report_docket = enginesanitize_prompt(bytes::Bytes::from(input_docket.to_string()),  None).await.unwrap();
+38 +     let report_docket = enginesanitize_prompt(Bytes::from(input_docket.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/legal_test.rs:43:45
+   |
+43 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+43 -     let report_conf = enginesanitize_prompt(bytes::Bytes::from(input_conf.to_string()),  None).await.unwrap();
+43 +     let report_conf = enginesanitize_prompt(Bytes::from(input_conf.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/legal_test.rs:48:44
+   |
+48 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+48 -     let report_afm = enginesanitize_prompt(bytes::Bytes::from(input_afm.to_string()),  None).await.unwrap();
+48 +     let report_afm = enginesanitize_prompt(Bytes::from(input_afm.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:30:44
+   |
+30 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+30 -     let report_mrn = enginesanitize_prompt(bytes::Bytes::from(input_mrn.to_string()),  None).await.unwrap();
+30 +     let report_mrn = enginesanitize_prompt(Bytes::from(input_mrn.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:35:44
+   |
+35 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+35 -     let report_npi = enginesanitize_prompt(bytes::Bytes::from(input_npi.to_string()),  None).await.unwrap();
+35 +     let report_npi = enginesanitize_prompt(Bytes::from(input_npi.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:40:44
+   |
+40 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+40 -     let report_mbi = enginesanitize_prompt(bytes::Bytes::from(input_mbi.to_string()),  None).await.unwrap();
+40 +     let report_mbi = enginesanitize_prompt(Bytes::from(input_mbi.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:45:43
+   |
+45 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+45 -     let report_rx = enginesanitize_prompt(bytes::Bytes::from(input_rx.to_string()),  None).await.unwrap();
+45 +     let report_rx = enginesanitize_prompt(Bytes::from(input_rx.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:50:44
+   |
+50 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+50 -     let report_icd = enginesanitize_prompt(bytes::Bytes::from(input_icd.to_string()),  None).await.unwrap();
+50 +     let report_icd = enginesanitize_prompt(Bytes::from(input_icd.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:65:48
+   |
+65 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+65 -     let report_disease = enginesanitize_prompt(bytes::Bytes::from(input_disease.to_string()),  None).await.unwrap();
+65 +     let report_disease = enginesanitize_prompt(Bytes::from(input_disease.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:77:45
+   |
+77 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+77 -     let report_drug = enginesanitize_prompt(bytes::Bytes::from(input_drug.to_string()),  None).await.unwrap();
+77 +     let report_drug = enginesanitize_prompt(Bytes::from(input_drug.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/sentinel_qa.rs:16:40
+   |
+16 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+16 -     let report = enginesanitize_prompt(bytes::Bytes::from("The name is Al\u{0456}ce Smith.".to_string()),  Some(&session).await).unwrap();
+16 +     let report = enginesanitize_prompt(Bytes::from("The name is Al\u{0456}ce Smith.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/sentinel_qa.rs:30:40
+   |
+30 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+30 -     let report = enginesanitize_prompt(bytes::Bytes::from("\u{0391}\u{03BB}\u{03AD}\u{03BE}\u{03B1}\u{03BD}\u{03B4}\u{03C1}\u{03BF}\u{03C2} is here.".to_string()),  None).await.unwrap();
+30 +     let report = enginesanitize_prompt(Bytes::from("\u{0391}\u{03BB}\u{03AD}\u{03BE}\u{03B1}\u{03BD}\u{03B4}\u{03C1}\u{03BF}\u{03C2} is here.".to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/sentinel_qa.rs:42:40
+   |
+42 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+42 -     let report = enginesanitize_prompt(bytes::Bytes::from("Hello Al\u{0456}ce Smith.".to_string()),  None).await.unwrap();
+42 +     let report = enginesanitize_prompt(Bytes::from("Hello Al\u{0456}ce Smith.".to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/session_test.rs:32:41
+   |
+32 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+32 -     let report1 = shieldsanitize_prompt(bytes::Bytes::from(input1.to_string()),  Some(&mut session).await).unwrap();
+32 +     let report1 = shieldsanitize_prompt(Bytes::from(input1.to_string()),  Some(&mut session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/session_test.rs:42:41
+   |
+42 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+42 -     let report2 = shieldsanitize_prompt(bytes::Bytes::from(input2.to_string()),  Some(&mut session).await).unwrap();
+42 +     let report2 = shieldsanitize_prompt(Bytes::from(input2.to_string()),  Some(&mut session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/session_test.rs:50:41
+   |
+50 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+50 -     let report3 = shieldsanitize_prompt(bytes::Bytes::from(input3.to_string()),  Some(&mut session).await).unwrap();
+50 +     let report3 = shieldsanitize_prompt(Bytes::from(input3.to_string()),  Some(&mut session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:21:40
+   |
+21 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+21 -     let report = enginesanitize_prompt(bytes::Bytes::from(input.to_string()),  None).await.unwrap();
+21 +     let report = enginesanitize_prompt(Bytes::from(input.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:26:41
+   |
+26 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+26 -     let report2 = enginesanitize_prompt(bytes::Bytes::from(input2.to_string()),  None).await.unwrap();
+26 +     let report2 = enginesanitize_prompt(Bytes::from(input2.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:31:41
+   |
+31 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+31 -     let report3 = enginesanitize_prompt(bytes::Bytes::from(input3.to_string()),  None).await.unwrap();
+31 +     let report3 = enginesanitize_prompt(Bytes::from(input3.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:36:41
+   |
+36 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+36 -     let report4 = enginesanitize_prompt(bytes::Bytes::from(input4.to_string()),  None).await.unwrap();
+36 +     let report4 = enginesanitize_prompt(Bytes::from(input4.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:41:41
+   |
+41 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+41 -     let report5 = enginesanitize_prompt(bytes::Bytes::from(input5.to_string()),  None).await.unwrap();
+41 +     let report5 = enginesanitize_prompt(Bytes::from(input5.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:46:41
+   |
+46 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+46 -     let report6 = enginesanitize_prompt(bytes::Bytes::from(input6.to_string()),  None).await.unwrap();
+46 +     let report6 = enginesanitize_prompt(Bytes::from(input6.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:60:40
+   |
+60 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+60 -     let report = enginesanitize_prompt(bytes::Bytes::from(input.to_string()),  None).await.unwrap();
+60 +     let report = enginesanitize_prompt(Bytes::from(input.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:65:41
+   |
+65 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+65 -     let report2 = enginesanitize_prompt(bytes::Bytes::from(input2.to_string()),  None).await.unwrap();
+65 +     let report2 = enginesanitize_prompt(Bytes::from(input2.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/worker/librarian_scrub_test.rs:30:40
+   |
+30 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+30 -     let report = enginesanitize_prompt(bytes::Bytes::from(raw_snippet.to_string()),  None).await.unwrap();
+30 +     let report = enginesanitize_prompt(Bytes::from(raw_snippet.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/worker/tandem_grounding_test.rs:49:40
+   |
+49 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+49 -     let report = shieldsanitize_prompt(bytes::Bytes::from(raw_query.to_string()),  None).await.unwrap();
+49 +     let report = shieldsanitize_prompt(Bytes::from(raw_query.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/app/hardened_integration.rs:43:40
+   |
+43 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+43 -     let report = shieldsanitize_prompt(bytes::Bytes::from(raw_input.to_string()),  None).await.unwrap();
+43 +     let report = shieldsanitize_prompt(Bytes::from(raw_input.to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/app/hardened_integration.rs:95:41
+   |
+95 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+95 -     let report1 = shieldsanitize_prompt(bytes::Bytes::from("Hello Alice.".to_string()),  Some(&session).await).unwrap();
+95 +     let report1 = shieldsanitize_prompt(Bytes::from("Hello Alice.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/app/hardened_integration.rs:99:41
+   |
+99 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+99 -     let report2 = shieldsanitize_prompt(bytes::Bytes::from("Alice is here.".to_string()),  Some(&session).await).unwrap();
+99 +     let report2 = shieldsanitize_prompt(Bytes::from("Alice is here.".to_string()),  Some(&session).await).unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+   --> integration_tests/tests/app/hardened_integration.rs:107:41
+    |
+107 | ...ompt(bytes::Byte...
+    |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+    |
+    = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+    |
+  2 + use std::io::Bytes;
+    |
+  2 + use std::str::Bytes;
+    |
+  2 + use core::str::Bytes;
+    |
+help: if you import `Bytes`, refer to it directly
+    |
+107 -     let report3 = shieldsanitize_prompt(bytes::Bytes::from("Alice again.".to_string()),  Some(&new_session).await).unwrap();
+107 +     let report3 = shieldsanitize_prompt(Bytes::from("Alice again.".to_string()),  Some(&new_session).await).unwrap();
+    |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/app/legal_e2e_test.rs:46:40
+   |
+46 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+46 -     let report = shieldsanitize_prompt(bytes::Bytes::from(contexts[0]),  None).await.expect("Scrubbing failed");
+46 +     let report = shieldsanitize_prompt(Bytes::from(contexts[0]),  None).await.expect("Scrubbing failed");
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+  --> integration_tests/tests/app/sentinel_e2e.rs:96:40
+   |
+96 | ...ompt(bytes::Bytes...
+   |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+   |
+   = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+   |
+ 2 + use std::io::Bytes;
+   |
+ 2 + use std::str::Bytes;
+   |
+ 2 + use core::str::Bytes;
+   |
+help: if you import `Bytes`, refer to it directly
+   |
+96 -     let report = shieldsanitize_prompt(bytes::Bytes::from("tell me about TOP_SECRET_PROJECT".to_string()),  None).await.unwrap();
+96 +     let report = shieldsanitize_prompt(Bytes::from("tell me about TOP_SECRET_PROJECT".to_string()),  None).await.unwrap();
+   |
+
+error[E0433]: cannot find module or crate `bytes` in this scope
+   --> integration_tests/tests/app/sentinel_e2e.rs:183:40
+    |
+183 | ...ompt(bytes::Byte...
+    |         ^^^^^ use of unresolved module or unlinked crate `bytes`
+    |
+    = help: if you wanted to use a crate named `bytes`, use `cargo add bytes` to add it to your `Cargo.toml`
+help: consider importing one of these structs
+    |
+  2 + use std::io::Bytes;
+    |
+  2 + use std::str::Bytes;
+    |
+  2 + use core::str::Bytes;
+    |
+help: if you import `Bytes`, refer to it directly
+    |
+183 -     let report = enginesanitize_prompt(bytes::Bytes::from(input.to_string()),  None).await.unwrap();
+183 +     let report = enginesanitize_prompt(Bytes::from(input.to_string()),  None).await.unwrap();
+    |
+
+warning: unused import: `tokio::task`
+ --> integration_tests/tests/core/session_concurrency.rs:4:5
+  |
+4 | use tokio::task;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/warden/evasion_test.rs:3:42
+  |
+3 | ...on, PiiShield};
+  |        ^^^^^^^^^
+
+warning: unused import: `iw_core::PiiShield`
+ --> integration_tests/tests/warden/fusion_test.rs:3:5
+  |
+3 | use iw_core::PiiShield;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/warden/ghosting_test.rs:2:31
+  |
+2 | ...xt, PiiShield};
+  |        ^^^^^^^^^
+
+warning: unused import: `iw_core::PiiShield`
+ --> integration_tests/tests/warden/global_fusion_test.rs:3:5
+  |
+3 | use iw_core::PiiShield;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `iw_core::PiiShield`
+ --> integration_tests/tests/warden/greek_test.rs:3:5
+  |
+3 | use iw_core::PiiShield;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/warden/identity_ghosting_test.rs:2:31
+  |
+2 | ...xt, PiiShield};
+  |        ^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/warden/identity_linking_test.rs:4:19
+  |
+4 | ...e::{PiiShield, Ses...
+  |        ^^^^^^^^^
+
+warning: unused import: `iw_core::PiiShield`
+ --> integration_tests/tests/warden/legal_test.rs:3:5
+  |
+3 | use iw_core::PiiShield;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/warden/medical_test.rs:3:15
+  |
+3 | ...e::{PiiShield, Enf...
+  |        ^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/warden/sentinel_adversarial.rs:3:15
+  |
+3 | ...e::{PiiShield};
+  |        ^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+  --> integration_tests/tests/warden/sentinel_adversarial.rs:62:9
+   |
+62 |     use std::sync::Arc;
+   |         ^^^^^^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/warden/sentinel_qa.rs:3:15
+  |
+3 | ...e::{PiiShield, Ses...
+  |        ^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/warden/session_test.rs:3:15
+  |
+3 | ...e::{PiiShield, Ses...
+  |        ^^^^^^^^^
+
+warning: unused import: `iw_core::PiiShield`
+ --> integration_tests/tests/warden/shipping_test.rs:3:5
+  |
+3 | use iw_core::PiiShield;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> integration_tests/tests/warden/shipping_test.rs:4:5
+  |
+4 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `SecretVec`
+ --> integration_tests/tests/worker/adversarial_bridge_stress.rs:9:15
+  |
+9 | ...y::{SecretVec};
+  |        ^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/worker/librarian_scrub_test.rs:2:15
+  |
+2 | ...e::{PiiShield};
+  |        ^^^^^^^^^
+
+warning: unused imports: `EnforcementAction`, `PiiCategory`, and `ScrubbingReport`
+ --> integration_tests/tests/worker/security_invariant_test.rs:3:32
+  |
+3 | ...r, ScrubbingReport, EnforcementAction, PiiCategory};
+  |       ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> integration_tests/tests/worker/security_invariant_test.rs:5:5
+  |
+5 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `iw_core::traits::EnforcementAction`
+ --> integration_tests/tests/worker/session_security_test.rs:3:5
+  |
+3 | use iw_core::traits::EnforcementAction;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `iw_core::PiiCategory`
+ --> integration_tests/tests/worker/session_security_test.rs:4:5
+  |
+4 | use iw_core::PiiCategory;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::sync::Arc`
+ --> integration_tests/tests/worker/session_security_test.rs:6:5
+  |
+6 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/worker/tandem_grounding_test.rs:4:15
+  |
+4 | ...e::{PiiShield};
+  |        ^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/app/hardened_integration.rs:5:15
+  |
+5 | ...e::{PiiShield, Sto...
+  |        ^^^^^^^^^
+
+warning: unused import: `tempfile::tempdir`
+ --> integration_tests/tests/app/legal_e2e_test.rs:2:5
+  |
+2 | use tempfile::tempdir;
+  |     ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `LocalSessionManager`
+ --> integration_tests/tests/app/legal_e2e_test.rs:6:29
+  |
+6 | ...e, LocalSessionManager, S...
+  |       ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PiiShield`
+ --> integration_tests/tests/app/sentinel_e2e.rs:6:15
+  |
+6 | ...e::{PiiShield, Sov...
+  |        ^^^^^^^^^
+
+error[E0728]: `await` is only allowed inside `async` functions and blocks
+  --> integration_tests/tests/warden/ghosting_test.rs:28:107
+   |
+ 7 | fn main() {
+   | --------- this is not `async`
+...
+28 |     let report1 = shieldsanitize_prompt(bytes::Bytes::from("Alice is here.".to_string()),  Some(&session).await).u...
+   |                                                                                                           ^^^^^ only allowed inside `async` functions and blocks
+
+error[E0728]: `await` is only allowed inside `async` functions and blocks
+  --> integration_tests/tests/warden/ghosting_test.rs:32:116
+   |
+ 7 | fn main() {
+   | --------- this is not `async`
+...
+32 |     let report2 = shieldsanitize_prompt(bytes::Bytes::from("Email alice@example.com".to_string()),  Some(&session).await).u...
+   |                                                                                                                    ^^^^^ only allowed inside `async` functions and blocks
+
+warning: the `#![recursion_limit]` attribute can only be used at the crate root
+ --> integration_tests/tests/worker/rag_blindness_test.rs:2:1
+  |
+2 | #![recursion_limit = "1024"]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/evasion_test.rs:16:18
+   |
+16 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/fusion_test.rs:26:18
+   |
+26 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/ghosting_test.rs:28:19
+   |
+28 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/ghosting_test.rs:32:19
+   |
+32 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/global_fusion_test.rs:19:18
+   |
+19 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/greek_test.rs:20:18
+   |
+20 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:33:105
+   |
+33 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-16529999512358816731.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+33 -     let report1 = shieldsanitize_prompt(bytes::Bytes::from("Hello Alice.".to_string()),  Some(&session).await).unwrap();
+33 +     let report1 = shieldsanitize_prompt(bytes::Bytes::from("Hello Alice.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:33:19
+   |
+33 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:37:119
+   |
+37 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-9853457715194740796.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+37 -     let report2 = shieldsanitize_prompt(bytes::Bytes::from("Contact alice@example.com.".to_string()),  Some(&session).await).unwrap();
+37 +     let report2 = shieldsanitize_prompt(bytes::Bytes::from("Contact alice@example.com.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:37:19
+   |
+37 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:43:105
+   |
+43 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-5465350237474924424.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+43 -     let report3 = shieldsanitize_prompt(bytes::Bytes::from("Meet Alicia.".to_string()),  Some(&session).await).unwrap();
+43 +     let report3 = shieldsanitize_prompt(bytes::Bytes::from("Meet Alicia.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:43:19
+   |
+43 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:49:105
+   |
+49 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-13708024334874016063.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+49 -     let report4 = shieldsanitize_prompt(bytes::Bytes::from("Alice again.".to_string()),  Some(&session).await).unwrap();
+49 +     let report4 = shieldsanitize_prompt(bytes::Bytes::from("Alice again.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:49:19
+   |
+49 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:54:113
+   |
+54 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-14199564087723154272.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+54 -     let report5 = shieldsanitize_prompt(bytes::Bytes::from("Do not match Malice.".to_string()),  Some(&session).await).unwrap();
+54 +     let report5 = shieldsanitize_prompt(bytes::Bytes::from("Do not match Malice.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/identity_ghosting_test.rs:54:19
+   |
+54 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/identity_linking_test.rs:22:114
+   |
+22 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-15781592603804815860.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+22 -         let report1 = enginesanitize_prompt(bytes::Bytes::from("Hello John Smith.".to_string()),  Some(&session).await).unwrap();
+22 +         let report1 = enginesanitize_prompt(bytes::Bytes::from("Hello John Smith.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/identity_linking_test.rs:22:23
+   |
+22 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/identity_linking_test.rs:37:116
+   |
+37 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-6015637541013567093.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+37 -         let report2 = engine2sanitize_prompt(bytes::Bytes::from("Hello Alice Smith.".to_string()),  Some(&session).await).unwrap();
+37 +         let report2 = engine2sanitize_prompt(bytes::Bytes::from("Hello Alice Smith.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `engine2sanitize_prompt` in this scope
+  --> integration_tests/tests/warden/identity_linking_test.rs:37:23
+   |
+37 | ... = engine2sanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/identity_linking_test.rs:55:112
+   |
+55 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-3483851923574829256.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+55 -         let report3 = engine3sanitize_prompt(bytes::Bytes::from("Smith is here.".to_string()),  Some(&session).await).unwrap();
+55 +         let report3 = engine3sanitize_prompt(bytes::Bytes::from("Smith is here.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `engine3sanitize_prompt` in this scope
+  --> integration_tests/tests/warden/identity_linking_test.rs:55:23
+   |
+55 | ... = engine3sanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/legal_test.rs:33:22
+   |
+33 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/legal_test.rs:38:25
+   |
+38 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/legal_test.rs:43:23
+   |
+43 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/legal_test.rs:48:22
+   |
+48 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:30:22
+   |
+30 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:35:22
+   |
+35 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:40:22
+   |
+40 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:45:21
+   |
+45 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:50:22
+   |
+50 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:65:26
+   |
+65 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/medical_test.rs:77:23
+   |
+77 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/sentinel_adversarial.rs:89:105
+   |
+89 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-1734018270852223584.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+89 -     let report1 = engine2sanitize_prompt(bytes::Bytes::from("Hello Alice".to_string()),  Some(&session).await).unwrap();
+89 +     let report1 = engine2sanitize_prompt(bytes::Bytes::from("Hello Alice".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/sentinel_adversarial.rs:95:99
+   |
+95 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-7461488631925674777.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+95 -     let report2 = engine2sanitize_prompt(bytes::Bytes::from(prompt2.to_string()),  Some(&session).await).unwrap();
+95 +     let report2 = engine2sanitize_prompt(bytes::Bytes::from(prompt2.to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/warden/sentinel_qa.rs:16:123
+   |
+16 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-1045673743847329421.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+16 -     let report = enginesanitize_prompt(bytes::Bytes::from("The name is Al\u{0456}ce Smith.".to_string()),  Some(&session).await).unwrap();
+16 +     let report = enginesanitize_prompt(bytes::Bytes::from("The name is Al\u{0456}ce Smith.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/sentinel_qa.rs:16:18
+   |
+16 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/sentinel_qa.rs:30:18
+   |
+30 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/sentinel_qa.rs:42:18
+   |
+42 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<...>` is not a future
+  --> integration_tests/tests/warden/session_test.rs:32:101
+   |
+32 | ...,  Some(&mut session).await).u...
+   |       ------------------ ^^^^^ `Option<...>` is not a future
+   |       |
+   |       this call returns `Option<&mut SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<...>`
+   = note: Option<...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-8385153398264431958.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+32 -     let report1 = shieldsanitize_prompt(bytes::Bytes::from(input1.to_string()),  Some(&mut session).await).unwrap();
+32 +     let report1 = shieldsanitize_prompt(bytes::Bytes::from(input1.to_string()),  Some(&mut session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/session_test.rs:32:19
+   |
+32 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<...>` is not a future
+  --> integration_tests/tests/warden/session_test.rs:42:101
+   |
+42 | ...,  Some(&mut session).await).u...
+   |       ------------------ ^^^^^ `Option<...>` is not a future
+   |       |
+   |       this call returns `Option<&mut SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<...>`
+   = note: Option<...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-17539657482007058603.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+42 -     let report2 = shieldsanitize_prompt(bytes::Bytes::from(input2.to_string()),  Some(&mut session).await).unwrap();
+42 +     let report2 = shieldsanitize_prompt(bytes::Bytes::from(input2.to_string()),  Some(&mut session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/session_test.rs:42:19
+   |
+42 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<...>` is not a future
+  --> integration_tests/tests/warden/session_test.rs:50:101
+   |
+50 | ...,  Some(&mut session).await).u...
+   |       ------------------ ^^^^^ `Option<...>` is not a future
+   |       |
+   |       this call returns `Option<&mut SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<...>`
+   = note: Option<...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-11271687057775653405.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+50 -     let report3 = shieldsanitize_prompt(bytes::Bytes::from(input3.to_string()),  Some(&mut session).await).unwrap();
+50 +     let report3 = shieldsanitize_prompt(bytes::Bytes::from(input3.to_string()),  Some(&mut session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/warden/session_test.rs:50:19
+   |
+50 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:21:18
+   |
+21 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:26:19
+   |
+26 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:31:19
+   |
+31 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:36:19
+   |
+36 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:41:19
+   |
+41 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:46:19
+   |
+46 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:60:18
+   |
+60 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/warden/shipping_test.rs:65:19
+   |
+65 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0063]: missing field `ingress_semaphore` in initializer of `BridgeState`
+  --> integration_tests/tests/worker/adversarial_bridge_stress.rs:80:26
+   |
+80 | ...ew(BridgeState {
+   |       ^^^^^^^^^^^ missing `ingress_semaphore`
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+  --> integration_tests/tests/worker/audit_integrity.rs:24:24
+   |
+24 | ...>::from_slice(&en...
+   |       ^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+error[E0308]: mismatched types
+  --> integration_tests/tests/worker/audit_integrity.rs:74:25
+   |
+74 | ...t: "Hello [TOKEN_1]".to_string(),
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Bytes`, found `String`
+   |
+help: call `Into::into` on this expression to convert `std::string::String` into `axum::body::Bytes`
+   |
+74 |         sanitized_text: "Hello [TOKEN_1]".to_string().into(),
+   |                                                      +++++++
+
+error[E0308]: mismatched types
+   --> integration_tests/tests/worker/audit_integrity.rs:127:25
+    |
+127 | ...t: "[TOKEN_1]".to_string(),
+    |       ^^^^^^^^^^^^^^^^^^^^^^^ expected `Bytes`, found `String`
+    |
+help: call `Into::into` on this expression to convert `std::string::String` into `axum::body::Bytes`
+    |
+127 |         sanitized_text: "[TOKEN_1]".to_string().into(),
+    |                                                +++++++
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> integration_tests/tests/worker/audit_integrity.rs:145:24
+    |
+145 | ...e::from_slice(&n...
+    |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> integration_tests/tests/worker/audit_integrity.rs:156:37
+    |
+156 | ...>::from_slice(&k...
+    |       ^^^^^^^^^^
+
+error[E0308]: mismatched types
+   --> integration_tests/tests/worker/audit_integrity.rs:180:25
+    |
+180 | ...t: "Test".to_string(),
+    |       ^^^^^^^^^^^^^^^^^^ expected `Bytes`, found `String`
+    |
+help: call `Into::into` on this expression to convert `std::string::String` into `axum::body::Bytes`
+    |
+180 |         sanitized_text: "Test".to_string().into(),
+    |                                           +++++++
+
+error[E0308]: mismatched types
+   --> integration_tests/tests/worker/audit_integrity.rs:211:29
+    |
+211 | ...t: "Valid".to_string(),
+    |       ^^^^^^^^^^^^^^^^^^^ expected `Bytes`, found `String`
+    |
+help: call `Into::into` on this expression to convert `std::string::String` into `axum::body::Bytes`
+    |
+211 |             sanitized_text: "Valid".to_string().into(),
+    |                                                +++++++
+
+error[E0308]: mismatched types
+  --> integration_tests/tests/worker/auditor_concurrency_test.rs:25:33
+   |
+25 | ...t: format!("Safe text {}", i),
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Bytes`, found `String`
+   |
+help: call `Into::into` on this expression to convert `std::string::String` into `axum::body::Bytes`
+   |
+25 |                 sanitized_text: format!("Safe text {}", i).into(),
+   |                                                           +++++++
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+  --> integration_tests/tests/worker/librarian_scrub_test.rs:30:18
+   |
+30 | ... = enginesanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0308]: mismatched types
+  --> integration_tests/tests/worker/stress_fuzzer.rs:23:25
+   |
+23 | ...t: "Test 1".to_string(),
+   |       ^^^^^^^^^^^^^^^^^^^^ expected `Bytes`, found `String`
+   |
+help: call `Into::into` on this expression to convert `std::string::String` into `axum::body::Bytes`
+   |
+23 |         sanitized_text: "Test 1".to_string().into(),
+   |                                             +++++++
+
+error[E0308]: mismatched types
+  --> integration_tests/tests/worker/stress_fuzzer.rs:34:25
+   |
+34 | ...t: "Test 2 [REDACTED]".to_string(),
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Bytes`, found `String`
+   |
+help: call `Into::into` on this expression to convert `std::string::String` into `axum::body::Bytes`
+   |
+34 |         sanitized_text: "Test 2 [REDACTED]".to_string().into(),
+   |                                                        +++++++
+
+error[E0308]: mismatched types
+  --> integration_tests/tests/worker/tamper_test.rs:19:29
+   |
+19 | ...t: "test".to_string(),
+   |       ^^^^^^^^^^^^^^^^^^ expected `Bytes`, found `String`
+   |
+help: call `Into::into` on this expression to convert `std::string::String` into `axum::body::Bytes`
+   |
+19 |             sanitized_text: "test".to_string().into(),
+   |                                               +++++++
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/worker/tandem_grounding_test.rs:49:18
+   |
+49 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/app/hardened_integration.rs:43:18
+   |
+43 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/app/hardened_integration.rs:95:105
+   |
+95 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-16529999512358816731.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+95 -     let report1 = shieldsanitize_prompt(bytes::Bytes::from("Hello Alice.".to_string()),  Some(&session).await).unwrap();
+95 +     let report1 = shieldsanitize_prompt(bytes::Bytes::from("Hello Alice.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/app/hardened_integration.rs:95:19
+   |
+95 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+  --> integration_tests/tests/app/hardened_integration.rs:99:107
+   |
+99 | ...,  Some(&session).await).u...
+   |       -------------- ^^^^^ `Option<&...>` is not a future
+   |       |
+   |       this call returns `Option<&SessionContext>`
+   |
+   = help: the trait `Future` is not implemented for `Option<&...>`
+   = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+   = note: required for `Option<&...>` to implement `IntoFuture`
+   = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-9853457715194740796.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+   |
+99 -     let report2 = shieldsanitize_prompt(bytes::Bytes::from("Alice is here.".to_string()),  Some(&session).await).unwrap();
+99 +     let report2 = shieldsanitize_prompt(bytes::Bytes::from("Alice is here.".to_string()),  Some(&session)).unwrap();
+   |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/app/hardened_integration.rs:99:19
+   |
+99 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0277]: `Option<&...>` is not a future
+   --> integration_tests/tests/app/hardened_integration.rs:107:109
+    |
+107 | ...,  Some(&new_session).await).u...
+    |       ------------------ ^^^^^ `Option<&...>` is not a future
+    |       |
+    |       this call returns `Option<&SessionContext>`
+    |
+    = help: the trait `Future` is not implemented for `Option<&...>`
+    = note: Option<&...> must be a future or must implement `IntoFuture` to be awaited
+    = note: required for `Option<&...>` to implement `IntoFuture`
+    = note: the full name for the type has been written to '/home/somnerd/Documents/Projects/IronWarden/target/debug/deps/integration_tests-7f59192dd9303aaf.long-type-10784241229598953754.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: remove the `.await`
+    |
+107 -     let report3 = shieldsanitize_prompt(bytes::Bytes::from("Alice again.".to_string()),  Some(&new_session).await).unwrap();
+107 +     let report3 = shieldsanitize_prompt(bytes::Bytes::from("Alice again.".to_string()),  Some(&new_session)).unwrap();
+    |
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+   --> integration_tests/tests/app/hardened_integration.rs:107:19
+    |
+107 | ... = shieldsanitize_prompt(by...
+    |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/app/legal_e2e_test.rs:46:18
+   |
+46 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `shieldsanitize_prompt` in this scope
+  --> integration_tests/tests/app/sentinel_e2e.rs:96:18
+   |
+96 | ... = shieldsanitize_prompt(by...
+   |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `enginesanitize_prompt` in this scope
+   --> integration_tests/tests/app/sentinel_e2e.rs:183:18
+    |
+183 | ... = enginesanitize_prompt(by...
+    |       ^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+warning: unused import: `StorageProvider`
+ --> integration_tests/tests/app/sentinel_e2e.rs:6:42
+  |
+6 | ...r, StorageProvider};
+  |       ^^^^^^^^^^^^^^^
+
+warning: unused variable: `job_id`
+  --> integration_tests/tests/worker/tandem_grounding_test.rs:90:9
+   |
+90 |     let job_id = que...
+   |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_job_id`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `pepper2`
+   --> integration_tests/tests/app/sentinel_e2e.rs:130:9
+    |
+130 | ...et pepper2 = Sec...
+    |       ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pepper2`
+
+Some errors have detailed explanations: E0063, E0277, E0308, E0425, E0433, E0728.
+warning: `iw-integration-tests` (test "integration_tests") generated 35 warnings
+error: could not compile `iw-integration-tests` (test "integration_tests") due to 125 previous errors; 35 warnings emitted

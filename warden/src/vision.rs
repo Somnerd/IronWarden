@@ -1,5 +1,7 @@
 use async_trait::async_trait;
-use iw_core::{VisionShield, ScrubbingReport, SovereignError, SessionContext};
+use iw_core::traits::{PiiShield, ScrubbingReport};
+use iw_core::{SovereignError, SessionContext};
+use bytes::Bytes;
 use tracing::warn;
 
 /// VisionWarden: A multi-modal PII scrubbing layer for screenshots and images.
@@ -7,13 +9,13 @@ use tracing::warn;
 pub struct VisionWarden;
 
 #[async_trait]
-impl VisionShield for VisionWarden {
-    async fn sanitize_image(
+impl PiiShield for VisionWarden {
+    async fn sanitize_prompt(
         &self,
-        image_data: &[u8],
+        _prompt: Bytes,
         _session: Option<&SessionContext>,
-    ) -> Result<(Vec<u8>, ScrubbingReport), SovereignError> {
-        warn!("VisionWarden: Multi-modal scrubbing triggered. Image size: {} bytes.", image_data.len());
+    ) -> Result<ScrubbingReport, SovereignError> {
+        warn!("VisionWarden: Multi-modal scrubbing triggered. Prompt size: {} bytes.", _prompt.len());
         
         // This is where we would call a VLM (e.g. GPT-4o, LLaVA, or a local specialized model)
         // to detect text/entities in the image and apply redaction masks.
@@ -21,15 +23,17 @@ impl VisionShield for VisionWarden {
         // For now, we return the original image and an empty report to signify "No PII found/Stub mode".
         // Enterprise clients can configure a real VLM provider here.
         
-        let report = ScrubbingReport {
-            sanitized_text: "[VISION_BYPASS_STUB]".to_string(),
+        Ok(ScrubbingReport {
+            sanitized_text: "[VISION_BYPASS_STUB]".to_string().into(),
             is_blocked: false,
             redactions: vec![],
             token_map: std::collections::HashMap::new(),
-            execution_time_ms: 0,
             potential_misses: vec![],
-        };
+            execution_time_ms: 0,
+        })
+    }
 
-        Ok((image_data.to_vec(), report))
+    fn restore_prompt(&self, response: &str, _map: &std::collections::HashMap<String, String>) -> Result<String, SovereignError> {
+        Ok(response.to_string())
     }
 }

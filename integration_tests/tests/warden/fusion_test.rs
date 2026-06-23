@@ -2,8 +2,8 @@
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 
-#[test]
-fn test_papadopoulos_fusion_integrity() {
+#[tokio::test]
+async fn test_papadopoulos_fusion_integrity() {
     let yaml = r#"
 rules:
   - id: "gr_afm"
@@ -23,18 +23,18 @@ ai_confidence_threshold: 0.85
     // The prompt that failed previously
     let prompt = "Γεια σου, είμαι ο Γεώργιος Παπαδόπουλος και το ΑΦΜ μου είναι 123456789.";
     
-    let report = engine.sanitize_prompt(prompt, None).unwrap();
+    let report = engine.sanitize_prompt(bytes::Bytes::from(prompt.to_string()),  None).await.unwrap();
     
-    println!("Sanitized: {}", report.sanitized_text);
+    println!("Sanitized: {:?}", report.sanitized_text);
     println!("Token Map: {:?}", report.token_map);
     
     // ASSERTIONS:
     // 1. Georgios and Papadopoulos must be fused into ONE token.
-    assert!(report.sanitized_text.contains("[TOKEN_1]"));
+    assert!(String::from_utf8_lossy(&report.sanitized_text).contains("[TOKEN_1]"));
     
     // 2. Papadopoulos must NOT be in the sanitized text.
-    assert!(!report.sanitized_text.contains("Papadopoulos"));
-    assert!(!report.sanitized_text.contains("Papadopoylos"));
+    assert!(!String::from_utf8_lossy(&report.sanitized_text).contains("Papadopoulos"));
+    assert!(!String::from_utf8_lossy(&report.sanitized_text).contains("Papadopoylos"));
     
     // 3. The token map should contain the full name and the AFM.
     let mut found_name = false;

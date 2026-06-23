@@ -1,0 +1,100 @@
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:547:28
+    |
+547 | ...e::from_slice(&n...
+    |       ^^^^^^^^^^
+
+warning: use of deprecated associated function `aes_gcm::aead::generic_array::GenericArray::<T, N>::from_slice`: please upgrade to generic-array 1.x
+   --> warden/src/engine.rs:569:28
+    |
+569 | ...e::from_slice(no...
+    |       ^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> warden/src/engine.rs:269:17
+    |
+269 | ...or mut mat in ma...
+    |       ----^^^
+    |       |
+    |       help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `text_str`
+   --> warden/src/engine.rs:296:21
+    |
+296 | ...et text_str = st...
+    |       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_text_str`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `e`
+  --> warden/src/ai.rs:92:17
+   |
+92 | ...   Err(e) => retu...
+   |           ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `e`
+  --> warden/src/ai.rs:97:17
+   |
+97 | ...   Err(e) => retu...
+   |           ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `e`
+   --> warden/src/ai.rs:114:17
+    |
+114 | ... Err(e) => retur...
+    |         ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: constant `SEMANTIC_CACHE_THRESHOLD` is never used
+  --> warden/src/engine.rs:18:7
+   |
+18 | const SEMANTIC_CACHE_THRESHOLD: f...
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `is_confirmed` is never read
+   --> warden/src/engine.rs:167:5
+    |
+162 | struct UnifiedMatch {
+    |        ------------ field in this struct
+...
+167 |     is_confirmed: bool,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `UnifiedMatch` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `combine_actions` is never used
+   --> warden/src/engine.rs:533:4
+    |
+533 | fn combine_actions(a:...
+    |    ^^^^^^^^^^^^^^^
+
+warning: field `global_name_re` is never read
+  --> warden/src/shadow_ner.rs:18:5
+   |
+16 | pub struct ShadowNer {
+   |            --------- field in this struct
+17 |     patterns: Vec<(Rege...
+18 |     global_name_re: Regex,
+   |     ^^^^^^^^^^^^^^
+
+warning: field `threshold` is never read
+   --> warden/src/ai.rs:188:5
+    |
+185 | pub struct HybridNerPool {
+    |            ------------- field in this struct
+...
+188 |     threshold: f64,
+    |     ^^^^^^^^^
+
+   Compiling datafusion-physical-optimizer v52.5.0
+warning: `iw-warden` (lib) generated 21 warnings (run `cargo fix --lib -p iw-warden` to apply 13 suggestions)
+warning: `iw-warden` (lib test) generated 22 warnings (21 duplicates) (run `cargo fix --lib -p iw-warden --tests` to apply 1 suggestion)
+   Compiling datafusion-functions-table v52.5.0
+   Compiling datafusion-catalog-listing v52.5.0
+   Compiling datafusion v52.5.0

@@ -40,11 +40,11 @@ rules:
     let raw_input = "Greeting from \u{0391}\u{200B}lice."; 
     
     // 4. Process through Shield
-    let report = shield.sanitize_prompt(raw_input, None).unwrap();
+    let report = shield.sanitize_prompt(bytes::Bytes::from(raw_input.to_string()),  None).await.unwrap();
     
     // VERIFY: Normalization caught the homoglyph and zero-width char
-    assert!(report.sanitized_text.contains("[TOKEN_1]"));
-    assert!(!report.sanitized_text.contains("Alice"));
+    assert!(String::from_utf8_lossy(&report.sanitized_text).contains("[TOKEN_1]"));
+    assert!(!String::from_utf8_lossy(&report.sanitized_text).contains("Alice"));
     
     // VERIFY: Offset drift corrected. Offset 14 in original is where the 'Α' starts.
     let redaction = &report.redactions[0];
@@ -68,7 +68,7 @@ rules:
         
         assert!(json.contains("id_alice")); // Verify real Rule ID preservation
         assert!(!hash.is_empty()); // Verify HMAC chain started
-        println!("✅ Audit Entry Verified. Hash: {}", hash);
+        println!("✅ Audit Entry Verified. Hash: {:?}", hash);
     } else {
         panic!("No audit entry found!");
     }
@@ -76,7 +76,7 @@ rules:
     // 7. Verify Encrypted Queue
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM ephemeral_raw_logs", [], |r| r.get(0)).unwrap();
     assert_eq!(count, 1);
-    println!("✅ Encrypted Ephemeral Log count: {}", count);
+    println!("✅ Encrypted Ephemeral Log count: {:?}", count);
 }
 
 #[tokio::test]
@@ -92,19 +92,19 @@ async fn test_stateful_tokenization_session_consistency() {
     let session = iw_core::SessionContext::new();
 
     // First call
-    let report1 = shield.sanitize_prompt("Hello Alice.", Some(&session)).unwrap();
+    let report1 = shield.sanitize_prompt(bytes::Bytes::from("Hello Alice.".to_string()),  Some(&session)).await.unwrap();
     let token1 = report1.redactions[0].placeholder.clone();
 
     // Second call with same session
-    let report2 = shield.sanitize_prompt("Alice is here.", Some(&session)).unwrap();
+    let report2 = shield.sanitize_prompt(bytes::Bytes::from("Alice is here.".to_string()),  Some(&session)).await.unwrap();
     let token2 = report2.redactions[0].placeholder.clone();
 
     assert_eq!(token1, token2, "Tokens must be consistent within the same session");
-    assert!(report2.sanitized_text.contains(&token1));
+    assert!(String::from_utf8_lossy(&report2.sanitized_text).contains(&token1));
 
     // Third call with NEW session
     let new_session = iw_core::SessionContext::new();
-    let report3 = shield.sanitize_prompt("Alice again.", Some(&new_session)).unwrap();
+    let report3 = shield.sanitize_prompt(bytes::Bytes::from("Alice again.".to_string()),  Some(&new_session)).await.unwrap();
     let token3 = report3.redactions[0].placeholder.clone();
 
     // Note: Since it's a new session, it starts from TOKEN_1

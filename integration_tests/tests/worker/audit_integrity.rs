@@ -71,7 +71,7 @@ async fn test_hmac_chain_integrity() {
     let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.unwrap();
     
     let report = ScrubbingReport {
-        sanitized_text: "Hello [TOKEN_1]".to_string(),
+        sanitized_text: "Hello [TOKEN_1]".to_string().into(),
         is_blocked: false,
         redactions: vec![Redaction {
             rule_id: "id_alice".to_string(),
@@ -124,7 +124,7 @@ async fn test_encryption_roundtrip() {
     let raw_input = "Extremely Sensitive Data";
     
     let report = ScrubbingReport {
-        sanitized_text: "[TOKEN_1]".to_string(),
+        sanitized_text: "[TOKEN_1]".to_string().into(),
         is_blocked: false,
         redactions: vec![],
         token_map: HashMap::new(),
@@ -177,7 +177,7 @@ async fn test_database_busy_fail_closed() {
     conn.execute("BEGIN EXCLUSIVE TRANSACTION", []).unwrap();
 
     let report = ScrubbingReport {
-        sanitized_text: "Test".to_string(),
+        sanitized_text: "Test".to_string().into(),
         is_blocked: false,
         redactions: vec![],
         token_map: HashMap::new(),
@@ -208,7 +208,7 @@ async fn test_hmac_chain_breakage() {
     {
         let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.unwrap();
         let report = ScrubbingReport {
-            sanitized_text: "Valid".to_string(),
+            sanitized_text: "Valid".to_string().into(),
             is_blocked: false,
             redactions: vec![],
             token_map: HashMap::new(),
