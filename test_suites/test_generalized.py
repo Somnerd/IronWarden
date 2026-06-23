@@ -1,3 +1,8 @@
+"""
+Generalized integration tests verifying core operational and integrity capabilities of IronWarden.
+Tests gateway configuration hot-reloading on rule changes, JSON structure preservation during
+PII redaction, and clean process shutdown behavior on SIGINT signals.
+"""
 import pytest
 import time
 import os

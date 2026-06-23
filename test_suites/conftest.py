@@ -1,3 +1,8 @@
+"""
+Pytest configuration and shared fixtures for the IronWarden test suite.
+Provides Runner helpers for managing the gateway subprocess, environment variables,
+RSA/JWT keys generation, database paths, and JSON-RPC Model Context Protocol (MCP) clients.
+"""
 import pytest
 import subprocess
 import json

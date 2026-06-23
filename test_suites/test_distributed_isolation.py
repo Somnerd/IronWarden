@@ -1,3 +1,8 @@
+"""
+Integration tests for distributed gateway scenarios.
+Verifies that independent standalone IronWarden instances do not share session state (proving isolation)
+and validates SQLite database write behavior under multi-process lock contention.
+"""
 import pytest
 import time
 import requests

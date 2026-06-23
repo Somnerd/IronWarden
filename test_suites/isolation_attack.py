@@ -1,3 +1,8 @@
+"""
+Session isolation security verification test ("The Credit Card Trap").
+Simulates multiple users (Alice and Bob) enqueuing sensitive data to verify
+that user Bob cannot restore Alice's sanitized credit card tokens, ensuring session isolation.
+"""
 import json
 import subprocess
 import time

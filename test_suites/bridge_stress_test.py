@@ -1,3 +1,8 @@
+"""
+Load and rate-limiting stress test for the IronWarden Bridge /enqueue HTTP endpoint.
+Sends burst traffic to verify rate-limiting responses (429) and checks Redis to ensure
+enqueued job data only contains redacted placeholders instead of raw sensitive PII.
+"""
 import asyncio
 import httpx
 import json

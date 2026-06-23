@@ -1,3 +1,8 @@
+"""
+End-to-end security audit script checking sanitization bypass evasion techniques.
+Verifies that the gateway normalizes and blocks homoglyph and zero-width character evasion
+attempts, and successfully records the redactions in the SQLite audit log database.
+"""
 import subprocess
 import json
 import sqlite3

@@ -1,3 +1,8 @@
+"""
+Integration tests for the JSON-RPC Model Context Protocol (MCP) interface of IronWarden.
+Validates the initialize endpoint, PII sanitization/tokenization, session-isolated token
+restoration, and malformed JSON request error handling.
+"""
 import pytest
 import time
 import json

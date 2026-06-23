@@ -1,3 +1,8 @@
+"""
+Concurrency, scaling, and performance latency tests for the IronWarden Bridge.
+Verifies LocalSessionManager and SQLite database thread-safety under heavy concurrent user requests,
+and tests latency impact of processing large payloads with high-density PII.
+"""
 import pytest
 import requests
 import time
