@@ -10,8 +10,21 @@ use chrono::{Utc, Duration};
 use zeroize::Zeroize;
 use secrecy::{SecretVec, ExposeSecret};
 use iw_core::{Redaction, KDF_SALT_ENCRYPTION, KDF_SALT_INTEGRITY, KDF_SALT_GENESIS};
+use serde::Serialize;
 
 type HmacSha256 = Hmac<Sha256>;
+
+#[derive(Serialize)]
+struct AuditPayload<'a> {
+    ciphertext: String,
+    nonce: String,
+    integrity_hash: String,
+    is_blocked: bool,
+    redactions_count: usize,
+    execution_time_ms: u64,
+    timestamp: String,
+    username: &'a str,
+}
 
 pub enum AuditMessage {
     LogReport(ScrubbingReport, String, String, tokio::sync::oneshot::Sender<Result<(), SovereignError>>), // report, raw_input, username, ack
@@ -47,16 +60,16 @@ impl HttpAuditForwarder {
 impl RemoteAuditForwarder for HttpAuditForwarder {
     async fn forward_log(&self, ciphertext: &[u8], nonce: &[u8], integrity_hash: &[u8], report: &ScrubbingReport, username: &str) -> Result<(), SovereignError> {
         use secrecy::ExposeSecret;
-        let payload = serde_json::json!({
-            "ciphertext": hex::encode(ciphertext),
-            "nonce": hex::encode(nonce),
-            "integrity_hash": hex::encode(integrity_hash),
-            "is_blocked": report.is_blocked,
-            "redactions_count": report.redactions.len(),
-            "execution_time_ms": report.execution_time_ms,
-            "timestamp": Utc::now().to_rfc3339(),
-            "username": username,
-        });
+        let payload = AuditPayload {
+            ciphertext: hex::encode(ciphertext),
+            nonce: hex::encode(nonce),
+            integrity_hash: hex::encode(integrity_hash),
+            is_blocked: report.is_blocked,
+            redactions_count: report.redactions.len(),
+            execution_time_ms: report.execution_time_ms,
+            timestamp: Utc::now().to_rfc3339(),
+            username,
+        };
 
         self.client.post(&self.endpoint)
             .header("Authorization", format!("Bearer {}", self.token.expose_secret()))

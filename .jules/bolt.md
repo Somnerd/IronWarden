@@ -18,3 +18,6 @@
 ## 2024-11-23 - json! Macro Overhead in High-Throughput Paths
 **Learning:** Using the `json!` macro for payload construction in hot paths introduces performance overhead by creating intermediate DOM tree allocations (`serde_json::Value`).
 **Action:** Achieve zero-copy serialization by defining strictly typed structs with borrowed lifetimes (e.g., `#[derive(Serialize)] struct Payload<'a>`) and serializing them directly.
+## 2024-11-23 - json! Macro Overhead in High-Throughput Paths
+**Learning:** Using the `json!` macro for payload construction in hot paths introduces performance overhead by creating intermediate DOM tree allocations (`serde_json::Value`). This applies even to HTTP response serialization and formatting.
+**Action:** Achieve zero-copy serialization by defining strictly typed structs with borrowed lifetimes (e.g., `#[derive(Serialize)] struct Payload<'a>`) and serializing them directly.
