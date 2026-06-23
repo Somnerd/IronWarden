@@ -274,14 +274,14 @@ impl HybridNer {
 /// A thread-safe pool for managing multiple AI model instances.
 /// This abolishes the global AI mutex (WP #76).
 pub struct HybridNerPool {
-    sender: crossbeam_channel::Sender<HybridNer>,
-    receiver: crossbeam_channel::Receiver<HybridNer>,
+    sender: flume::Sender<HybridNer>,
+    receiver: flume::Receiver<HybridNer>,
 }
 
 impl HybridNerPool {
     pub fn new(threshold: f64, count: usize) -> Result<Self, String> {
         info!("Initializing AI Worker Pool with {} instances...", count);
-        let (tx, rx) = crossbeam_channel::bounded(count);
+        let (tx, rx) = flume::bounded(count);
 
         for i in 0..count {
             let instance = HybridNer::new(threshold)?;
@@ -296,7 +296,19 @@ impl HybridNerPool {
     }
 
     pub fn get(&self) -> Option<HybridNer> {
-        self.receiver.recv_timeout(std::time::Duration::from_millis(100)).ok()
+        // --- SECURITY FIX (Section 4): Decoupled AI Circuit Breaker ---
+        // Uses tokio::time::timeout on the receiver side rather than blocking a worker thread.
+        // Falls back to Aho-Corasick immediately on 25ms timeout.
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.block_on(async {
+                match tokio::time::timeout(std::time::Duration::from_millis(25), self.receiver.recv_async()).await {
+                    Ok(Ok(ner)) => Some(ner),
+                    _ => None, // Timeout or Channel Closed -> Fallback to deterministic engine
+                }
+            })
+        } else {
+            self.receiver.recv_timeout(std::time::Duration::from_millis(25)).ok()
+        }
     }
 
     pub fn release(&self, instance: HybridNer) {

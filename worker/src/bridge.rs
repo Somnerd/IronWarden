@@ -37,6 +37,17 @@ pub struct BridgeState {
     pub session_manager: Arc<LocalSessionManager>,
     /// RSA Public Key for identity verification (V1.0 Decoupled Auth Mandate)
     pub jwt_public_key: SecretVec<u8>,
+    /// Global Concurrency Semaphore to prevent Tokio executor starvation
+    pub ingress_semaphore: Arc<tokio::sync::Semaphore>,
+}
+
+async fn concurrency_limiter(
+    State(state): State<Arc<BridgeState>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let _permit = state.ingress_semaphore.try_acquire().map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
+    Ok(next.run(request).await)
 }
 
 pub fn create_bridge_router(state: Arc<BridgeState>) -> Router {
@@ -52,6 +63,7 @@ pub fn create_bridge_router(state: Arc<BridgeState>) -> Router {
         .route("/health", get(handle_health))
         .route("/enqueue", post(handle_enqueue))
         .route("/results/:job_id", get(handle_get_result))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), concurrency_limiter))
         .layer(GovernorLayer { config: governor_conf })
         .with_state(state)
 }
@@ -127,9 +139,17 @@ async fn handle_enqueue(
     };
 
     // 3. Scrub PII from the query using the isolated context
-    let report = match state.shield.sanitize_prompt(&payload.query, Some(&user_context)) {
-        Ok(r) => r,
-        Err(e) => return map_error(e).into_response(),
+    let query_clone = payload.query.clone();
+    let user_context_clone = user_context.clone();
+    let shield_clone = state.shield.clone();
+    let report_result = tokio::task::spawn_blocking(move || {
+        shield_clone.sanitize_prompt(&query_clone, Some(&user_context_clone))
+    }).await;
+
+    let report = match report_result {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return map_error(e).into_response(),
+        Err(_) => return map_error(iw_core::SovereignError::InternalError("Task execution failed".into())).into_response(),
     };
 
     // --- SECURITY FIX: Log to Audit Ledger ---

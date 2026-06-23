@@ -30,88 +30,109 @@ pub struct NormalizationResult {
     pub original_to_ascii: Vec<usize>,
 }
 
+impl NormalizationResult {
+    fn clear(&mut self, input_len: usize) {
+        self.normalized_ascii.clear();
+        self.ascii_to_original.normalized_to_original.clear();
+        self.normalized_unicode.clear();
+        self.unicode_to_original.normalized_to_original.clear();
+        self.stripped.clear();
+        self.stripped_to_original.normalized_to_original.clear();
+        self.original_to_unicode.clear();
+        self.original_to_ascii.clear();
+        self.original_to_unicode.resize(input_len + 1, 0);
+        self.original_to_ascii.resize(input_len + 1, 0);
+    }
+}
+
+thread_local! {
+    static NORM_BUFFER: std::cell::RefCell<NormalizationResult> = std::cell::RefCell::new(NormalizationResult {
+        normalized_ascii: String::with_capacity(32_768),
+        ascii_to_original: OffsetMap { normalized_to_original: Vec::with_capacity(32_768) },
+        normalized_unicode: String::with_capacity(32_768),
+        unicode_to_original: OffsetMap { normalized_to_original: Vec::with_capacity(32_768) },
+        stripped: String::with_capacity(32_768),
+        stripped_to_original: OffsetMap { normalized_to_original: Vec::with_capacity(32_768) },
+        original_to_unicode: Vec::with_capacity(32_768),
+        original_to_ascii: Vec::with_capacity(32_768),
+    });
+}
+
 pub struct Normalizer;
 
 impl Normalizer {
-    /// Optimized normalization that produces ASCII, Unicode, and Stripped (alphanumeric only) versions.
-    pub fn normalize(input: &str) -> NormalizationResult {
-        let mut normalized_ascii = String::with_capacity(input.len());
-        let mut ascii_mapping = Vec::with_capacity(input.len() + 1);
-        let mut original_to_ascii = vec![0; input.len() + 1];
-        
-        let mut normalized_unicode = String::with_capacity(input.len());
-        let mut unicode_mapping = Vec::with_capacity(input.len() + 1);
-        let mut original_to_unicode = vec![0; input.len() + 1];
-
-        let mut stripped = String::with_capacity(input.len());
-        let mut stripped_mapping = Vec::with_capacity(input.len() + 1);
-
-        for (orig_idx, c) in input.char_indices() {
-            // 1. Process for ASCII (Homoglyph detection)
-            let ascii_start = normalized_ascii.len();
-            let ascii_equiv = any_ascii_char(c);
-            for norm_c in ascii_equiv.nfkc() {
-                if !Self::is_invisible(norm_c) {
-                    let start_pos = normalized_ascii.len();
-                    normalized_ascii.push(norm_c);
-                    let end_pos = normalized_ascii.len();
-                    for _ in start_pos..end_pos {
-                        ascii_mapping.push(orig_idx);
+    /// Optimized zero-allocation normalization using thread-local pools.
+    /// The buffer is cleared, populated, and then immutably borrowed for the closure.
+    pub fn with_normalized<F, R>(input: &str, f: F) -> R 
+    where F: FnOnce(&NormalizationResult) -> R {
+        NORM_BUFFER.with(|buf| {
+            {
+                let mut b = buf.borrow_mut();
+                b.clear(input.len());
+                
+                for (orig_idx, c) in input.char_indices() {
+                    // 1. Process for ASCII (Homoglyph detection)
+                    let ascii_start = b.normalized_ascii.len();
+                    let ascii_equiv = any_ascii_char(c);
+                    for norm_c in ascii_equiv.nfkc() {
+                        if !Self::is_invisible(norm_c) {
+                            let start_pos = b.normalized_ascii.len();
+                            b.normalized_ascii.push(norm_c);
+                            let end_pos = b.normalized_ascii.len();
+                            for _ in start_pos..end_pos {
+                                b.ascii_to_original.normalized_to_original.push(orig_idx);
+                            }
+                            
+                            // --- SECURITY FIX (Section 2.2 / Finding B.2): Flexible Separator Evasion ---
+                            if norm_c.is_alphanumeric() {
+                                let s_start = b.stripped.len();
+                                b.stripped.push(norm_c.to_ascii_lowercase());
+                                let s_end = b.stripped.len();
+                                for _ in s_start..s_end {
+                                    b.stripped_to_original.normalized_to_original.push(orig_idx);
+                                }
+                            }
+                        }
                     }
-                    
-                    // --- SECURITY FIX (Section 2.2 / Finding B.2): Flexible Separator Evasion ---
-                    // Build a 'stripped' version containing only alphanumeric characters for robust matching.
-                    if norm_c.is_alphanumeric() {
-                        let s_start = stripped.len();
-                        stripped.push(norm_c.to_ascii_lowercase());
-                        let s_end = stripped.len();
-                        for _ in s_start..s_end {
-                            stripped_mapping.push(orig_idx);
+                    for i in 0..c.len_utf8() {
+                        if orig_idx + i < b.original_to_ascii.len() {
+                            b.original_to_ascii[orig_idx + i] = ascii_start;
+                        }
+                    }
+
+                    // 2. Process for Unicode (Preserving Greek, etc.)
+                    let unicode_start = b.normalized_unicode.len();
+                    if !Self::is_invisible(c) {
+                        for norm_c in c.nfkc() {
+                            let start_pos = b.normalized_unicode.len();
+                            b.normalized_unicode.push(norm_c);
+                            let end_pos = b.normalized_unicode.len();
+                            for _ in start_pos..end_pos {
+                                b.unicode_to_original.normalized_to_original.push(orig_idx);
+                            }
+                        }
+                    }
+                    // Fill original_to_unicode for all byte positions of this character
+                    for i in 0..c.len_utf8() {
+                        if orig_idx + i < b.original_to_unicode.len() {
+                            b.original_to_unicode[orig_idx + i] = unicode_start;
                         }
                     }
                 }
-            }
-            for i in 0..c.len_utf8() {
-                if orig_idx + i < original_to_ascii.len() {
-                    original_to_ascii[orig_idx + i] = ascii_start;
-                }
-            }
-
-            // 2. Process for Unicode (Preserving Greek, etc.)
-            let unicode_start = normalized_unicode.len();
-            if !Self::is_invisible(c) {
-                for norm_c in c.nfkc() {
-                    let start_pos = normalized_unicode.len();
-                    normalized_unicode.push(norm_c);
-                    let end_pos = normalized_unicode.len();
-                    for _ in start_pos..end_pos {
-                        unicode_mapping.push(orig_idx);
-                    }
-                }
-            }
-            // Fill original_to_unicode for all byte positions of this character
-            for i in 0..c.len_utf8() {
-                if orig_idx + i < original_to_unicode.len() {
-                    original_to_unicode[orig_idx + i] = unicode_start;
-                }
-            }
-        }
-        ascii_mapping.push(input.len());
-        unicode_mapping.push(input.len());
-        stripped_mapping.push(input.len());
-        original_to_unicode[input.len()] = normalized_unicode.len();
-        original_to_ascii[input.len()] = normalized_ascii.len();
-
-        NormalizationResult {
-            normalized_ascii,
-            ascii_to_original: OffsetMap { normalized_to_original: ascii_mapping },
-            normalized_unicode,
-            unicode_to_original: OffsetMap { normalized_to_original: unicode_mapping },
-            stripped,
-            stripped_to_original: OffsetMap { normalized_to_original: stripped_mapping },
-            original_to_unicode,
-            original_to_ascii,
-        }
+                b.ascii_to_original.normalized_to_original.push(input.len());
+                b.unicode_to_original.normalized_to_original.push(input.len());
+                b.stripped_to_original.normalized_to_original.push(input.len());
+                
+                let norm_unicode_len = b.normalized_unicode.len();
+                b.original_to_unicode[input.len()] = norm_unicode_len;
+                let norm_ascii_len = b.normalized_ascii.len();
+                b.original_to_ascii[input.len()] = norm_ascii_len;
+            } // Mutable borrow is dropped here!
+            
+            // Execute the inner block with an immutable borrow.
+            let b = buf.borrow();
+            f(&b)
+        })
     }
 
     fn is_invisible(c: char) -> bool {
@@ -133,30 +154,32 @@ mod tests {
     proptest! {
         #[test]
         fn fuzz_normalization_offset_consistency(s in "\\PC*") {
-            let res = Normalizer::normalize(&s);
-            
-            // 1. Boundary check: Every normalized byte must map back to a valid original byte index
-            for i in 0..res.normalized_ascii.len() {
-                let orig_idx = res.ascii_to_original.get_original_offset(i);
-                prop_assert!(orig_idx < s.len() || (s.is_empty() && orig_idx == 0));
-            }
+            Normalizer::with_normalized(&s, |res| {
+                // 1. Boundary check: Every normalized byte must map back to a valid original byte index
+                for i in 0..res.normalized_ascii.len() {
+                    let orig_idx = res.ascii_to_original.get_original_offset(i);
+                    prop_assert!(orig_idx < s.len() || (s.is_empty() && orig_idx == 0));
+                }
 
-            // 2. Transformation check: The output must be pure ASCII (enforced by any_ascii)
-            prop_assert!(res.normalized_ascii.is_ascii());
+                // 2. Transformation check: The output must be pure ASCII (enforced by any_ascii)
+                prop_assert!(res.normalized_ascii.is_ascii());
 
-            // 3. Invisible character check: Output should not contain ZWSP etc.
-            for c in res.normalized_ascii.chars() {
-                prop_assert!(!Normalizer::is_invisible(c));
-            }
+                // 3. Invisible character check: Output should not contain ZWSP etc.
+                for c in res.normalized_ascii.chars() {
+                    prop_assert!(!Normalizer::is_invisible(c));
+                }
+                Ok(())
+            })?;
         }
     }
 
     #[test]
     fn test_specific_edge_cases() {
         let input = "A\u{200B}B"; // Invisible ZWSP (3 bytes: E2 80 8B)
-        let res = Normalizer::normalize(input);
-        assert_eq!(res.normalized_ascii, "AB");
-        assert_eq!(res.ascii_to_original.get_original_offset(0), 0); // A
-        assert_eq!(res.ascii_to_original.get_original_offset(1), 4); // B (skips 3-byte ZWSP at indices 1,2,3)
+        Normalizer::with_normalized(input, |res| {
+            assert_eq!(res.normalized_ascii, "AB");
+            assert_eq!(res.ascii_to_original.get_original_offset(0), 0); // A
+            assert_eq!(res.ascii_to_original.get_original_offset(1), 4); // B (skips 3-byte ZWSP at indices 1,2,3)
+        });
     }
 }
