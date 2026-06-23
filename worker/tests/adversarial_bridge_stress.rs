@@ -95,15 +95,40 @@ cwIDAQAB
         axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     });
 
-    // Generate JWT (RS256)
+    // Generate JWT (RS256) with valid role
     let claims = Claims {
         sub: "test_user".to_string(),
         exp: 10000000000, // far future
+        roles: vec!["admin".to_string()],
     };
     let token = encode(&Header::new(jsonwebtoken::Algorithm::RS256), &claims, &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap()).unwrap();
 
+    // Generate JWT (RS256) with no roles
+    let claims_no_roles = Claims {
+        sub: "test_user_no_roles".to_string(),
+        exp: 10000000000, // far future
+        roles: vec![],
+    };
+    let token_no_roles = encode(&Header::new(jsonwebtoken::Algorithm::RS256), &claims_no_roles, &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap()).unwrap();
+
+    std::env::set_var("WARDEN_JWT_AUDIENCE", "test_aud");
+    std::env::set_var("WARDEN_JWT_ISSUER", "test_iss");
+
     let client = reqwest::Client::new();
     let url = format!("http://{}/enqueue", addr);
+
+    // Test rejection for low-privileged tokens
+    let payload = serde_json::json!({
+        "query": "Hello Bob",
+        "thread_id": "test_thread"
+    });
+    let res = client.post(&url)
+        .header("Authorization", format!("Bearer {}", token_no_roles))
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN, "Unprivileged token should be rejected with 403 Forbidden");
 
     let num_requests = 100; // Small sample for CI, but enough to test concurrency
     let mut handlers = Vec::new();

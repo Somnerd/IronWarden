@@ -28,6 +28,9 @@ pub struct SearchBoostQueue {
     shield: Option<Arc<dyn iw_core::PiiShield + Send + Sync>>,
     grounding_shield: Option<Arc<dyn iw_core::GroundingShield + Send + Sync>>,
     redis_client: Option<redis::Client>,
+    sender: crossbeam_channel::Sender<(String, String, Vec<u8>)>,
+    receiver: crossbeam_channel::Receiver<(String, String, Vec<u8>)>,
+    results: Arc<DashMap<String, (String, Vec<u8>)>>,
 }
 
 impl SearchBoostQueue {
@@ -42,6 +45,7 @@ impl SearchBoostQueue {
         conn.execute_batch("
             PRAGMA journal_mode = WAL; 
             PRAGMA synchronous = NORMAL;
+            PRAGMA secure_delete = ON;
             CREATE TABLE IF NOT EXISTS search_jobs (
                 id TEXT PRIMARY KEY, 
                 username TEXT, 
@@ -60,6 +64,7 @@ impl SearchBoostQueue {
             info!("Redis HA Backend: ENABLED for SearchBoost Queue.");
         }
 
+        let (sender, receiver) = crossbeam_channel::unbounded();
         Ok(Self { 
             db_path, 
             pepper: Arc::new(SecretVec::new(pepper.expose_secret().to_vec())),
@@ -67,76 +72,84 @@ impl SearchBoostQueue {
             shield,
             grounding_shield,
             redis_client,
+            sender,
+            receiver,
+            results: Arc::new(DashMap::new()),
         })
     }
 
     /// Spawns a background worker to process enqueued search jobs.
     pub fn spawn_worker(&self, librarian: Arc<crate::librarian::LocalLibrarian>) {
         let queue = self.clone();
+        
+        // Startup recovery
+        let conn_arc = self.conn.clone();
+        let sender_clone = self.sender.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Ok(conn) = conn_arc.lock() {
+                if let Ok(mut stmt) = conn.prepare("SELECT id, username, query FROM search_jobs WHERE status = 'pending' ORDER BY created_at ASC") {
+                    if let Ok(mut rows) = stmt.query([]) {
+                        while let Ok(Some(row)) = rows.next() {
+                            let id: String = row.get(0).unwrap_or_default();
+                            let username: String = row.get(1).unwrap_or_default();
+                            let encrypted_sanitized: Vec<u8> = row.get(2).unwrap_or_default();
+                            let _ = sender_clone.send((id, username, encrypted_sanitized));
+                        }
+                    }
+                }
+            }
+        });
+
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(2));
             loop {
-                interval.tick().await;
-                if let Err(e) = queue.process_next_job(librarian.clone()).await {
-                    if !matches!(e, SovereignError::DatabaseBusy(_)) {
+                let job = match tokio::task::spawn_blocking({
+                    let r = queue.receiver.clone();
+                    move || r.recv()
+                }).await {
+                    Ok(Ok(j)) => j,
+                    _ => continue,
+                };
+                
+                let q2 = queue.clone();
+                let lib2 = librarian.clone();
+                
+                let job_id = job.0.clone();
+                let res = tokio::spawn(async move {
+                    if let Err(e) = q2.process_job(job, lib2).await {
                         error!("SearchBoost Worker Error: {}", e);
                     }
+                }).await;
+                
+                if res.is_err() {
+                    error!("Worker thread panicked on job {}! Requeueing or marking failed.", job_id);
+                    // Mark as failed in DB
+                    let c = queue.conn.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if let Ok(conn) = c.lock() {
+                            let _ = conn.execute("UPDATE search_jobs SET status = 'failed' WHERE id = ?1", [&job_id]);
+                        }
+                    }).await;
                 }
             }
         });
     }
 
     /// Processes the next job in the queue (exposed for testing and orchestration).
-    pub async fn process_next_job(&self, librarian: Arc<crate::librarian::LocalLibrarian>) -> Result<(), SovereignError> {
-        // --- HA FIX (WP 90): Poll Redis first for distributed jobs ---
-        let mut redis_job: Option<(String, String, Vec<u8>)> = None;
-        if let Some(ref client) = self.redis_client {
-            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
-                // RPOP from global queue
-                if let Ok(Some(job_id)) = con.rpop::<_, Option<String>>("iw:sb:queue", None).await {
-                    // Fetch job details from Redis hash (to support cross-node processing)
-                    let redis_key = format!("iw:sb:job:{}", job_id);
-                    if let Ok(data) = con.hgetall::<_, HashMap<String, Vec<u8>>>(&redis_key).await {
-                        if !data.is_empty() {
-                            let username = String::from_utf8(data.get("username").cloned().unwrap_or_default()).unwrap_or_default();
-                            let encrypted_sanitized = data.get("query").cloned().unwrap_or_default();
-                            redis_job = Some((job_id, username, encrypted_sanitized));
-                        }
-                    }
-                }
-            }
-        }
-
-        let job = if let Some(j) = redis_job {
-            Some(j)
-        } else {
-            let conn_arc = self.conn.clone();
-            tokio::task::spawn_blocking(move || {
-                let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
-                let mut stmt = conn.prepare("SELECT id, username, query FROM search_jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1")
-                    .map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                let mut rows = stmt.query([]).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                
-                if let Some(row) = rows.next().map_err(|e| SovereignError::StorageError(e.to_string()))? {
-                    let id: String = row.get(0).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                    let username: String = row.get(1).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                    let encrypted_sanitized: Vec<u8> = row.get(2).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                    Ok::<Option<(String, String, Vec<u8>)>, SovereignError>(Some((id, username, encrypted_sanitized)))
-                } else {
-                    Ok(None)
-                }
-            }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??
-        };
+    pub async fn process_job(&self, job_data: (String, String, Vec<u8>), librarian: Arc<crate::librarian::LocalLibrarian>) -> Result<(), SovereignError> {
+        let job = Some(job_data);
 
         if let Some((id, username, encrypted_sanitized)) = job {
             // 1. Decrypt Queries using centralized AadCipher (WP-98)
-            let pepper = self.pepper.expose_secret();
-            let decrypted_bytes = AadCipher::decrypt(
-                &encrypted_sanitized,
-                &username,
-                pepper,
-                b"warden-v1-queue-encryption"
-            )?;
+            let pepper = self.pepper.clone();
+            let username_clone = username.clone();
+            let decrypted_bytes = tokio::task::spawn_blocking(move || {
+                AadCipher::decrypt(
+                    &encrypted_sanitized,
+                    &username_clone,
+                    pepper.expose_secret(),
+                    b"warden-v1-queue-encryption"
+                )
+            }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
             let sanitized_query = String::from_utf8(decrypted_bytes)
                 .map_err(|_| SovereignError::InternalError("Invalid UTF-8 in job data".into()))?;
 
@@ -168,12 +181,16 @@ impl SearchBoostQueue {
             };
 
             // 3. Encrypt Result using centralized AadCipher (WP-98)
-            let encrypted_result = AadCipher::encrypt(
-                consolidated_result.as_bytes(),
-                &username,
-                pepper,
-                b"warden-v1-queue-encryption"
-            )?;
+            let pepper_clone = self.pepper.clone();
+            let username_clone = username.clone();
+            let encrypted_result = tokio::task::spawn_blocking(move || {
+                AadCipher::encrypt(
+                    consolidated_result.as_bytes(),
+                    &username_clone,
+                    pepper_clone.expose_secret(),
+                    b"warden-v1-queue-encryption"
+                )
+            }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
 
             // 4. Update DB (and Redis if HA)
             if let Some(ref client) = self.redis_client {
@@ -185,13 +202,16 @@ impl SearchBoostQueue {
                 }
             }
 
+            self.results.insert(id.clone(), (username.clone(), encrypted_result.clone()));
+
             let conn_arc = self.conn.clone();
             let id_clone = id.clone();
+            let res_clone = encrypted_result.clone();
             tokio::task::spawn_blocking(move || {
                 let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
                 conn.execute(
                     "UPDATE search_jobs SET result = ?1, status = 'complete' WHERE id = ?2",
-                    (&encrypted_result, &id_clone),
+                    (&res_clone, &id_clone),
                 ).map_err(|e| SovereignError::StorageError(e.to_string()))?;
                 Ok::<(), SovereignError>(())
             }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
@@ -215,12 +235,17 @@ impl SearchBoostQueue {
         let job_id = format!("{}:{}", session_id, Uuid::new_v4());
 
         // Encrypt sanitized query using centralized AadCipher (WP-98)
-        let encrypted_sanitized = AadCipher::encrypt(
-            sanitized_query.as_bytes(),
-            &username,
-            self.pepper.expose_secret(),
-            b"warden-v1-queue-encryption"
-        )?;
+        let pepper = self.pepper.clone();
+        let username_clone = username.clone();
+        let sanitized_query_clone = sanitized_query.clone();
+        let encrypted_sanitized = tokio::task::spawn_blocking(move || {
+            AadCipher::encrypt(
+                sanitized_query_clone.as_bytes(),
+                &username_clone,
+                pepper.expose_secret(),
+                b"warden-v1-queue-encryption"
+            )
+        }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
 
         // --- HA FIX (WP 90): Push to Redis for distributed processing ---
         if let Some(ref client) = self.redis_client {
@@ -240,12 +265,13 @@ impl SearchBoostQueue {
         let thread_id_clone = thread_id.clone();
         let job_id_clone = job_id.clone();
         let conn_arc = self.conn.clone();
+        let query_clone = encrypted_sanitized.clone();
 
         tokio::task::spawn_blocking(move || {
             let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
             conn.execute(
                 "INSERT INTO search_jobs (id, username, thread_id, query) VALUES (?1, ?2, ?3, ?4)",
-                (&job_id_clone, &username_clone, &thread_id_clone, &encrypted_sanitized),
+                (&job_id_clone, &username_clone, &thread_id_clone, &query_clone),
             ).map_err(|e| {
                 if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
                     SovereignError::DatabaseBusy("SearchBoost Queue busy".into())
@@ -256,24 +282,32 @@ impl SearchBoostQueue {
             Ok::<(), SovereignError>(())
         }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
 
+        let _ = self.sender.send((job_id.clone(), username.clone(), encrypted_sanitized.clone()));
         info!(job_id = %job_id, "Successfully enqueued encrypted SearchBoost job (Sanitized)");
 
         Ok(job_id)
     }
 
-    pub async fn get_result(&self, job_id: &str) -> Result<Option<String>, SovereignError> {
+    pub async fn get_result(&self, job_id: &str, requester: &str, is_admin: bool) -> Result<Option<String>, SovereignError> {
         let job_id_str = job_id.to_string();
         
-        // --- HA FIX (WP 90): Check Redis first for result ---
+        // --- MEMORY CACHE (Zero Latency) ---
         let mut redis_data: Option<(String, Vec<u8>)> = None;
-        if let Some(ref client) = self.redis_client {
-            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
-                let redis_key = format!("iw:sb:job:{}", job_id);
-                if let Ok(data) = con.hgetall::<_, HashMap<String, Vec<u8>>>(&redis_key).await {
-                    if data.get("status").map(|s| s == b"complete").unwrap_or(false) {
-                        let username = String::from_utf8(data.get("username").cloned().unwrap_or_default()).unwrap_or_default();
-                        let result_data = data.get("result").cloned().unwrap_or_default();
-                        redis_data = Some((username, result_data));
+        if let Some(res) = self.results.get(job_id) {
+            redis_data = Some((res.0.clone(), res.1.clone()));
+        }
+        
+        // --- HA FIX (WP 90): Check Redis first for result ---
+        if redis_data.is_none() {
+            if let Some(ref client) = self.redis_client {
+                if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+                    let redis_key = format!("iw:sb:job:{}", job_id);
+                    if let Ok(data) = con.hgetall::<_, HashMap<String, Vec<u8>>>(&redis_key).await {
+                        if data.get("status").map(|s| s == b"complete").unwrap_or(false) {
+                            let username = String::from_utf8(data.get("username").cloned().unwrap_or_default()).unwrap_or_default();
+                            let result_data = data.get("result").cloned().unwrap_or_default();
+                            redis_data = Some((username, result_data));
+                        }
                     }
                 }
             }
@@ -303,19 +337,27 @@ impl SearchBoostQueue {
             }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??
         };
 
+        let pepper = self.pepper.clone();
         match result_data {
             Some((username, data)) => {
+                if !is_admin && username != requester {
+                    return Err(SovereignError::UnauthorizedAccess("You do not have permission to access this job result".into()));
+                }
                 if data.is_empty() { return Ok(None); }
                 
-                // Decrypt result using centralized AadCipher (WP-98)
-                let decrypted_bytes = AadCipher::decrypt(
-                    &data,
-                    &username,
-                    self.pepper.expose_secret(),
-                    b"warden-v1-queue-encryption"
-                )?;
-                
-                Ok(Some(String::from_utf8(decrypted_bytes).map_err(|e| SovereignError::InternalError(e.to_string()))?))
+                let decrypted_string = tokio::task::spawn_blocking(move || {
+                    // Decrypt result using centralized AadCipher (WP-98)
+                    let decrypted_bytes = AadCipher::decrypt(
+                        &data,
+                        &username,
+                        pepper.expose_secret(),
+                        b"warden-v1-queue-encryption"
+                    )?;
+
+                    String::from_utf8(decrypted_bytes).map_err(|e| SovereignError::InternalError(e.to_string()))
+                }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
+
+                Ok(Some(decrypted_string))
             },
             None => Ok(None)
         }
@@ -341,6 +383,7 @@ impl LocalSessionManager {
         conn.execute_batch("
             PRAGMA journal_mode = WAL; 
             PRAGMA synchronous = NORMAL;
+            PRAGMA secure_delete = ON;
             CREATE TABLE IF NOT EXISTS sessions (username TEXT PRIMARY KEY, session_data TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
         ").map_err(|e| SovereignError::StorageError(format!("Failed to set PRAGMAs or create sessions table: {}", e)))?;
 
@@ -413,19 +456,28 @@ impl LocalSessionManager {
             }
         }
 
+        let username_str = username.to_string();
+        let pepper = self.pepper.clone();
         let ctx = match encrypted_data {
             Some(data) => {
-                // Decrypt session using centralized AadCipher (WP-98)
-                let decrypted = AadCipher::decrypt(
-                    &data,
-                    username,
-                    self.pepper.expose_secret(),
-                    b"warden-v1-session-encryption"
-                )?;
-                
-                let state: SessionState = serde_json::from_slice(&decrypted)
-                    .map_err(|e| SovereignError::InternalError(format!("Session corruption: {}", e)))?;
-                Arc::new(SessionContext::from(state))
+                let res = tokio::task::spawn_blocking(move || {
+                    // Decrypt session using centralized AadCipher (WP-98)
+                    let decrypted = AadCipher::decrypt(
+                        &data,
+                        &username_str,
+                        pepper.expose_secret(),
+                        b"warden-v1-session-encryption"
+                    ).map_err(|e| SovereignError::InternalError(format!("Session decryption failed: {}", e)))?;
+
+                    let state: SessionState = serde_json::from_slice(&decrypted)
+                        .map_err(|e| SovereignError::InternalError(format!("Session corruption: {}", e)))?;
+                    Ok::<Arc<SessionContext>, SovereignError>(Arc::new(SessionContext::from(state)))
+                }).await;
+                match res {
+                    Ok(Ok(ctx)) => ctx,
+                    Ok(Err(e)) => return Err(e),
+                    Err(e) => return Err(SovereignError::InternalError(format!("Blocking task failed: {}", e))),
+                }
             },
             None => Arc::new(SessionContext::new()),
         };
@@ -439,26 +491,19 @@ impl LocalSessionManager {
         let state = SessionState::from(ctx);
         let json_bytes = serde_json::to_vec(&state).unwrap_or_default();
         
-        // Encrypt session using centralized AadCipher (WP-98)
-        let combined = AadCipher::encrypt(
-            &json_bytes,
-            username,
-            self.pepper.expose_secret(),
-            b"warden-v1-session-encryption"
-        )?;
-
-        // --- HA FIX (WP 90): Write to Redis for HA Clustered Access ---
-        if let Some(ref client) = self.redis_client {
-            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
-                let redis_key = format!("iw:session:{}", username);
-                let _: Result<(), _> = con.set_ex(&redis_key, &combined, 86400).await; // 24h TTL
-            }
-        }
-
         let username_str = username.to_string();
         let conn_arc = self.conn.clone();
+        let pepper = self.pepper.clone();
         
-        tokio::task::spawn_blocking(move || {
+        let combined = tokio::task::spawn_blocking(move || {
+            // Encrypt session using centralized AadCipher (WP-98)
+            let combined = AadCipher::encrypt(
+                &json_bytes,
+                &username_str,
+                pepper.expose_secret(),
+                b"warden-v1-session-encryption"
+            )?;
+
             let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
             conn.execute(
                 "INSERT INTO sessions (username, session_data, updated_at) VALUES (?1, ?2, CURRENT_TIMESTAMP)
@@ -471,8 +516,16 @@ impl LocalSessionManager {
                     SovereignError::StorageError(format!("Session persistence failed: {}", e))
                 }
             })?;
-            Ok::<(), SovereignError>(())
+            Ok::<Vec<u8>, SovereignError>(combined)
         }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
+
+        // --- HA FIX (WP 90): Write to Redis for HA Clustered Access ---
+        if let Some(ref client) = self.redis_client {
+            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+                let redis_key = format!("iw:session:{}", username);
+                let _: Result<(), _> = con.set_ex(&redis_key, &combined, 86400).await; // 24h TTL
+            }
+        }
 
         Ok(())
     }
@@ -481,18 +534,23 @@ impl LocalSessionManager {
         let mut sessions_to_flush: Vec<(String, Vec<u8>)> = Vec::new();
         
         for item in self.sessions.iter() {
-            let username = item.key();
+            let username = item.key().clone();
             let state = SessionState::from(item.value().as_ref());
             let json_bytes = serde_json::to_vec(&state).unwrap_or_default();
+            let pepper = self.pepper.clone();
             
             // Encrypt session using centralized AadCipher (WP-98)
-            if let Ok(combined) = AadCipher::encrypt(
-                &json_bytes,
-                username,
-                self.pepper.expose_secret(),
-                b"warden-v1-session-encryption"
-            ) {
-                sessions_to_flush.push((username.clone(), combined));
+            let combined_res = tokio::task::spawn_blocking(move || {
+                AadCipher::encrypt(
+                    &json_bytes,
+                    &username,
+                    pepper.expose_secret(),
+                    b"warden-v1-session-encryption"
+                )
+            }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))?;
+
+            if let Ok(combined) = combined_res {
+                sessions_to_flush.push((item.key().clone(), combined));
             }
         }
 

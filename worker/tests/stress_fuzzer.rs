@@ -27,7 +27,7 @@ async fn test_time_travel_purge_and_hmac_integrity() {
         execution_time_ms: 10,
     };
     // Edge case: Right-to-Left Override character
-    let _ = auditor.log_report(report1, "Malicious prompt with \u{202e} right-to-left override".to_string(), "fuzzer_user".into()).await;
+    let _ = auditor.log_report(report1.clone(), "Malicious prompt with \u{202e} right-to-left override".to_string(), "fuzzer_user".into()).await;
     
     let report2 = ScrubbingReport {
         sanitized_text: "Test 2 [REDACTED]".to_string(),
@@ -44,7 +44,7 @@ async fn test_time_travel_purge_and_hmac_integrity() {
         potential_misses: vec![],
         execution_time_ms: 20,
     };
-    let _ = auditor.log_report(report2, "Blocked prompt with secret".to_string(), "attacker_0".into()).await;
+    let _ = auditor.log_report(report2.clone(), "Blocked prompt with secret".to_string(), "attacker_0".into()).await;
 
     // Allow worker thread to process the MPSC queue
     tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -74,7 +74,8 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     assert!(build_status.success());
 
     let output = Command::new("cargo")
-        .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path, "--pepper", "test-pepper-12345678901234567890"])
+        .env("WARDEN_PEPPER", "test-pepper-12345678901234567890")
+        .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
         .output()
         .expect("Failed to run verify");
 
@@ -93,7 +94,8 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     }
 
     let output_tampered = Command::new("cargo")
-        .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path, "--pepper", "test-pepper-12345678901234567890"])
+        .env("WARDEN_PEPPER", "test-pepper-12345678901234567890")
+        .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
         .output()
         .expect("Failed to run verify");
 

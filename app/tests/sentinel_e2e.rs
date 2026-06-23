@@ -47,7 +47,8 @@ async fn test_v19_session_isolation_aad_adversarial() {
     
     match result {
         Err(SovereignError::InternalError(e)) => {
-            assert!(e.contains("Session decryption failed"), "Expected decryption failure, got: {}", e);
+            assert!(e.contains("Decryption failed") || e.contains("Session decryption failed"), "Expected decryption failure, got: {}", e);
+            assert!(e.contains("Decryption failed"), "Expected decryption failure, got: {}", e);
         },
         _ => panic!("V-19 FAILURE: Swapped session should have failed decryption! Got: {:?}", result),
     }
@@ -83,8 +84,10 @@ rules:
     let storage = WorkerStorage::new(&db_path, &kb_path, pepper2, Some((*queue).clone()), None).await.unwrap();
     
     // 1. Add sensitive document to Librarian
-    let librarian = worker::LocalLibrarian::new(&kb_path).await.unwrap();
+    let librarian = Arc::new(worker::LocalLibrarian::new(&kb_path).await.unwrap());
     librarian.add_document("The document contains TOP_SECRET_PROJECT info.", "test_user").await.unwrap();
+    
+    queue.spawn_worker(librarian.clone());
     
     // 2. Enqueue a job with ONLY sanitized text (V-14 Enforced)
     // Query: "tell me about TOP_SECRET_PROJECT" -> sanitized to "tell me about [TOKEN_1]"
@@ -93,15 +96,14 @@ rules:
         report.sanitized_text, 
         std::collections::HashMap::new(), 
         "thread_1".to_string(), 
-        "alice".to_string(),
-        None
+        "alice".to_string()
     ).await.unwrap();
     
     // 3. Wait for worker to process
     let mut attempts = 0;
     let mut result = None;
     while attempts < 20 {
-        if let Ok(Some(res)) = queue.get_result(&job_id).await {
+        if let Ok(Some(res)) = queue.get_result(&job_id, "sentinel_test", true).await {
             result = Some(res);
             break;
         }

@@ -12,9 +12,9 @@ pub struct JsonRpcRequest {
 
 /// A standard JSON-RPC 2.0 Response object.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct JsonRpcResponse {
+pub struct JsonRpcResponse<T = Value> {
     pub jsonrpc: String,
-    pub result: Option<Value>,
+    pub result: Option<T>,
     pub error: Option<JsonRpcErrorObject>,
     pub id: Option<Value>,
 }
@@ -27,9 +27,9 @@ pub struct JsonRpcErrorObject {
     pub data: Option<Value>,
 }
 
-impl JsonRpcResponse {
+impl<T> JsonRpcResponse<T> {
     /// Creates a successful response.
-    pub fn success(id: Option<Value>, result: Value) -> Self {
+    pub fn success(id: Option<Value>, result: T) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
             result: Some(result),

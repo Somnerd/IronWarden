@@ -312,6 +312,28 @@ impl AsyncAuditor {
             loop {
                 interval.tick().await;
                 
+                // --- DISK CAPACITY CHECK ---
+                unsafe {
+                    let mut stat: libc::statvfs = std::mem::zeroed();
+                    // We check the parent directory of the DB path, or the current dir as fallback
+                    let db_parent = std::path::Path::new(&path_monitor).parent().unwrap_or(std::path::Path::new("."));
+                    let path_str = db_parent.to_string_lossy().into_owned();
+                    let path_to_use = if path_str.is_empty() { "." } else { &path_str };
+                    let path_cstr = std::ffi::CString::new(path_to_use).unwrap_or_default();
+                    if libc::statvfs(path_cstr.as_ptr(), &mut stat) == 0 {
+                        let free_space = (stat.f_bavail as u64) * (stat.f_frsize as u64);
+                        if free_space < 50_000_000 { // 50MB threshold
+                            error!("HARD-STOP MONITOR: Disk exhaustion imminent (Free < 50MB). Triggering Fail-Closed state.");
+                            healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
+                            break;
+                        }
+                    } else {
+                        error!("HARD-STOP MONITOR: Cannot read disk capacity. Triggering Fail-Closed state.");
+                        healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
+                        break;
+                    }
+                }
+                
                 let anchor_path = format!("{}.anchor", path_monitor);
                 if !std::path::Path::new(&anchor_path).exists() {
                     error!("HARD-STOP MONITOR: Audit anchor file missing! Triggering Fail-Closed state.");
@@ -362,7 +384,7 @@ impl AsyncAuditor {
     fn init_db(path: &str, genesis_hash: &[u8; 32], hmac_key: &[u8; 32]) -> rusqlite::Result<(Connection, Vec<u8>, i64)> {
         let conn = Connection::open(path)?;
         conn.busy_timeout(std::time::Duration::from_millis(5000))?;
-        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA secure_delete = ON;")?;
         
         conn.execute("CREATE TABLE IF NOT EXISTS audit_reports (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', is_blocked BOOLEAN, redactions_json TEXT, payload_hash TEXT, integrity_hash TEXT)", [])?;
         conn.execute("CREATE TABLE IF NOT EXISTS ephemeral_raw_logs (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', encrypted_data BLOB, nonce BLOB)", [])?;

@@ -32,9 +32,6 @@ enum Commands {
         /// Path to the SQLite audit database
         #[arg(short, long, default_value = "audit.db")]
         db: String,
-        /// The WARDEN_PEPPER used for HMAC generation
-        #[arg(short, long)]
-        pepper: String,
     },
 }
 
@@ -47,8 +44,9 @@ fn main() {
                 eprintln!("Error generating report: {}", e);
             }
         }
-        Commands::Verify { db, pepper } => {
-            let secret_pepper = SecretString::from(pepper.clone());
+        Commands::Verify { db } => {
+            let pepper_env = std::env::var("WARDEN_PEPPER").expect("WARDEN_PEPPER environment variable is missing. This is required for verification.");
+            let secret_pepper = SecretString::from(pepper_env);
             if let Err(e) = verify_integrity(db, &secret_pepper) {
                 eprintln!("Error verifying integrity: {}", e);
             }
