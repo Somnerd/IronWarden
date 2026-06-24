@@ -271,7 +271,8 @@ impl PiiShield for WardenEngine {
                     if mat.start < last.end {
                         last.action = combine_actions(last.action, mat.action);
                         if !last.rule_id.contains(&mat.rule_id) {
-                            last.rule_id = format!("{}|{}", last.rule_id, mat.rule_id);
+                            last.rule_id.push('|');
+                            last.rule_id.push_str(&mat.rule_id);
                         }
                         
                         if mat.end > last.end {
