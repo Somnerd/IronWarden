@@ -216,6 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             storage: storage.clone(),
             session_manager,
             jwt_public_key,
+            ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
         });
 
         let bridge_port = std::env::var("BRIDGE_PORT").unwrap_or_else(|_| "14141".to_string());

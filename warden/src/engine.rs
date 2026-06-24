@@ -487,7 +487,7 @@ impl PiiShield for WardenEngine {
                         merged.end = pot.end;
                         merged.text.push_str(gap);
                         merged.text.push_str(&pot.text);
-                        merged.rule_id = format!("{}+fused", merged.rule_id);
+                        merged.rule_id.push_str("+fused");
                         merged.action = combine_actions(merged.action, pot.action);
                     } else {
                         break;
@@ -501,7 +501,11 @@ impl PiiShield for WardenEngine {
                             last.end = merged.end;
                             last.text.push_str(gap);
                             last.text.push_str(&merged.text);
-                            last.rule_id = format!("{}+{}", last.rule_id, merged.rule_id);
+                            let merged_rule_str = merged.rule_id.as_str();
+                            if !last.rule_id.split('+').any(|id| id == merged_rule_str) {
+                                last.rule_id.push('+');
+                                last.rule_id.push_str(merged_rule_str);
+                            }
                             last.action = combine_actions(last.action, merged.action);
                             continue;
                         }
@@ -520,8 +524,12 @@ impl PiiShield for WardenEngine {
                         // The rule_id should belong to whichever match was longer (more specific)
                         if merged_len > last_len {
                             last.rule_id = merged.rule_id.clone();
-                        } else if merged_len == last_len && !last.rule_id.contains(&merged.rule_id) {
-                            last.rule_id = format!("{}+{}", last.rule_id, merged.rule_id);
+                        } else if merged_len == last_len {
+                            let merged_rule_str = merged.rule_id.as_str();
+                            if !last.rule_id.split('+').any(|id| id == merged_rule_str) {
+                                last.rule_id.push('+');
+                                last.rule_id.push_str(merged_rule_str);
+                            }
                         }
                         
                         last.end = std::cmp::max(last.end, merged.end);
