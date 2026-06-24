@@ -270,9 +270,10 @@ impl PiiShield for WardenEngine {
                 if let Some(last) = merged_matches.last_mut() {
                     if mat.start < last.end {
                         last.action = combine_actions(last.action, mat.action);
-                        if !last.rule_id.contains(&mat.rule_id) {
+                        let mat_rule_str = mat.rule_id.as_str();
+                        if !last.rule_id.split('|').any(|id| id == mat_rule_str) {
                             last.rule_id.push('|');
-                            last.rule_id.push_str(&mat.rule_id);
+                            last.rule_id.push_str(mat_rule_str);
                         }
                         
                         if mat.end > last.end {
