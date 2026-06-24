@@ -283,9 +283,10 @@ impl PiiShield for WardenEngine {
                 let mut search_start = 0;
                 while search_start < normalized.len() {
                     if let Some(mat) = re.find_at(normalized, search_start) {
-                        let id = &self.rule_ids[i];
-                        let action = self.rule_actions[i];
-                        let category = self.rule_categories[i];
+                        let idx = self.dict_pattern_count + i;
+                        let id = &self.rule_ids[idx];
+                        let action = self.rule_actions[idx];
+                        let category = self.rule_categories[idx];
                         
                         all_confirmed.push(UnifiedMatch {
                             start: mat.start(),
@@ -521,19 +522,40 @@ impl PiiShield for WardenEngine {
                             }
                         }
                         
+                        // Resolve action and rule_id using priority rules (Block > Redact > Mask > AuditOnly)
+
+
                         // The rule_id should belong to whichever match was longer (more specific)
-                        if merged_len > last_len {
+                        // AND if one match has a stronger action, it should take precedence
+                        let get_prio = |a: &EnforcementAction| -> u8 {
+                            match a {
+                                EnforcementAction::Block => 4,
+                                EnforcementAction::Redact => 3,
+                                EnforcementAction::Mask => 2,
+                                EnforcementAction::AuditOnly => 1,
+                            }
+                        };
+                        let last_prio = get_prio(&last.action);
+                        let merged_prio = get_prio(&merged.action);
+
+                        if merged_prio > last_prio {
                             last.rule_id = merged.rule_id.clone();
-                        } else if merged_len == last_len {
-                            let merged_rule_str = merged.rule_id.as_str();
-                            if !last.rule_id.split('+').any(|id| id == merged_rule_str) {
-                                last.rule_id.push('+');
-                                last.rule_id.push_str(merged_rule_str);
+                            last.action = merged.action;
+                        } else if merged_prio == last_prio {
+                            if merged_len > last_len {
+                                last.rule_id = merged.rule_id.clone();
+                                last.action = merged.action;
+                            } else if merged_len == last_len {
+                                let merged_rule_str = merged.rule_id.as_str();
+                                if !last.rule_id.split('+').any(|id| id == merged_rule_str) {
+                                    last.rule_id.push('+');
+                                    last.rule_id.push_str(merged_rule_str);
+                                }
                             }
                         }
                         
-                        last.end = std::cmp::max(last.end, merged.end);
                         last.action = combine_actions(last.action, merged.action);
+                        last.end = std::cmp::max(last.end, merged.end);
                         continue;
                     }
                 }
