@@ -233,16 +233,10 @@ async fn handle_request_internal(
             .and_then(|p| p.as_str())
             .ok_or_else(|| SovereignError::InternalError("Method requires a 'prompt' or 'text' parameter".into()))?;
             
-        let shield_clone = shield.clone();
-        let prompt_clone = user_prompt.to_string();
-        let session_clone = user_session.clone();
-        
         // --- DEADLOCK FIX: Scope permit to AI block ---
         let report = {
             let _permit = semaphore.acquire().await.map_err(|e| SovereignError::InternalError(e.to_string()))?;
-            tokio::task::spawn_blocking(move || {
-                shield_clone.sanitize_prompt(&prompt_clone, Some(&session_clone))
-            }).await.map_err(|e| SovereignError::InternalError(format!("Task execution failed: {}", e)))??
+            shield.sanitize_prompt(user_prompt, Some(&user_session)).await?
         };
 
         storage.log_audit_event(&report, user_prompt, &username).await?;
@@ -321,14 +315,9 @@ async fn handle_request_internal(
 
     // 1. Shield & Audit (Query)
     let query_report = {
-        let shield_clone = shield.clone();
-        let prompt_clone = user_prompt.to_string();
-        let session_clone = user_session.clone();
         // --- DEADLOCK FIX: Scope permit to AI block ---
         let _permit = semaphore.acquire().await.map_err(|e| SovereignError::InternalError(e.to_string()))?;
-        tokio::task::spawn_blocking(move || {
-            shield_clone.sanitize_prompt(&prompt_clone, Some(&session_clone))
-        }).await.map_err(|e| SovereignError::InternalError(format!("Task execution failed: {}", e)))??
+        shield.sanitize_prompt(user_prompt, Some(&user_session)).await?
     };
     
     if let Err(e) = storage.log_audit_event(&query_report, user_prompt, &username).await {
@@ -358,16 +347,10 @@ async fn handle_request_internal(
     
     let mut sanitized_context = Vec::new();
     for snippet in raw_context {
-        let shield_inner = shield.clone();
-        let snippet_clone = snippet.clone();
-        let session_inner = user_session.clone();
-        
         // --- DEADLOCK FIX: Inner permit for snippet scrubbing ---
         let snippet_report = {
             let _permit = semaphore.acquire().await.map_err(|e| SovereignError::InternalError(e.to_string()))?;
-            tokio::task::spawn_blocking(move || {
-                shield_inner.sanitize_prompt(&snippet_clone, Some(&session_inner))
-            }).await.map_err(|e| SovereignError::InternalError(format!("Task execution failed: {}", e)))??
+            shield.sanitize_prompt(&snippet, Some(&user_session)).await?
         };
         
         // --- INTEGRITY FIX: Fail-Closed on Blocked Context ---
@@ -427,8 +410,9 @@ mod tests {
     use serde_json::json;
 
     struct MockShield;
+    #[async_trait]
     impl PiiShield for MockShield {
-        fn sanitize_prompt(&self, prompt: &str, _session: Option<&SessionContext>) -> Result<ScrubbingReport, SovereignError> {
+        async fn sanitize_prompt(&self, prompt: &str, _session: Option<&SessionContext>) -> Result<ScrubbingReport, SovereignError> {
             std::thread::sleep(Duration::from_millis(50));
             Ok(ScrubbingReport {
                 sanitized_text: prompt.to_string(),

@@ -208,10 +208,11 @@ pub trait McpServer: Send + Sync {
     async fn handle_request(&self, request: String) -> Result<String, SovereignError>;
 }
 
+#[async_trait]
 pub trait PiiShield: Send + Sync {
     /// Sanitizes a prompt using a multi-layer defense pipeline.
     /// Optionally accepts a SessionContext to maintain cross-request token consistency.
-    fn sanitize_prompt(
+    async fn sanitize_prompt(
         &self,
         prompt: &str,
         session: Option<&SessionContext>,

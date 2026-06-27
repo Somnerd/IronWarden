@@ -93,7 +93,7 @@ rules:
     
     // 2. Enqueue a job with ONLY sanitized text (V-14 Enforced)
     // Query: "tell me about TOP_SECRET_PROJECT" -> sanitized to "tell me about [TOKEN_1]"
-    let report = shield.sanitize_prompt("tell me about TOP_SECRET_PROJECT", None).unwrap();
+    let report = shield.sanitize_prompt("tell me about TOP_SECRET_PROJECT", None).await.unwrap();
     let job_id = queue.enqueue(
         report.sanitized_text, 
         std::collections::HashMap::new(), 
@@ -180,7 +180,7 @@ rules:
     let engine = config.compile_engine(&pepper).unwrap();
     
     let input = "The document contains TOP_SECRET_PROJECT info.";
-    let report = engine.sanitize_prompt(input, None).unwrap();
+    let report = engine.sanitize_prompt(input, None).await.unwrap();
     
     assert!(report.sanitized_text.contains("[TOKEN_1]"), "Engine failed to redact TOP_SECRET_PROJECT. Result: {}", report.sanitized_text);
 }

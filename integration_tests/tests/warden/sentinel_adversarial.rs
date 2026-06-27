@@ -3,8 +3,8 @@ use iw_warden::WardenConfig;
 use iw_core::{PiiShield};
 use secrecy::SecretVec;
 
-#[test]
-fn test_v13_homoglyph_dictionary_evasion() {
+#[tokio::test]
+    async fn test_v13_homoglyph_dictionary_evasion() {
     // Define a rule with 'Alice' as a blocked entity
     let yaml = r#"
 rules:
@@ -20,17 +20,17 @@ rules:
     
     // Test case 1: Standard 'Alice'
     let prompt1 = "Hello Alice";
-    let report1 = engine.sanitize_prompt(prompt1, None).unwrap();
+    let report1 = engine.sanitize_prompt(prompt1, None).await.unwrap();
     assert!(report1.is_blocked, "Standard Alice should be blocked");
 
     // Test case 2: 'Alice' with Cyrillic 'A' (U+0410)
     let prompt2 = "Hello \u{0410}lice"; 
-    let report2 = engine.sanitize_prompt(prompt2, None).unwrap();
+    let report2 = engine.sanitize_prompt(prompt2, None).await.unwrap();
     assert!(report2.is_blocked, "Alice with Cyrillic A should be blocked (V-13 fix)");
 }
 
-#[test]
-fn test_v15_shadow_ner_greek_homoglyph() {
+#[tokio::test]
+    async fn test_v15_shadow_ner_greek_homoglyph() {
     let yaml = r#"
 rules: []
 heuristics:
@@ -46,7 +46,7 @@ heuristics:
     // Greek name: "Νικόλαος Παπαδόπουλος"
     // Using homoglyphs for 'o' (Cyrillic 'о' U+043E)
     let prompt = "Geia sou Nik\u{043E}laos Papadopoulos";
-    let report = engine.sanitize_prompt(prompt, None).unwrap();
+    let report = engine.sanitize_prompt(prompt, None).await.unwrap();
     
     println!("Redactions: {:?}", report.redactions);
     // Shadow NER should detect "Nikolaos Papadopoulos" even with homoglyphs 
@@ -55,9 +55,9 @@ heuristics:
             "Shadow NER failed to detect name with homoglyphs");
 }
 
-#[test]
 #[ignore]
-fn test_semantic_cache_homoglyph_collision() {
+#[tokio::test]
+async fn test_semantic_cache_homoglyph_collision() {
     use iw_core::SessionContext;
     use std::sync::Arc;
 
@@ -86,13 +86,13 @@ heuristics:
     let config2: WardenConfig = serde_yaml::from_str(yaml2).unwrap();
     let engine2 = config2.compile_engine(&pepper).unwrap();
 
-    let report1 = engine2.sanitize_prompt("Hello Alice", Some(&session)).unwrap();
+    let report1 = engine2.sanitize_prompt("Hello Alice", Some(&session)).await.unwrap();
     assert!(report1.redactions.iter().any(|r| r.rule_id.contains("ai_cache_PERSON")), 
             "Should have hit the semantic cache for 'Alice'");
 
     // Search for "Al\u{0456}ce" (Cyrillic 'i' U+0456)
     let prompt2 = "Hello Al\u{0456}ce";
-    let report2 = engine2.sanitize_prompt(prompt2, Some(&session)).unwrap();
+    let report2 = engine2.sanitize_prompt(prompt2, Some(&session)).await.unwrap();
     
     println!("Report 2 Redactions: {:?}", report2.redactions);
     let cache_hit = report2.redactions.iter().any(|r| r.rule_id.contains("ai_cache_PERSON"));

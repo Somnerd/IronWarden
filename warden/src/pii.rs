@@ -3,6 +3,7 @@ use iw_core::{PiiShield, SovereignError, TokenMap, ScrubbingReport, Redaction, E
 use regex::Regex;
 use std::collections::HashMap;
 use std::time::Instant;
+use async_trait::async_trait;
 
 pub struct AhoCorasickShield {
     automaton: AhoCorasick,
@@ -27,8 +28,9 @@ impl AhoCorasickShield {
     }
 }
 
+#[async_trait]
 impl PiiShield for AhoCorasickShield {
-    fn sanitize_prompt(
+    async fn sanitize_prompt(
         &self,
         prompt: &str,
         _session: Option<&SessionContext>,

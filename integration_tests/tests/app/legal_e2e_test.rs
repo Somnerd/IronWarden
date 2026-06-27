@@ -43,6 +43,6 @@ async fn test_legal_e2e() {
     assert!(elapsed.as_millis() < 500, "Latency must be sub-500ms");
     assert!(!contexts.is_empty(), "Should return context");
     
-    let report = shield.sanitize_prompt(&contexts[0], None).expect("Scrubbing failed");
+    let report = shield.sanitize_prompt(&contexts[0], None).await.expect("Scrubbing failed");
     assert!(report.sanitized_text.contains("[TOKEN_"), "Should redact AFM");
 }

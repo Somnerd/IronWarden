@@ -2,8 +2,8 @@
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 
-#[test]
-fn test_greek_pii_detection() {
+#[tokio::test]
+    async fn test_greek_pii_detection() {
     let yaml = r#"
 rules:
   - id: "gr_afm_literal"
@@ -17,7 +17,7 @@ rules:
     
     let prompt = "Ο χρήστης Nikolas Papadopoulos με ΑΦΜ 123456789.";
     
-    let report = engine.sanitize_prompt(prompt, None).unwrap();
+    let report = engine.sanitize_prompt(prompt, None).await.unwrap();
     
     println!("Sanitized: {}", report.sanitized_text);
     

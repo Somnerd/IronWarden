@@ -139,17 +139,11 @@ async fn handle_enqueue(
     };
 
     // 3. Scrub PII from the query using the isolated context
-    let query_clone = payload.query.clone();
-    let user_context_clone = user_context.clone();
-    let shield_clone = state.shield.clone();
-    let report_result = tokio::task::spawn_blocking(move || {
-        shield_clone.sanitize_prompt(&query_clone, Some(&user_context_clone))
-    }).await;
+    let report_result = state.shield.sanitize_prompt(&payload.query, Some(&user_context)).await;
 
     let report = match report_result {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => return map_error(e).into_response(),
-        Err(_) => return map_error(iw_core::SovereignError::InternalError("Task execution failed".into())).into_response(),
+        Ok(r) => r,
+        Err(e) => return map_error(e).into_response(),
     };
 
     // --- SECURITY FIX: Log to Audit Ledger ---

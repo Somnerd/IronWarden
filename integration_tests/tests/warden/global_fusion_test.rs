@@ -2,8 +2,8 @@
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 
-#[test]
-fn test_global_identity_fusion() {
+#[tokio::test]
+    async fn test_global_identity_fusion() {
     let yaml = r#"
 ai_enabled: true
 ai_confidence_threshold: 0.85
@@ -16,7 +16,7 @@ ai_confidence_threshold: 0.85
     // A complex Spanish name with connectors
     let prompt = "My name is Juan Pablo Garcia de la Cruz and I live in Madrid.";
     
-    let report = engine.sanitize_prompt(prompt, None).unwrap();
+    let report = engine.sanitize_prompt(prompt, None).await.unwrap();
     
     println!("Sanitized: {}", report.sanitized_text);
     println!("Token Map: {:?}", report.token_map);

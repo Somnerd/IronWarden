@@ -27,7 +27,7 @@ async fn test_leak_proof_librarian_flow() {
     let raw_snippet = "This document discusses the acquisition details for Project Omega.";
     
     // 3. THE LEAK PROOF BRIDGE: Scrubbing the Context
-    let report = engine.sanitize_prompt(raw_snippet, None).unwrap();
+    let report = engine.sanitize_prompt(raw_snippet, None).await.unwrap();
     
     println!("Raw Snippet: {}", raw_snippet);
     println!("Scrubbed Snippet: {}", report.sanitized_text);
