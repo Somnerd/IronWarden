@@ -78,6 +78,7 @@ cwIDAQAB
     session_manager.get_session("test_user").await.unwrap();
 
     let state = Arc::new(BridgeState {
+        ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
         shield: engine.clone(),
         grounding_shield: engine.clone(),
         queue: Arc::new(worker::SearchBoostQueue::new(db_path.clone(), &pepper, Some(engine.clone()), Some(engine.clone())).unwrap()),

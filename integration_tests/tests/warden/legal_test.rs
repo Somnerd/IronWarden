@@ -2,8 +2,8 @@
 use iw_warden::WardenConfig;
 use iw_core::PiiShield;
 
-#[test]
-fn test_legal_rules_loading() {
+#[tokio::test]
+    async fn test_legal_rules_loading() {
     let config_dir = "../config/regions";
     let mut config = WardenConfig::from_dir(config_dir).expect("Failed to load config directory");
     config.ai_enabled = false;
@@ -19,8 +19,8 @@ fn test_legal_rules_loading() {
     assert!(marker_rule.is_some(), "Confidential marker rule should be loaded");
 }
 
-#[test]
-fn test_legal_pii_redaction() {
+#[tokio::test]
+    async fn test_legal_pii_redaction() {
     let config_dir = "../config/regions";
     let mut config = WardenConfig::from_dir(config_dir).expect("Failed to load config directory");
     config.ai_enabled = false;
@@ -30,21 +30,21 @@ fn test_legal_pii_redaction() {
     
     // 1. Attorney Bar Number
     let input_bar = "Counsel: Alice Smith, Bar Number 12345.";
-    let report_bar = engine.sanitize_prompt(input_bar, None).unwrap();
+    let report_bar = engine.sanitize_prompt(input_bar, None).await.unwrap();
     assert!(report_bar.sanitized_text.contains("[TOKEN_"), "Attorney bar number should be redacted");
     
     // 2. Court Case Docket
     let input_docket = "Filed under docket 2024-CV-12345.";
-    let report_docket = engine.sanitize_prompt(input_docket, None).unwrap();
+    let report_docket = engine.sanitize_prompt(input_docket, None).await.unwrap();
     assert!(report_docket.sanitized_text.contains("[TOKEN_"), "Court case docket should be redacted");
     
     // 3. Confidential Marker
     let input_conf = "This document is ATTORNEY-CLIENT PRIVILEGE and SUBJECT TO NDA.";
-    let report_conf = engine.sanitize_prompt(input_conf, None).unwrap();
+    let report_conf = engine.sanitize_prompt(input_conf, None).await.unwrap();
     assert!(report_conf.sanitized_text.contains("[TOKEN_"), "Confidential markers should be redacted");
     
     // 4. Greek AFM
     let input_afm = "My tax identification number (AFM) is 123456789.";
-    let report_afm = engine.sanitize_prompt(input_afm, None).unwrap();
+    let report_afm = engine.sanitize_prompt(input_afm, None).await.unwrap();
     assert!(report_afm.sanitized_text.contains("[TOKEN_"), "Greek AFM should be redacted");
 }

@@ -13,6 +13,7 @@ use zeroize::Zeroize;
 use rand::RngCore;
 use secrecy::ExposeSecret;
 use std::sync::LazyLock;
+use async_trait::async_trait;
 
 const SEMANTIC_CACHE_THRESHOLD: f64 = 0.95;
 
@@ -39,25 +40,23 @@ struct GuardrailPayload<'a> {
     prompt: &'a str,
 }
 
-fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
-    use std::io::{Write, Read};
+async fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
+    use tokio::io::{AsyncWriteExt, AsyncReadExt};
     let socket_path = "/tmp/warden_llamaguard.sock";
     
     if !std::path::Path::new(socket_path).exists() {
         return Ok(false); 
     }
 
-    match std::os::unix::net::UnixStream::connect(socket_path) {
-        Ok(mut stream) => {
-            stream.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
-            stream.set_write_timeout(Some(std::time::Duration::from_millis(100))).ok();
-            
+    match tokio::time::timeout(std::time::Duration::from_millis(100), tokio::net::UnixStream::connect(socket_path)).await {
+        Ok(Ok(mut stream)) => {
             let payload_struct = GuardrailPayload { prompt: input };
             let payload = serde_json::to_string(&payload_struct)
                 .map_err(|_| SovereignError::InternalError("Failed to serialize Guardrail payload".into()))?;
-            if stream.write_all(payload.as_bytes()).is_ok() {
+                
+            if tokio::time::timeout(std::time::Duration::from_millis(100), stream.write_all(payload.as_bytes())).await.is_ok() {
                 let mut buf = [0u8; 1024];
-                if let Ok(n) = stream.read(&mut buf) {
+                if let Ok(Ok(n)) = tokio::time::timeout(std::time::Duration::from_millis(100), stream.read(&mut buf)).await {
                     let response = String::from_utf8_lossy(&buf[..n]);
                     if response.contains("BLOCKED") {
                         return Ok(true);
@@ -66,9 +65,7 @@ fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
             }
             Ok(false)
         }
-        Err(_) => {
-            Err(SovereignError::InternalError("ML Guardrail Sidecar unreachable".into()))
-        }
+        _ => Err(SovereignError::InternalError("ML Guardrail Sidecar unreachable or timed out".into()))
     }
 }
 
@@ -172,8 +169,9 @@ fn is_standalone_word(text: &str, sub: &str) -> bool {
     }
 }
 
+#[async_trait]
 impl PiiShield for WardenEngine {
-    fn sanitize_prompt(
+    async fn sanitize_prompt(
         &self,
         input: &str,
         session: Option<&SessionContext>,
@@ -195,7 +193,7 @@ impl PiiShield for WardenEngine {
         }
 
         // Layer 2: ML Classifier Sidecar
-        if check_ml_sidecar(input)? {
+        if check_ml_sidecar(input).await? {
             return Err(SovereignError::UnauthorizedAccess("Prompt injection attempt blocked by Layer 2 ML Guardrail".into()));
         }
 
@@ -837,8 +835,8 @@ mod tests {
     use super::*;
     use crate::config::HeuristicConfig;
 
-    #[test]
-    fn test_overlap_merging_correct_offsets() {
+    #[tokio::test]
+    async fn test_overlap_merging_correct_offsets() {
         let dict_rules = vec![
             ("DICT_NAME".to_string(), "John Doe".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName)
         ];
@@ -850,7 +848,7 @@ mod tests {
         let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
         let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85, &pepper).unwrap();
         
-        let report = engine.sanitize_prompt("Hello John Doe.", None).unwrap();
+        let report = engine.sanitize_prompt("Hello John Doe.", None).await.unwrap();
         
         assert_eq!(report.redactions.len(), 1, "Should merge overlapping dict and regex matches");
         let red = &report.redactions[0];
@@ -859,8 +857,8 @@ mod tests {
         assert!(red.rule_id.contains("DICT_NAME")); // Longer match provides the rule ID
     }
 
-    #[test]
-    fn test_overlap_merging_longest_match_wins() {
+    #[tokio::test]
+    async fn test_overlap_merging_longest_match_wins() {
         let dict_rules = vec![
             ("DICT_SHORT".to_string(), "John".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName)
         ];
@@ -871,7 +869,7 @@ mod tests {
 
         let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
         let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85, &pepper).unwrap();
-        let report = engine.sanitize_prompt("Hello John Doe.", None).unwrap();
+        let report = engine.sanitize_prompt("Hello John Doe.", None).await.unwrap();
         
         assert_eq!(report.redactions.len(), 1);
         let red = &report.redactions[0];
@@ -879,8 +877,8 @@ mod tests {
         assert_eq!(red.rule_id, "REGEX_LONG"); // Longer match wins
     }
 
-    #[test]
-    fn test_v12_aho_corasick_overlap_bypass_repro() {
+    #[tokio::test]
+    async fn test_v12_aho_corasick_overlap_bypass_repro() {
         let dict_rules = vec![
             ("REDACT_ALICE".to_string(), "Alice".to_string(), EnforcementAction::Redact, PiiCategory::IndividualName),
             ("BLOCK_ALICE_SMITH".to_string(), "Alice Smith".to_string(), EnforcementAction::Block, PiiCategory::IndividualName)
@@ -888,14 +886,14 @@ mod tests {
         
         let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
         let engine = WardenEngine::new(dict_rules, vec![], vec![], None, 0.85, &pepper).unwrap();
-        let report = engine.sanitize_prompt("Hello Alice Smith.", None).unwrap();
+        let report = engine.sanitize_prompt("Hello Alice Smith.", None).await.unwrap();
         
         // If the bug exists, report.is_blocked will be FALSE because 'Alice Smith' was masked by 'Alice'.
         assert!(report.is_blocked, "Should be blocked because 'Alice Smith' is a blocked entity");
     }
 
-    #[test]
-    fn test_semantic_cache_bypass() {
+    #[tokio::test]
+    async fn test_semantic_cache_bypass() {
         // We use an empty engine (no rules, no AI)
         let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
         let engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85, &pepper).unwrap();
@@ -905,7 +903,7 @@ mod tests {
         session.semantic_cache.insert("alice smith".to_string(), ("PERSON".to_string(), 0.99));
         
         // Use a standalone name to avoid fusion with other words
-        let report = engine.sanitize_prompt("Alice Smith is a person.", Some(&session)).unwrap();
+        let report = engine.sanitize_prompt("Alice Smith is a person.", Some(&session)).await.unwrap();
         
         // Normally, without AI, "Alice Smith" would be a potential miss.
         // With cache hit, it becomes a confirmed redaction.
@@ -917,8 +915,8 @@ mod tests {
         assert_eq!(report.potential_misses.len(), 0, "Should have no potential misses as it was confirmed by cache");
     }
 
-    #[test]
-    fn test_overlap_merging_action_precedence() {
+    #[tokio::test]
+    async fn test_overlap_merging_action_precedence() {
         let dict_rules = vec![
             ("AUDIT_ALICE".to_string(), "Alice".to_string(), EnforcementAction::AuditOnly, PiiCategory::IndividualName)
         ];
@@ -929,7 +927,7 @@ mod tests {
 
         let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
         let engine = WardenEngine::new(dict_rules, regex_rules, vec![], None, 0.85, &pepper).unwrap();
-        let report = engine.sanitize_prompt("Hello Alice Smith.", None).unwrap();
+        let report = engine.sanitize_prompt("Hello Alice Smith.", None).await.unwrap();
         
         assert_eq!(report.redactions.len(), 1);
         let red = &report.redactions[0];

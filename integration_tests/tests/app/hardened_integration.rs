@@ -40,7 +40,7 @@ rules:
     let raw_input = "Greeting from \u{0391}\u{200B}lice."; 
     
     // 4. Process through Shield
-    let report = shield.sanitize_prompt(raw_input, None).unwrap();
+    let report = shield.sanitize_prompt(raw_input, None).await.unwrap();
     
     // VERIFY: Normalization caught the homoglyph and zero-width char
     assert!(report.sanitized_text.contains("[TOKEN_1]"));
@@ -92,11 +92,11 @@ async fn test_stateful_tokenization_session_consistency() {
     let session = iw_core::SessionContext::new();
 
     // First call
-    let report1 = shield.sanitize_prompt("Hello Alice.", Some(&session)).unwrap();
+    let report1 = shield.sanitize_prompt("Hello Alice.", Some(&session)).await.unwrap();
     let token1 = report1.redactions[0].placeholder.clone();
 
     // Second call with same session
-    let report2 = shield.sanitize_prompt("Alice is here.", Some(&session)).unwrap();
+    let report2 = shield.sanitize_prompt("Alice is here.", Some(&session)).await.unwrap();
     let token2 = report2.redactions[0].placeholder.clone();
 
     assert_eq!(token1, token2, "Tokens must be consistent within the same session");
@@ -104,7 +104,7 @@ async fn test_stateful_tokenization_session_consistency() {
 
     // Third call with NEW session
     let new_session = iw_core::SessionContext::new();
-    let report3 = shield.sanitize_prompt("Alice again.", Some(&new_session)).unwrap();
+    let report3 = shield.sanitize_prompt("Alice again.", Some(&new_session)).await.unwrap();
     let token3 = report3.redactions[0].placeholder.clone();
 
     // Note: Since it's a new session, it starts from TOKEN_1
