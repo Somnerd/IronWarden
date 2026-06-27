@@ -84,6 +84,7 @@ cwIDAQAB
         storage: storage.clone(),
         session_manager: session_manager.clone(),
         jwt_public_key,
+        ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
     });
 
     let router = create_bridge_router(state);
