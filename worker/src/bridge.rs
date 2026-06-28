@@ -171,6 +171,14 @@ async fn handle_enqueue(
 
     let options = payload.options.unwrap_or_default();
 
+    // ⚡ Bolt: Replace serde_json::json! with typed struct to eliminate DOM tree allocation overhead in high-throughput route.
+    #[derive(serde::Serialize)]
+    struct QueueResponse<'a> {
+        status: &'a str,
+        id: String,
+        pii_scrubbed: bool,
+    }
+
     // --- SECURITY ENFORCEMENT (V-14 / WP-97): Enqueue ONLY sanitized text ---
     // To maintain 100% compliance with the Leak-Proof Routing mandate, raw queries are 
     // dropped immediately after auditing. Side-channels for raw query grounding are strictly 
@@ -182,11 +190,12 @@ async fn handle_enqueue(
         username,
     ).await {
         Ok(job_id) => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "status": "queued",
-                "id": job_id,
-                "pii_scrubbed": report.token_map.len() > 0
-            }))).into_response()
+            let response_payload = QueueResponse {
+                status: "queued",
+                id: job_id,
+                pii_scrubbed: report.token_map.len() > 0,
+            };
+            (StatusCode::OK, Json(response_payload)).into_response()
         }
         Err(e) => {
             tracing::error!("Failed to enqueue SearchBoost job: {}", e);
