@@ -21,6 +21,17 @@ pub struct Claims {
     pub roles: Vec<String>,
 }
 
+
+// ⚡ Bolt Optimization: Use strictly typed struct for zero-copy serialization
+// This avoids the intermediate DOM tree allocation overhead caused by the `json!` macro
+// in the high-throughput enqueue hot path.
+#[derive(Serialize)]
+struct EnqueueResponse<'a> {
+    status: &'a str,
+    id: String,
+    pii_scrubbed: bool,
+}
+
 #[derive(Deserialize)]
 pub struct SearchRequest {
     pub query: String,
@@ -182,11 +193,11 @@ async fn handle_enqueue(
         username,
     ).await {
         Ok(job_id) => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "status": "queued",
-                "id": job_id,
-                "pii_scrubbed": report.token_map.len() > 0
-            }))).into_response()
+            (StatusCode::OK, Json(EnqueueResponse {
+                status: "queued",
+                id: job_id,
+                pii_scrubbed: report.token_map.len() > 0,
+            })).into_response()
         }
         Err(e) => {
             tracing::error!("Failed to enqueue SearchBoost job: {}", e);
