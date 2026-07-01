@@ -28,6 +28,13 @@ pub struct SearchRequest {
     pub options: Option<HashMap<String, serde_json::Value>>,
 }
 
+#[derive(Serialize)]
+struct EnqueueResponse<'a> {
+    status: &'a str,
+    id: &'a str,
+    pii_scrubbed: bool,
+}
+
 pub struct BridgeState {
     pub shield: Arc<dyn PiiShield>,
     pub grounding_shield: Arc<dyn iw_core::GroundingShield>,
@@ -182,11 +189,12 @@ async fn handle_enqueue(
         username,
     ).await {
         Ok(job_id) => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "status": "queued",
-                "id": job_id,
-                "pii_scrubbed": report.token_map.len() > 0
-            }))).into_response()
+            let response_payload = EnqueueResponse {
+                status: "queued",
+                id: &job_id,
+                pii_scrubbed: report.token_map.len() > 0,
+            };
+            (StatusCode::OK, Json(response_payload)).into_response()
         }
         Err(e) => {
             tracing::error!("Failed to enqueue SearchBoost job: {}", e);
