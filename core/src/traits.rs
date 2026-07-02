@@ -153,7 +153,7 @@ pub enum EnforcementAction {
     AuditOnly,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum PiiCategory {
     IndividualName,
     IdentificationNumber,
@@ -164,13 +164,8 @@ pub enum PiiCategory {
     PotentialHeuristic,
     Organization,
     Location,
+    #[default]
     Other,
-}
-
-impl Default for PiiCategory {
-    fn default() -> Self {
-        Self::Other
-    }
 }
 
 // DO NOT REORDER FIELDS: This struct is serialized via `bincode` for the cryptographic audit chain.
