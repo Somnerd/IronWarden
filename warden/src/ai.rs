@@ -1,18 +1,14 @@
-use tracing::{info, error, warn};
 use ort::session::Session;
 use ort::value::Tensor;
-use tokenizers::Tokenizer;
-use std::path::Path;
 use std::cell::UnsafeCell;
+use std::path::Path;
+use tokenizers::Tokenizer;
+use tracing::{error, info, warn};
 
 /// NER label set for DistilBERT-NER (CoNLL-2003 standard).
 /// Index 0 = O (outside), then B-/I- pairs for PER, ORG, LOC, MISC.
 const NER_LABELS: &[&str] = &[
-    "O",
-    "B-PER", "I-PER",
-    "B-ORG", "I-ORG",
-    "B-LOC", "I-LOC",
-    "B-MISC", "I-MISC",
+    "O", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC", "B-MISC", "I-MISC",
 ];
 
 pub struct Entity {
@@ -107,7 +103,10 @@ impl OnnxNer {
             Ok(o) => o,
             Err(e) => {
                 // --- SECURITY FIX (Finding 3): OOM returns an error instead of abort() ---
-                error!("ONNX inference failed (possible OOM): {}. Failing closed.", e);
+                error!(
+                    "ONNX inference failed (possible OOM): {}. Failing closed.",
+                    e
+                );
                 return Vec::new();
             }
         };
@@ -227,7 +226,10 @@ impl HybridNer {
                     });
                 }
                 Err(e) => {
-                    error!("ONNX Initialization Failed: {}. Falling back to Heuristic-Only mode.", e);
+                    error!(
+                        "ONNX Initialization Failed: {}. Falling back to Heuristic-Only mode.",
+                        e
+                    );
                 }
             }
         } else {
@@ -262,9 +264,11 @@ impl HybridNer {
         match &self.backend {
             NerBackend::Onnx(onnx) => {
                 let entities = onnx.predict(&miss.text);
-                entities
-                    .into_iter()
-                    .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+                entities.into_iter().max_by(|a, b| {
+                    a.score
+                        .partial_cmp(&b.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
             }
             NerBackend::None => None,
         }
@@ -301,13 +305,20 @@ impl HybridNerPool {
         // Falls back to Aho-Corasick immediately on 25ms timeout.
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.block_on(async {
-                match tokio::time::timeout(std::time::Duration::from_millis(25), self.receiver.recv_async()).await {
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(25),
+                    self.receiver.recv_async(),
+                )
+                .await
+                {
                     Ok(Ok(ner)) => Some(ner),
                     _ => None, // Timeout or Channel Closed -> Fallback to deterministic engine
                 }
             })
         } else {
-            self.receiver.recv_timeout(std::time::Duration::from_millis(25)).ok()
+            self.receiver
+                .recv_timeout(std::time::Duration::from_millis(25))
+                .ok()
         }
     }
 

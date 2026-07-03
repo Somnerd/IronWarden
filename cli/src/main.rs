@@ -3,11 +3,11 @@ use rusqlite::Connection;
 use serde_json::Value;
 use std::collections::HashMap;
 
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use hkdf::Hkdf;
-use secrecy::{SecretString, ExposeSecret};
-use iw_core::{Redaction, KDF_SALT_INTEGRITY, KDF_SALT_GENESIS};
+use hmac::{Hmac, Mac};
+use iw_core::{KDF_SALT_GENESIS, KDF_SALT_INTEGRITY, Redaction};
+use secrecy::{ExposeSecret, SecretString};
+use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -45,7 +45,9 @@ fn main() {
             }
         }
         Commands::Verify { db } => {
-            let pepper_env = std::env::var("WARDEN_PEPPER").expect("WARDEN_PEPPER environment variable is missing. This is required for verification.");
+            let pepper_env = std::env::var("WARDEN_PEPPER").expect(
+                "WARDEN_PEPPER environment variable is missing. This is required for verification.",
+            );
             let secret_pepper = SecretString::from(pepper_env);
             if let Err(e) = verify_integrity(db, &secret_pepper) {
                 eprintln!("Error verifying integrity: {}", e);
@@ -56,7 +58,7 @@ fn main() {
 
 fn generate_report(db_path: &str) -> rusqlite::Result<()> {
     let conn = Connection::open(db_path)?;
-    
+
     let mut total_requests = 0;
     let mut total_blocked = 0;
     let mut rule_counts: HashMap<String, u32> = HashMap::new();
@@ -95,7 +97,7 @@ fn generate_report(db_path: &str) -> rusqlite::Result<()> {
     println!("  Total Prompts Scanned : {}", total_requests);
     println!("  Total Prompts Blocked : {}", total_blocked);
     println!("  Total AI Redactions   : {}", ai_redactions);
-    
+
     println!("\n🔍 RULE TRIGGER FREQUENCY:");
     let mut sorted_rules: Vec<_> = rule_counts.into_iter().collect();
     sorted_rules.sort_by_key(|b| std::cmp::Reverse(b.1));
@@ -109,17 +111,15 @@ fn generate_report(db_path: &str) -> rusqlite::Result<()> {
 
 fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()> {
     let conn = Connection::open(db_path)?;
-    
+
     let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret().as_bytes());
     let mut hmac_key_bytes = [0u8; 32];
-    hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes).map_err(|_e| {
-        rusqlite::Error::InvalidQuery
-    })?;
+    hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes)
+        .map_err(|_e| rusqlite::Error::InvalidQuery)?;
 
     let mut genesis_hash = [0u8; 32];
-    hk.expand(KDF_SALT_GENESIS, &mut genesis_hash).map_err(|_e| {
-        rusqlite::Error::InvalidQuery
-    })?;
+    hk.expand(KDF_SALT_GENESIS, &mut genesis_hash)
+        .map_err(|_e| rusqlite::Error::InvalidQuery)?;
 
     // We verify by joining audit_reports and ephemeral_raw_logs where they match by ID
     // Note: Due to 30-day log purging, older records cannot be cryptographically verified.
@@ -137,13 +137,23 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
         let redactions_json: String = row.get(3)?;
         let integrity_hash_hex: String = row.get(4)?;
         let payload_hash_hex: String = row.get(5)?;
-        
+
         // ephemeral log fields might be missing due to 30-day purge
         let nonce: Option<Vec<u8>> = row.get(6).ok().flatten();
         let ciphertext: Option<Vec<u8>> = row.get(7).ok().flatten();
         let username: String = row.get(8)?;
-        
-        Ok((id, timestamp, is_blocked, redactions_json, integrity_hash_hex, payload_hash_hex, nonce, ciphertext, username))
+
+        Ok((
+            id,
+            timestamp,
+            is_blocked,
+            redactions_json,
+            integrity_hash_hex,
+            payload_hash_hex,
+            nonce,
+            ciphertext,
+            username,
+        ))
     })?;
 
     let mut last_hash: Vec<u8> = genesis_hash.to_vec();
@@ -156,23 +166,35 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
     println!("=============================================\n");
 
     for row_res in iter {
-        let (id, timestamp, is_blocked, redactions_json, integrity_hash_hex, payload_hash_hex, nonce_opt, ciphertext_opt, username) = row_res?;
+        let (
+            id,
+            timestamp,
+            is_blocked,
+            redactions_json,
+            integrity_hash_hex,
+            payload_hash_hex,
+            nonce_opt,
+            ciphertext_opt,
+            username,
+        ) = row_res?;
         let stored_hash = hex::decode(&integrity_hash_hex).unwrap_or_default();
         let payload_hash = hex::decode(&payload_hash_hex).unwrap_or_default();
 
-        let redactions_vec: Vec<Redaction> = serde_json::from_str(&redactions_json).unwrap_or_default();
+        let redactions_vec: Vec<Redaction> =
+            serde_json::from_str(&redactions_json).unwrap_or_default();
         let redactions_bin = bincode::serialize(&redactions_vec).unwrap_or_default();
 
-        let mut mac = HmacSha256::new_from_slice(&hmac_key_bytes).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let mut mac = HmacSha256::new_from_slice(&hmac_key_bytes)
+            .map_err(|_| rusqlite::Error::InvalidQuery)?;
         mac.update(&last_hash);
         mac.update(timestamp.as_bytes());
         mac.update(username.as_bytes()); // Bind username to integrity chain
         mac.update(&[is_blocked as u8]);
         mac.update(&redactions_bin);
         mac.update(&payload_hash); // Bind payload to chain
-        
+
         let calculated_hash = mac.finalize().into_bytes().to_vec();
-        
+
         if calculated_hash == stored_hash {
             if let (Some(nonce), Some(data)) = (nonce_opt, ciphertext_opt) {
                 // Verify Stage 2: Payload Binding
@@ -203,13 +225,19 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
     }
 
     println!("✅ Verified Intact Logs: {}", verified_count);
-    println!("📦 Verified Archived Logs: {} (Ephemeral data purged)", archived_count);
-    
+    println!(
+        "📦 Verified Archived Logs: {} (Ephemeral data purged)",
+        archived_count
+    );
+
     if tampered_count == 0 {
         println!("\n✨ STATUS: CHAIN INTACT ✨");
         println!("=============================================\n");
     } else {
-        println!("\n🚨 STATUS: CHAIN CORRUPTED ({} records tampered) 🚨", tampered_count);
+        println!(
+            "\n🚨 STATUS: CHAIN CORRUPTED ({} records tampered) 🚨",
+            tampered_count
+        );
         println!("=============================================\n");
         std::process::exit(1);
     }

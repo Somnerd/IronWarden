@@ -1,17 +1,18 @@
+use crate::searchboost::{LocalSessionManager, SearchBoostQueue};
 use axum::{
-    routing::{get, post},
-    Json, Router, extract::{State, Path},
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    http::{StatusCode, HeaderMap},
+    routing::{get, post},
+    Json, Router,
 };
-use std::sync::Arc;
+use iw_core::{PiiShield, SovereignError, StorageProvider};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use secrecy::{ExposeSecret, SecretVec};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
-use crate::searchboost::{SearchBoostQueue, LocalSessionManager};
-use iw_core::{PiiShield, StorageProvider, SovereignError};
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
-use serde::{Serialize, Deserialize};
-use secrecy::{SecretVec, ExposeSecret};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
@@ -26,6 +27,14 @@ pub struct SearchRequest {
     pub query: String,
     pub thread_id: String,
     pub options: Option<HashMap<String, serde_json::Value>>,
+}
+
+// ⚡ Bolt: Zero-copy struct to avoid `serde_json::json!` DOM tree allocation overhead in hot path
+#[derive(Serialize)]
+struct EnqueueResponse<'a> {
+    status: &'a str,
+    id: String,
+    pii_scrubbed: bool,
 }
 
 pub struct BridgeState {
@@ -46,7 +55,10 @@ async fn concurrency_limiter(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
-    let _permit = state.ingress_semaphore.try_acquire().map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
+    let _permit = state
+        .ingress_semaphore
+        .try_acquire()
+        .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
     Ok(next.run(request).await)
 }
 
@@ -63,8 +75,13 @@ pub fn create_bridge_router(state: Arc<BridgeState>) -> Router {
         .route("/health", get(handle_health))
         .route("/enqueue", post(handle_enqueue))
         .route("/results/:job_id", get(handle_get_result))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), concurrency_limiter))
-        .layer(GovernorLayer { config: governor_conf })
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            concurrency_limiter,
+        ))
+        .layer(GovernorLayer {
+            config: governor_conf,
+        })
         .with_state(state)
 }
 
@@ -85,7 +102,8 @@ async fn handle_enqueue(
     Json(payload): Json<SearchRequest>,
 ) -> impl IntoResponse {
     // 1. Authenticate & Verify Identity (JWT)
-    let auth_header = headers.get("Authorization")
+    let auth_header = headers
+        .get("Authorization")
         .and_then(|h| h.to_str().ok())
         .and_then(|h: &str| h.strip_prefix("Bearer "));
 
@@ -109,14 +127,16 @@ async fn handle_enqueue(
 
     let decoding_key = match DecodingKey::from_rsa_pem(state.jwt_public_key.expose_secret()) {
         Ok(k) => k,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid RSA Public Key Configuration").into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid RSA Public Key Configuration",
+            )
+                .into_response()
+        }
     };
 
-    let token_data = match decode::<Claims>(
-        token,
-        &decoding_key,
-        &validation,
-    ) {
+    let token_data = match decode::<Claims>(token, &decoding_key, &validation) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("JWT Validation Failure: {}", e);
@@ -124,10 +144,21 @@ async fn handle_enqueue(
         }
     };
 
-    let has_required_role = token_data.claims.roles.contains(&"admin".to_string()) || token_data.claims.roles.contains(&"privileged_search".to_string());
+    let has_required_role = token_data.claims.roles.contains(&"admin".to_string())
+        || token_data
+            .claims
+            .roles
+            .contains(&"privileged_search".to_string());
     if !has_required_role {
-        tracing::error!("RBAC Enforcement Failure: {} lacks required roles", token_data.claims.sub);
-        return (StatusCode::FORBIDDEN, "Insufficient privileges. Requires 'admin' or 'privileged_search' role.").into_response();
+        tracing::error!(
+            "RBAC Enforcement Failure: {} lacks required roles",
+            token_data.claims.sub
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            "Insufficient privileges. Requires 'admin' or 'privileged_search' role.",
+        )
+            .into_response();
     }
 
     let username = token_data.claims.sub.clone();
@@ -139,7 +170,10 @@ async fn handle_enqueue(
     };
 
     // 3. Scrub PII from the query using the isolated context
-    let report_result = state.shield.sanitize_prompt(&payload.query, Some(&user_context)).await;
+    let report_result = state
+        .shield
+        .sanitize_prompt(&payload.query, Some(&user_context))
+        .await;
 
     let report = match report_result {
         Ok(r) => r,
@@ -147,18 +181,32 @@ async fn handle_enqueue(
     };
 
     // --- SECURITY FIX: Log to Audit Ledger ---
-    if let Err(e) = state.storage.log_audit_event(&report, &payload.query, &username).await {
-        tracing::error!("AUDIT LOG FAILURE: {}. Request aborted to prevent un-audited access!", e);
+    if let Err(e) = state
+        .storage
+        .log_audit_event(&report, &payload.query, &username)
+        .await
+    {
+        tracing::error!(
+            "AUDIT LOG FAILURE: {}. Request aborted to prevent un-audited access!",
+            e
+        );
         return map_error(e).into_response();
     }
 
     // --- SECURITY FIX (V-14): Hard-Block Circuit Breaker & Leak Prevention ---
     if report.is_blocked {
-        return map_error(iw_core::SovereignError::PiiViolation("[POLICY VIOLATION] Your request was blocked due to sensitive data leakage.".into())).into_response();
+        return map_error(iw_core::SovereignError::PiiViolation(
+            "[POLICY VIOLATION] Your request was blocked due to sensitive data leakage.".into(),
+        ))
+        .into_response();
     }
 
     // 4. Persist updated session state
-    if let Err(e) = state.session_manager.save_session(&username, &user_context).await {
+    if let Err(e) = state
+        .session_manager
+        .save_session(&username, &user_context)
+        .await
+    {
         tracing::error!("Failed to save session for {}: {}", username, e);
     }
 
@@ -172,21 +220,24 @@ async fn handle_enqueue(
     let options = payload.options.unwrap_or_default();
 
     // --- SECURITY ENFORCEMENT (V-14 / WP-97): Enqueue ONLY sanitized text ---
-    // To maintain 100% compliance with the Leak-Proof Routing mandate, raw queries are 
-    // dropped immediately after auditing. Side-channels for raw query grounding are strictly 
+    // To maintain 100% compliance with the Leak-Proof Routing mandate, raw queries are
+    // dropped immediately after auditing. Side-channels for raw query grounding are strictly
     // prohibited as they bypass the core security boundary.
-    match state.queue.enqueue(
-        report.sanitized_text,
-        options,
-        payload.thread_id,
-        username,
-    ).await {
+    match state
+        .queue
+        .enqueue(report.sanitized_text, options, payload.thread_id, username)
+        .await
+    {
         Ok(job_id) => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "status": "queued",
-                "id": job_id,
-                "pii_scrubbed": report.token_map.len() > 0
-            }))).into_response()
+            // ⚡ Bolt: Using strictly typed struct EnqueueResponse instead of json! macro
+            // to achieve zero-copy serialization and prevent intermediate DOM tree allocations.
+            // Expected Impact: Reduces per-request memory allocation in the high-throughput bridge API.
+            let response_payload = EnqueueResponse {
+                status: "queued",
+                id: job_id,
+                pii_scrubbed: !report.token_map.is_empty(),
+            };
+            (StatusCode::OK, Json(response_payload)).into_response()
         }
         Err(e) => {
             tracing::error!("Failed to enqueue SearchBoost job: {}", e);
@@ -200,7 +251,8 @@ async fn handle_get_result(
     headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> impl IntoResponse {
-    let auth_header = headers.get("Authorization")
+    let auth_header = headers
+        .get("Authorization")
         .and_then(|h| h.to_str().ok())
         .and_then(|h: &str| h.strip_prefix("Bearer "));
 
@@ -212,25 +264,39 @@ async fn handle_get_result(
     let mut validation = Validation::new(Algorithm::RS256);
     let aud = match std::env::var("WARDEN_JWT_AUDIENCE") {
         Ok(v) => v,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_AUDIENCE environment variable is strictly required.").into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "WARDEN_JWT_AUDIENCE environment variable is strictly required.",
+            )
+                .into_response()
+        }
     };
     let iss = match std::env::var("WARDEN_JWT_ISSUER") {
         Ok(v) => v,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_ISSUER environment variable is strictly required.").into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "WARDEN_JWT_ISSUER environment variable is strictly required.",
+            )
+                .into_response()
+        }
     };
     validation.set_audience(&[aud]);
     validation.set_issuer(&[iss]);
 
     let decoding_key = match DecodingKey::from_rsa_pem(state.jwt_public_key.expose_secret()) {
         Ok(k) => k,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid RSA Public Key Configuration").into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid RSA Public Key Configuration",
+            )
+                .into_response()
+        }
     };
 
-    let token_data = match decode::<Claims>(
-        token,
-        &decoding_key,
-        &validation,
-    ) {
+    let token_data = match decode::<Claims>(token, &decoding_key, &validation) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("JWT Validation Failure: {}", e);
@@ -239,11 +305,22 @@ async fn handle_get_result(
     };
 
     let username = token_data.claims.sub.clone();
-    let has_required_role = token_data.claims.roles.contains(&"admin".to_string()) || token_data.claims.roles.contains(&"privileged_search".to_string());
+    let has_required_role = token_data.claims.roles.contains(&"admin".to_string())
+        || token_data
+            .claims
+            .roles
+            .contains(&"privileged_search".to_string());
     let is_admin = token_data.claims.roles.contains(&"admin".to_string());
     if !has_required_role {
-        tracing::error!("RBAC Enforcement Failure: {} lacks required roles", username);
-        return (StatusCode::FORBIDDEN, "Insufficient privileges. Requires 'admin' or 'privileged_search' role.").into_response();
+        tracing::error!(
+            "RBAC Enforcement Failure: {} lacks required roles",
+            username
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            "Insufficient privileges. Requires 'admin' or 'privileged_search' role.",
+        )
+            .into_response();
     }
 
     match state.queue.get_result(&job_id, &username, is_admin).await {
@@ -255,7 +332,15 @@ async fn handle_get_result(
 
 async fn handle_health(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
     match state.storage.check_health().await {
-        Ok(_) => (StatusCode::OK, "IronWarden Bridge: V1.3 Sovereign Search: HEALTHY").into_response(),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, format!("IronWarden Bridge: CRITICAL FAILURE: {}", e)).into_response(),
+        Ok(_) => (
+            StatusCode::OK,
+            "IronWarden Bridge: V1.3 Sovereign Search: HEALTHY",
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("IronWarden Bridge: CRITICAL FAILURE: {}", e),
+        )
+            .into_response(),
     }
 }

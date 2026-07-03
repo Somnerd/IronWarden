@@ -1,9 +1,9 @@
-use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, aead::Aead};
-use hkdf::Hkdf;
-use sha2::Sha256;
-use rand::RngCore;
-use zeroize::Zeroize;
 use crate::error::SovereignError;
+use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
+use hkdf::Hkdf;
+use rand::RngCore;
+use sha2::Sha256;
+use zeroize::Zeroize;
 
 pub fn build_hkdf_info(info: &[u8], aad: &str) -> Vec<u8> {
     let aad_bytes = aad.as_bytes();
@@ -48,7 +48,7 @@ impl AadCipher {
         let mut key_bytes = [0u8; 32];
         hk.expand(&bound_info, &mut key_bytes)
             .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
-        
+
         let key = Key::<Aes256Gcm>::from(key_bytes);
         let cipher = Aes256Gcm::new(&key);
 
@@ -57,7 +57,8 @@ impl AadCipher {
             aad: aad.as_bytes(),
         };
 
-        let ciphertext = cipher.encrypt(&nonce, aead_payload)
+        let ciphertext = cipher
+            .encrypt(&nonce, aead_payload)
             .map_err(|_| SovereignError::InternalError("Encryption failed".into()))?;
 
         // Securely erase key material from memory
@@ -76,7 +77,9 @@ impl AadCipher {
         info: &[u8],
     ) -> Result<Vec<u8>, SovereignError> {
         if combined.len() < 12 {
-            return Err(SovereignError::InternalError("Corrupt ciphertext: too short".into()));
+            return Err(SovereignError::InternalError(
+                "Corrupt ciphertext: too short".into(),
+            ));
         }
 
         let (nonce_bytes, ciphertext) = combined.split_at(12);
@@ -90,7 +93,7 @@ impl AadCipher {
         let mut key_bytes = [0u8; 32];
         hk.expand(&bound_info, &mut key_bytes)
             .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
-        
+
         let key = Key::<Aes256Gcm>::from(key_bytes);
         let cipher = Aes256Gcm::new(&key);
 
@@ -99,8 +102,11 @@ impl AadCipher {
             aad: aad.as_bytes(),
         };
 
-        let decrypted = cipher.decrypt(&nonce, aead_payload)
-            .map_err(|_| SovereignError::InternalError("Decryption failed (Integrity Mismatch or Incorrect AAD)".into()))?;
+        let decrypted = cipher.decrypt(&nonce, aead_payload).map_err(|_| {
+            SovereignError::InternalError(
+                "Decryption failed (Integrity Mismatch or Incorrect AAD)".into(),
+            )
+        })?;
 
         // Securely erase key material from memory
         key_bytes.zeroize();
