@@ -175,6 +175,13 @@ async fn handle_enqueue(
     // To maintain 100% compliance with the Leak-Proof Routing mandate, raw queries are 
     // dropped immediately after auditing. Side-channels for raw query grounding are strictly 
     // prohibited as they bypass the core security boundary.
+    #[derive(Serialize)]
+    struct EnqueueResponse<'a> {
+        status: &'a str,
+        id: String,
+        pii_scrubbed: bool,
+    }
+
     match state.queue.enqueue(
         report.sanitized_text,
         options,
@@ -182,11 +189,12 @@ async fn handle_enqueue(
         username,
     ).await {
         Ok(job_id) => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "status": "queued",
-                "id": job_id,
-                "pii_scrubbed": report.token_map.len() > 0
-            }))).into_response()
+            let response = EnqueueResponse {
+                status: "queued",
+                id: job_id,
+                pii_scrubbed: !report.token_map.is_empty(),
+            };
+            (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
             tracing::error!("Failed to enqueue SearchBoost job: {}", e);
