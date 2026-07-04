@@ -68,8 +68,8 @@ impl WorkerStorage {
                     if total > 0 {
                         let percent_avail = (avail as f64 / total as f64) * 100.0;
                         if percent_avail < 10.0 {
-                            tracing::error!("CRITICAL: Disk space below 10% ({:.1}%). Halting system to preserve Zero-Failure compliance and protect cryptographic ledgers.", percent_avail);
-                            std::process::exit(1);
+                            tracing::error!("CRITICAL: Disk space below 10% ({:.1}%). Enforcing graceful degradation to preserve Zero-Failure compliance.", percent_avail);
+                            // Do NOT call std::process::exit(1) here to avoid DoS. Let upstream handle failed DB writes gracefully.
                         }
                     }
                 }
