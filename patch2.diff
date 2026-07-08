@@ -1,9 +1,0 @@
---- warden/src/shadow_ner.rs
-+++ warden/src/shadow_ner.rs
-@@ -79,6 +79,5 @@
-         // Single Greek names (Fallback)
--        let greek_suffix_re = Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(ης|ου|ος|α|ου)\b").unwrap();
--        for mat in greek_suffix_re.find_iter(normalized_text) {
-+        for mat in GREEK_SUFFIX_RE.find_iter(normalized_text) {
-             matches.push(ShadowMatch {
-                 start: mat.start(),
