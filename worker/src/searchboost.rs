@@ -28,6 +28,8 @@ pub struct SearchBoostQueue {
     shield: Option<Arc<dyn iw_core::PiiShield + Send + Sync>>,
     grounding_shield: Option<Arc<dyn iw_core::GroundingShield + Send + Sync>>,
     redis_client: Option<redis::Client>,
+    tx: flume::Sender<(String, String, Vec<u8>)>,
+    rx: flume::Receiver<(String, String, Vec<u8>)>,
 }
 
 impl SearchBoostQueue {
@@ -61,23 +63,44 @@ impl SearchBoostQueue {
             info!("Redis HA Backend: ENABLED for SearchBoost Queue.");
         }
 
-        Ok(Self { 
+        let (tx, rx) = flume::unbounded();
+
+        let conn_arc = Arc::new(std::sync::Mutex::new(conn));
+
+        // Resilience: Recover pending jobs
+        let tx_clone = tx.clone();
+        let conn_clone = conn_arc.clone();
+        if let Ok(conn) = conn_clone.lock() {
+            if let Ok(mut stmt) = conn.prepare("SELECT id, username, query FROM search_jobs WHERE status = 'pending' ORDER BY created_at ASC") {
+                if let Ok(mut rows) = stmt.query([]) {
+                    while let Ok(Some(row)) = rows.next() {
+                        if let (Ok(id), Ok(username), Ok(query)) = (row.get::<_, String>(0), row.get::<_, String>(1), row.get::<_, Vec<u8>>(2)) {
+                            let _ = tx_clone.send((id, username, query));
+                        }
+                    }
+                }
+            }
+        }
+
+        let queue = Self {
             db_path, 
             pepper: Arc::new(SecretVec::new(pepper.expose_secret().to_vec())),
-            conn: Arc::new(std::sync::Mutex::new(conn)),
+            conn: conn_arc,
             shield,
             grounding_shield,
             redis_client,
-        })
+            tx,
+            rx,
+        };
+
+        Ok(queue)
     }
 
     /// Spawns a background worker to process enqueued search jobs.
     pub fn spawn_worker(&self, librarian: Arc<crate::librarian::LocalLibrarian>) {
         let queue = self.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(2));
             loop {
-                interval.tick().await;
                 if let Err(e) = queue.process_next_job(librarian.clone()).await {
                     if !matches!(e, SovereignError::DatabaseBusy(_)) {
                         error!("SearchBoost Worker Error: {}", e);
@@ -89,8 +112,9 @@ impl SearchBoostQueue {
 
     /// Processes the next job in the queue (exposed for testing and orchestration).
     pub async fn process_next_job(&self, librarian: Arc<crate::librarian::LocalLibrarian>) -> Result<(), SovereignError> {
+        let mut job: Option<(String, String, Vec<u8>)> = None;
+
         // --- HA FIX (WP 90): Poll Redis first for distributed jobs ---
-        let mut redis_job: Option<(String, String, Vec<u8>)> = None;
         if let Some(ref client) = self.redis_client {
             if let Ok(mut con) = client.get_multiplexed_async_connection().await {
                 // RPOP from global queue
@@ -101,33 +125,35 @@ impl SearchBoostQueue {
                         if !data.is_empty() {
                             let username = String::from_utf8(data.get("username").cloned().unwrap_or_default()).unwrap_or_default();
                             let encrypted_sanitized = data.get("query").cloned().unwrap_or_default();
-                            redis_job = Some((job_id, username, encrypted_sanitized));
+                            job = Some((job_id, username, encrypted_sanitized));
                         }
                     }
                 }
             }
         }
 
-        let job = if let Some(j) = redis_job {
-            Some(j)
-        } else {
-            let conn_arc = self.conn.clone();
-            tokio::task::spawn_blocking(move || {
-                let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
-                let mut stmt = conn.prepare("SELECT id, username, query FROM search_jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1")
-                    .map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                let mut rows = stmt.query([]).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                
-                if let Some(row) = rows.next().map_err(|e| SovereignError::StorageError(e.to_string()))? {
-                    let id: String = row.get(0).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                    let username: String = row.get(1).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                    let encrypted_sanitized: Vec<u8> = row.get(2).map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                    Ok::<Option<(String, String, Vec<u8>)>, SovereignError>(Some((id, username, encrypted_sanitized)))
-                } else {
-                    Ok(None)
+        if job.is_none() {
+            // Use the lock-free ring buffer for local queue
+            if self.redis_client.is_some() {
+                // If Redis is enabled, don't block forever to allow periodic Redis polling
+                if let Ok(local_job) = tokio::time::timeout(Duration::from_secs(2), self.rx.recv_async()).await {
+                    if let Ok(j) = local_job {
+                        job = Some(j);
+                    } else {
+                        // Channel is disconnected, wait a bit to avoid hot loops
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
                 }
-            }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??
-        };
+            } else {
+                // No Redis, block indefinitely until a new local job arrives
+                if let Ok(j) = self.rx.recv_async().await {
+                    job = Some(j);
+                } else {
+                    // Channel disconnected
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            }
+        }
 
         if let Some((id, username, encrypted_sanitized)) = job {
             // 1. Decrypt Queries using centralized AadCipher (WP-98)
@@ -254,11 +280,12 @@ impl SearchBoostQueue {
         let job_id_clone = job_id.clone();
         let conn_arc = self.conn.clone();
 
+        let encrypted_sanitized_clone = encrypted_sanitized.clone();
         tokio::task::spawn_blocking(move || {
             let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
             conn.execute(
                 "INSERT INTO search_jobs (id, username, thread_id, query) VALUES (?1, ?2, ?3, ?4)",
-                (&job_id_clone, &username_clone, &thread_id_clone, &encrypted_sanitized),
+                (&job_id_clone, &username_clone, &thread_id_clone, &encrypted_sanitized_clone),
             ).map_err(|e| {
                 if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
                     SovereignError::DatabaseBusy("SearchBoost Queue busy".into())
@@ -268,6 +295,11 @@ impl SearchBoostQueue {
             })?;
             Ok::<(), SovereignError>(())
         }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
+
+        // Push to local lock-free ring buffer
+        if let Err(e) = self.tx.send_async((job_id.clone(), username.clone(), encrypted_sanitized)).await {
+            error!("Failed to push job to local channel: {}", e);
+        }
 
         info!(job_id = %job_id, "Successfully enqueued encrypted SearchBoost job (Sanitized)");
 
