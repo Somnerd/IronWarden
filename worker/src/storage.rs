@@ -69,6 +69,7 @@ impl WorkerStorage {
                     if total > 0 {
                         let percent_avail = (avail as f64 / total as f64) * 100.0;
                         if percent_avail < 10.0 {
+                            // Do NOT call std::process::exit(1) here to avoid DoS. Let upstream handle failed DB writes gracefully.
                             tracing::warn!("WARNING: Disk space below 10% ({:.1}%). Triggering automatic purge of transient ephemeral logs older than 1 hour to prevent DatabaseFull hard-stops.", percent_avail);
                             let _ = conn_clone.call(|c| {
                                 let cutoff = chrono::Utc::now() - chrono::Duration::hours(1);
