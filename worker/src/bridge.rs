@@ -13,6 +13,14 @@ use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
 use serde::{Serialize, Deserialize};
 use secrecy::{SecretVec, ExposeSecret};
 
+
+#[derive(Serialize)]
+struct EnqueueResponse<'a> {
+    status: &'a str,
+    id: String,
+    pii_scrubbed: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String, // The username/tenant_id
@@ -182,11 +190,11 @@ async fn handle_enqueue(
         username,
     ).await {
         Ok(job_id) => {
-            (StatusCode::OK, Json(serde_json::json!({
-                "status": "queued",
-                "id": job_id,
-                "pii_scrubbed": report.token_map.len() > 0
-            }))).into_response()
+            (StatusCode::OK, Json(EnqueueResponse {
+                status: "queued",
+                id: job_id,
+                pii_scrubbed: report.token_map.len() > 0,
+            })).into_response()
         }
         Err(e) => {
             tracing::error!("Failed to enqueue SearchBoost job: {}", e);
