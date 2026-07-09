@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[tokio::test]
     async fn test_shipping_rules_loading() {
-    let config_dir = "../config/regions";
+    let config_dir = "../config";
     let mut config = WardenConfig::from_dir(config_dir).expect("Failed to load config directory");
     config.ai_enabled = false;
     
@@ -49,7 +49,7 @@ use std::sync::Arc;
 
 #[tokio::test]
     async fn test_logistics_heuristics() {
-    let config_dir = "../config/regions";
+    let config_dir = "../config";
     let mut config = WardenConfig::from_dir(config_dir).expect("Failed to load config directory");
     config.ai_enabled = false;
     let pepper = secrecy::SecretVec::new(vec![0u8; 32]);

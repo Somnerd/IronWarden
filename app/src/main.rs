@@ -89,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if pepper_raw.len() < 32 { return Err("Insecure WARDEN_PEPPER (min 32 bytes)".into()); }
     let global_pepper = secrecy::SecretVec::new(pepper_raw.clone());
 
-    let config_path = std::env::var("WARDEN_CONFIG_PATH").unwrap_or_else(|_| "config/regions".to_string());
+    let config_path = std::env::var("WARDEN_CONFIG_PATH").unwrap_or_else(|_| "config".to_string());
     
     // --- PERFORMANCE FIX: Initialize heavy AI engine in a blocking task ---
     let config_path_clone = config_path.clone();
