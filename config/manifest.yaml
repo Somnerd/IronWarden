@@ -1,0 +1,9 @@
+rules_dir: "config"
+active_rules:
+  - "core.yaml"
+  - "gr.yaml"
+  - "rules.yaml"
+  - "rules_demo.yaml"
+  - "rules_legal.yaml"
+  - "rules_medical.yaml"
+  - "rules_shipping.yaml"
