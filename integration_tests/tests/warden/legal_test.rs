@@ -4,7 +4,7 @@ use iw_core::PiiShield;
 
 #[tokio::test]
     async fn test_legal_rules_loading() {
-    let config_dir = "../config";
+    let config_dir = "../config/regions";
     let mut config = WardenConfig::from_dir(config_dir).expect("Failed to load config directory");
     config.ai_enabled = false;
     
@@ -21,7 +21,7 @@ use iw_core::PiiShield;
 
 #[tokio::test]
     async fn test_legal_pii_redaction() {
-    let config_dir = "../config";
+    let config_dir = "../config/regions";
     let mut config = WardenConfig::from_dir(config_dir).expect("Failed to load config directory");
     config.ai_enabled = false;
     

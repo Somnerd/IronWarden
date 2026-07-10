@@ -73,7 +73,7 @@ class IronWardenRunner:
             "REDIS_URL": "redis://localhost:6379",
             "AUDIT_DB_PATH": os.path.join(project_root, f"test_audit_{unique_id}.db"),
             "LANCEDB_PATH": os.path.join(project_root, f"test_lancedb_{unique_id}"),
-            "WARDEN_CONFIG_PATH": os.path.join(project_root, "config"),
+            "WARDEN_CONFIG_PATH": os.path.join(project_root, "config/regions"),
             "BRIDGE_PORT": "14141",
             "WARDEN_JWT_AUDIENCE": "test_audience",
             "WARDEN_JWT_ISSUER": "test_issuer",

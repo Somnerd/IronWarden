@@ -89,13 +89,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if pepper_raw.len() < 32 { return Err("Insecure WARDEN_PEPPER (min 32 bytes)".into()); }
     let global_pepper = secrecy::SecretVec::new(pepper_raw.clone());
 
-    let config_path = std::env::var("WARDEN_CONFIG_PATH").unwrap_or_else(|_| "config".to_string());
+    let manifest_path = std::env::var("WARDEN_MANIFEST_PATH").unwrap_or_else(|_| "config/manifest.yaml".to_string());
+    let config_path = std::env::var("WARDEN_CONFIG_PATH").unwrap_or_else(|_| "config/regions".to_string());
     
     // --- PERFORMANCE FIX: Initialize heavy AI engine in a blocking task ---
+    let manifest_path_clone = manifest_path.clone();
     let config_path_clone = config_path.clone();
     let pepper_init = secrecy::SecretVec::new(pepper_raw.clone());
     let initial_engine = tokio::task::spawn_blocking(move || {
-        let config = WardenConfig::from_dir(&config_path_clone)?;
+        let config = if std::path::Path::new(&manifest_path_clone).exists() {
+            tracing::info!("Loading rules from manifest: {}", manifest_path_clone);
+            WardenConfig::from_manifest(&manifest_path_clone)?
+        } else {
+            tracing::warn!("Manifest not found at {}, falling back to directory load at {}", manifest_path_clone, config_path_clone);
+            WardenConfig::from_dir(&config_path_clone)?
+        };
         config.compile_engine(&pepper_init)
     }).await.map_err(|e| SovereignError::InternalError(format!("Initialization task panicked: {}", e)))??;
 
@@ -123,13 +131,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Hot-reload background task
     let hot_reload_shield = dynamic_shield.clone();
-    let hot_reload_path = config_path.clone();
+    let hot_reload_manifest_path = manifest_path.clone();
+    let hot_reload_config_path = config_path.clone();
     let hot_reload_pepper_raw = pepper_raw.clone();
     tokio::spawn(async move {
-        let get_latest_modified = |path: String| async move {
+        let get_latest_modified = |manifest_p: String, dir_p: String| async move {
             tokio::task::spawn_blocking(move || {
                 let mut latest = std::time::SystemTime::UNIX_EPOCH;
-                if let Ok(entries) = std::fs::read_dir(&path) {
+                // Check manifest modified time
+                if let Ok(metadata) = std::fs::metadata(&manifest_p) {
+                    if let Ok(modified) = metadata.modified() {
+                        if modified > latest {
+                            latest = modified;
+                        }
+                    }
+                }
+                // Check directory contents modified time
+                if let Ok(entries) = std::fs::read_dir(&dir_p) {
                     for entry in entries.flatten() {
                         if let Ok(metadata) = entry.metadata() {
                             if let Ok(modified) = metadata.modified() {
@@ -144,18 +162,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }).await.unwrap_or(std::time::SystemTime::UNIX_EPOCH)
         };
 
-        let mut last_modified = get_latest_modified(hot_reload_path.clone()).await;
+        let mut last_modified = get_latest_modified(hot_reload_manifest_path.clone(), hot_reload_config_path.clone()).await;
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
             interval.tick().await;
-            let current_modified = get_latest_modified(hot_reload_path.clone()).await;
+            let current_modified = get_latest_modified(hot_reload_manifest_path.clone(), hot_reload_config_path.clone()).await;
             
             if current_modified > last_modified {
-                tracing::info!("Detected file modification in config regions directory. Hot-reloading WardenEngine...");
-                let hot_reload_path_inner = hot_reload_path.clone();
+                tracing::info!("Detected file modification in config or manifest. Hot-reloading WardenEngine...");
+                let hot_reload_manifest_inner = hot_reload_manifest_path.clone();
+                let hot_reload_config_inner = hot_reload_config_path.clone();
                 let pepper_inner = secrecy::SecretVec::new(hot_reload_pepper_raw.clone());
                 let reload_result = tokio::task::spawn_blocking(move || {
-                    if let Ok(new_config) = WardenConfig::from_dir(&hot_reload_path_inner) {
+                    let config_res = if std::path::Path::new(&hot_reload_manifest_inner).exists() {
+                        WardenConfig::from_manifest(&hot_reload_manifest_inner)
+                    } else {
+                        WardenConfig::from_dir(&hot_reload_config_inner)
+                    };
+                    if let Ok(new_config) = config_res {
                         return new_config.compile_engine(&pepper_inner);
                     }
                     Err(iw_core::SovereignError::ConfigError("Reload failed".into()))
