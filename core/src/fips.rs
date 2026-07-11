@@ -1,5 +1,5 @@
 use crate::error::SovereignError;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 pub struct FipsValidator;
 
