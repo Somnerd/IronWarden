@@ -38,12 +38,12 @@ jobs:
       - name: Check Code Formatting
         run: |
           cargo fmt --all
-          if [ -n "$(git status --porcelain)" ]; then
+          git diff --quiet || (
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
             git commit -am "style: auto format code with rustfmt"
-            git push
-          fi
+            git push origin HEAD:${{ github.head_ref || github.ref_name }}
+          )
 
       - name: Run Clippy Lints
         run: cargo clippy --workspace --all-targets -- -D warnings
