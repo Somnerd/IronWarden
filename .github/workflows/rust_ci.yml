@@ -42,5 +42,9 @@ jobs:
       - name: Run Workspace Unit Tests
         run: cargo test --workspace
 
+      - name: Verify Benchmarks Compile
+        run: cargo bench --no-run
+
       - name: Run Python Integration Test Suite
         run: pytest test_suites/
+
