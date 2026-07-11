@@ -63,7 +63,13 @@ class IronWardenRunner:
             if os.path.exists(libc10):
                 ld_preload = f"{libc10}:{ld_preload}"
 
-        self.env = {
+        import socket
+        def get_free_port():
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('', 0))
+                return s.getsockname()[1]
+                
+        base_env = {
             **os.environ,
             "WARDEN_MODE": "ephemeral",
             "WARDEN_PEPPER": "a_very_secret_pepper_32_bytes_long",
@@ -74,17 +80,25 @@ class IronWardenRunner:
             "AUDIT_DB_PATH": os.path.join(project_root, f"test_audit_{unique_id}.db"),
             "LANCEDB_PATH": os.path.join(project_root, f"test_lancedb_{unique_id}"),
             "WARDEN_CONFIG_PATH": os.path.join(project_root, "config/regions"),
-            "BRIDGE_PORT": "14141",
             "WARDEN_JWT_AUDIENCE": "test_audience",
             "WARDEN_JWT_ISSUER": "test_issuer",
             "LOG_FORMAT": "text",
             "LD_LIBRARY_PATH": ld_library_path,
             "LD_PRELOAD": ld_preload,
-            **(env_overrides or {})
         }
+        
+        # Override values before resolving defaults
+        merged_env = {**base_env, **(env_overrides or {})}
+        
+        # Use dynamic port if not specified in overrides
+        if "BRIDGE_PORT" not in merged_env:
+            merged_env["BRIDGE_PORT"] = str(get_free_port())
+            
+        self.env = merged_env
         self.process = None
         self.stderr_output = []
         self.stderr_lock = threading.Lock()
+
 
     def start(self, env_vars=None, **kwargs):
         # We use self.env from __init__ instead of overwriting with os.environ.copy()

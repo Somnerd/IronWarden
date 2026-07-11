@@ -40,7 +40,7 @@ impl SearchBoostQueue {
         grounding_shield: Option<Arc<dyn iw_core::GroundingShield + Send + Sync>>,
     ) -> Result<Self, SovereignError> {
         let conn = Connection::open(&db_path).map_err(|e| SovereignError::StorageError(format!("Failed to open SearchBoost DB: {}", e)))?;
-        conn.busy_timeout(std::time::Duration::from_millis(5000)).map_err(|e| SovereignError::StorageError(e.to_string()))?;
+        conn.busy_timeout(std::time::Duration::from_millis(10000)).map_err(|e| SovereignError::StorageError(e.to_string()))?;
         conn.execute_batch("
             PRAGMA journal_mode = WAL; 
             PRAGMA synchronous = NORMAL;
@@ -390,7 +390,7 @@ pub struct LocalSessionManager {
 impl LocalSessionManager {
     pub fn new(db_path: String, pepper: &SecretVec<u8>) -> Result<Arc<Self>, SovereignError> {
         let conn = Connection::open(&db_path).map_err(|e| SovereignError::StorageError(format!("Failed to open Session DB: {}", e)))?;
-        conn.busy_timeout(std::time::Duration::from_millis(2000)).map_err(|e| SovereignError::StorageError(e.to_string()))?;
+        conn.busy_timeout(std::time::Duration::from_millis(10000)).map_err(|e| SovereignError::StorageError(e.to_string()))?;
         conn.execute_batch("
             PRAGMA journal_mode = WAL; 
             PRAGMA synchronous = NORMAL;
