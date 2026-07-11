@@ -1,10 +1,10 @@
-use async_trait::async_trait;
 use crate::error::SovereignError;
-use std::collections::HashMap;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use dashmap::DashMap;
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A map of pseudonymized tokens to their original values.
@@ -46,9 +46,21 @@ impl From<&SessionContext> for SessionState {
         }
 
         Self {
-            pii_to_token: ctx.pii_to_token.iter().map(|kv| (kv.key().clone(), kv.value().clone())).collect(),
-            token_to_pii: ctx.token_to_pii.iter().map(|kv| (kv.key().clone(), kv.value().clone())).collect(),
-            identities: ctx.identities.iter().map(|kv| (kv.key().clone(), kv.value().clone())).collect(),
+            pii_to_token: ctx
+                .pii_to_token
+                .iter()
+                .map(|kv| (kv.key().clone(), kv.value().clone()))
+                .collect(),
+            token_to_pii: ctx
+                .token_to_pii
+                .iter()
+                .map(|kv| (kv.key().clone(), kv.value().clone()))
+                .collect(),
+            identities: ctx
+                .identities
+                .iter()
+                .map(|kv| (kv.key().clone(), kv.value().clone()))
+                .collect(),
             semantic_cache,
             next_id: ctx.next_id.load(Ordering::SeqCst),
             last_accessed: ctx.last_accessed.load(Ordering::SeqCst),
@@ -59,19 +71,27 @@ impl From<&SessionContext> for SessionState {
 impl From<SessionState> for SessionContext {
     fn from(state: SessionState) -> Self {
         let pii_to_token = DashMap::new();
-        for (k, v) in state.pii_to_token { pii_to_token.insert(k, v); }
-        
+        for (k, v) in state.pii_to_token {
+            pii_to_token.insert(k, v);
+        }
+
         let token_to_pii = DashMap::new();
-        for (k, v) in state.token_to_pii { token_to_pii.insert(k, v); }
+        for (k, v) in state.token_to_pii {
+            token_to_pii.insert(k, v);
+        }
 
         let identities = DashMap::new();
-        for (k, v) in state.identities { identities.insert(k, v); }
+        for (k, v) in state.identities {
+            identities.insert(k, v);
+        }
 
         let semantic_cache = moka::sync::Cache::builder()
             .max_capacity(1000)
             .time_to_idle(std::time::Duration::from_secs(3600))
             .build();
-        for (k, v) in state.semantic_cache { semantic_cache.insert(k, v); }
+        for (k, v) in state.semantic_cache {
+            semantic_cache.insert(k, v);
+        }
 
         Self {
             pii_to_token,
@@ -86,7 +106,10 @@ impl From<SessionState> for SessionContext {
 
 impl Default for SessionContext {
     fn default() -> Self {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         Self {
             pii_to_token: DashMap::new(),
             token_to_pii: DashMap::new(),
@@ -108,7 +131,10 @@ impl SessionContext {
 
     /// Updates the last_accessed timestamp to the current time.
     pub fn touch(&self) {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         self.last_accessed.store(now, Ordering::SeqCst);
     }
 
@@ -129,8 +155,10 @@ mod tests {
     #[test]
     fn test_session_context_roundtrip() {
         let ctx = SessionContext::new();
-        ctx.pii_to_token.insert("alice".to_string(), "[PERSON_1]".to_string());
-        ctx.semantic_cache.insert("alice smith".to_string(), ("PERSON".to_string(), 0.99));
+        ctx.pii_to_token
+            .insert("alice".to_string(), "[PERSON_1]".to_string());
+        ctx.semantic_cache
+            .insert("alice smith".to_string(), ("PERSON".to_string(), 0.99));
         ctx.next_id.store(5, Ordering::SeqCst);
 
         let state = SessionState::from(&ctx);
@@ -139,7 +167,10 @@ mod tests {
         assert_eq!(state.next_id, 5);
 
         let ctx2 = SessionContext::from(state);
-        assert_eq!(ctx2.pii_to_token.get("alice").unwrap().value(), "[PERSON_1]");
+        assert_eq!(
+            ctx2.pii_to_token.get("alice").unwrap().value(),
+            "[PERSON_1]"
+        );
         assert_eq!(ctx2.semantic_cache.get("alice smith").unwrap().0, "PERSON");
         assert_eq!(ctx2.next_id.load(Ordering::SeqCst), 5);
     }
@@ -247,13 +278,26 @@ pub struct ComplianceReport {
 #[async_trait]
 pub trait StorageProvider: Send + Sync {
     /// Fetches relevant contextual documents for grounding a query, scoped to the user.
-    async fn fetch_context(&self, query: &str, username: &str) -> Result<Vec<String>, SovereignError>;
+    async fn fetch_context(
+        &self,
+        query: &str,
+        username: &str,
+    ) -> Result<Vec<String>, SovereignError>;
 
     /// Records a transaction or security event to the audit trail.
-    async fn log_audit_event(&self, report: &ScrubbingReport, raw_input: &str, username: &str) -> Result<(), SovereignError>;
+    async fn log_audit_event(
+        &self,
+        report: &ScrubbingReport,
+        raw_input: &str,
+        username: &str,
+    ) -> Result<(), SovereignError>;
 
     /// Validates that a user has ownership/access to a specific job or result.
-    async fn validate_job_access(&self, job_id: &str, username: &str) -> Result<bool, SovereignError>;
+    async fn validate_job_access(
+        &self,
+        job_id: &str,
+        username: &str,
+    ) -> Result<bool, SovereignError>;
 
     /// GDPR Compliance: Purges all data associated with a user.
     async fn purge_user_data(&self, username: &str) -> Result<(), SovereignError>;
@@ -268,7 +312,11 @@ pub trait StorageProvider: Send + Sync {
 #[async_trait]
 pub trait InferenceGateway: Send + Sync {
     /// Routes a sanitized prompt to an external LLM and returns the response.
-    async fn route_prompt(&self, prompt: &str, context: &[String]) -> Result<String, SovereignError>;
+    async fn route_prompt(
+        &self,
+        prompt: &str,
+        context: &[String],
+    ) -> Result<String, SovereignError>;
 }
 
 /// Trait for the 'Encrypted Side-Channel' (Decoupled Tandem Grounding).

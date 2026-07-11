@@ -38,8 +38,7 @@ impl OpenAIGateway {
             // Note: Specific FIPS cipher suites would be enforced here if rustls/openssl bindings are fully configured
         }
 
-        let client = builder.build()
-            .expect("Failed to build reqwest client");
+        let client = builder.build().expect("Failed to build reqwest client");
 
         Self {
             client,
@@ -51,13 +50,17 @@ impl OpenAIGateway {
 
 #[async_trait]
 impl InferenceGateway for OpenAIGateway {
-    async fn route_prompt(&self, prompt: &str, context: &[String]) -> Result<String, SovereignError> {
+    async fn route_prompt(
+        &self,
+        prompt: &str,
+        context: &[String],
+    ) -> Result<String, SovereignError> {
         // --- INTEGRITY FIX: Removed IRONWARDEN_MOCK simulation path ---
 
         // Construct the grounding instruction from the provided context strings
         let system_context = context.join("\n");
         let system_message_content = format!("You are a secure assistant. Use the following context to provide factual answers: \n\n{}", system_context);
-        
+
         // Build the OpenAI-compatible JSON payload dynamically using strictly typed structs to avoid json! macro DOM tree allocation overhead
         let payload = OpenAIPayload {
             model: "gpt-4",
@@ -74,7 +77,8 @@ impl InferenceGateway for OpenAIGateway {
         };
 
         // Execute the POST request with the required Authorization header
-        let response = self.client
+        let response = self
+            .client
             .post(&self.base_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&payload)
@@ -85,19 +89,26 @@ impl InferenceGateway for OpenAIGateway {
         // Catch non-success status codes and convert to UpstreamError
         if !response.status().is_success() {
             let status = response.status();
-            return Err(SovereignError::UpstreamError(format!("Upstream API returned HTTP {}", status)));
+            return Err(SovereignError::UpstreamError(format!(
+                "Upstream API returned HTTP {}",
+                status
+            )));
         }
 
         // Parse the JSON response body safely
-        let response_body: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| SovereignError::UpstreamError(format!("Failed to parse JSON response: {}", e)))?;
+        let response_body: serde_json::Value = response.json().await.map_err(|e| {
+            SovereignError::UpstreamError(format!("Failed to parse JSON response: {}", e))
+        })?;
 
         // Extract choices[0].message.content deterministically
         response_body["choices"][0]["message"]["content"]
             .as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| SovereignError::UpstreamError("Incompatible response format: choices[0].message.content not found".to_string()))
+            .ok_or_else(|| {
+                SovereignError::UpstreamError(
+                    "Incompatible response format: choices[0].message.content not found"
+                        .to_string(),
+                )
+            })
     }
 }

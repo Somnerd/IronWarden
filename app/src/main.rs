@@ -1,8 +1,8 @@
+use iw_core::SovereignError;
+use mcp::StdioMcpServer;
 use std::sync::Arc;
 use std::time::Duration;
 use warden::WardenConfig;
-use mcp::StdioMcpServer;
-use iw_core::SovereignError;
 
 use arc_swap::ArcSwap;
 
@@ -52,11 +52,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         || deployment_profile == "enterprise"
         || deployment_profile == "multi-node"
         || (std::env::var("REDIS_URL").is_ok() && std::env::var("IGNORE_HA_ENFORCEMENT").is_err())
-        || (std::env::var("DATABASE_URL").is_ok() && std::env::var("IGNORE_HA_ENFORCEMENT").is_err());
+        || (std::env::var("DATABASE_URL").is_ok()
+            && std::env::var("IGNORE_HA_ENFORCEMENT").is_err());
 
     if is_ha && env_mode != "test" {
         match std::env::var("REMOTE_AUDIT_ENDPOINT") {
-            Ok(endpoint) if !endpoint.is_empty() => {},
+            Ok(endpoint) if !endpoint.is_empty() => {}
             _ => {
                 tracing::error!(
                     "HA deployment profile ({}) enabled but REMOTE_AUDIT_ENDPOINT is not configured. Set REMOTE_AUDIT_ENDPOINT to a highly-available sink or use IGNORE_HA_ENFORCEMENT to override.",
@@ -70,9 +71,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize Tracing (Structured JSON for Production)
     let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
     if log_format == "json" {
-        tracing_subscriber::fmt().json().with_writer(std::io::stderr).init();
+        tracing_subscriber::fmt()
+            .json()
+            .with_writer(std::io::stderr)
+            .init();
     } else {
-        tracing_subscriber::fmt().with_writer(std::io::stderr).init();
+        tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .init();
     }
     tracing::info!("Initializing IronWarden V1.2 - Sovereign Standalone Appliance");
 
@@ -82,41 +88,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Load Configuration
     dotenvy::dotenv().ok();
     let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "ollama".to_string());
-    let base_url = std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string());
+    let base_url = std::env::var("OPENAI_BASE_URL")
+        .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string());
 
     // 3. Security & Rules
-    let pepper_raw = std::env::var("WARDEN_PEPPER").map_err(|_| "Missing WARDEN_PEPPER")?.into_bytes();
-    if pepper_raw.len() < 32 { return Err("Insecure WARDEN_PEPPER (min 32 bytes)".into()); }
+    let pepper_raw = std::env::var("WARDEN_PEPPER")
+        .map_err(|_| "Missing WARDEN_PEPPER")?
+        .into_bytes();
+    if pepper_raw.len() < 32 {
+        return Err("Insecure WARDEN_PEPPER (min 32 bytes)".into());
+    }
     let global_pepper = secrecy::SecretVec::new(pepper_raw.clone());
 
-    let config_path = std::env::var("WARDEN_MANIFEST_PATH").unwrap_or_else(|_| "config/manifest.yaml".to_string());
-    
+    let config_path = std::env::var("WARDEN_MANIFEST_PATH")
+        .unwrap_or_else(|_| "config/manifest.yaml".to_string());
+
     // --- PERFORMANCE FIX: Initialize heavy AI engine in a blocking task ---
     let config_path_clone = config_path.clone();
     let pepper_init = secrecy::SecretVec::new(pepper_raw.clone());
-    let initial_engine = iw_core::executor::BlockingExecutor::spawn_blocking(move || -> Result<_, SovereignError> {
-        let (config, warnings) = WardenConfig::from_manifest(&config_path_clone)?;
-        
-        if !warnings.is_empty() {
-            tracing::warn!("Configuration Warnings:");
-            for w in &warnings {
-                tracing::warn!(" - {}", w);
-            }
-            use std::io::IsTerminal;
-            if std::io::stdin().is_terminal() {
-                println!("WARNING: Some rules failed to load. Proceed anyway? [y/N]");
-                let mut input = String::new();
-                std::io::stdin().read_line(&mut input).unwrap();
-                if input.trim().to_lowercase() != "y" {
-                    return Err(SovereignError::ConfigError("Boot aborted by user due to invalid rules.".into()));
+    let initial_engine = iw_core::executor::BlockingExecutor::spawn_blocking(
+        move || -> Result<_, SovereignError> {
+            let (config, warnings) = WardenConfig::from_manifest(&config_path_clone)?;
+
+            if !warnings.is_empty() {
+                tracing::warn!("Configuration Warnings:");
+                for w in &warnings {
+                    tracing::warn!(" - {}", w);
                 }
-            } else {
-                return Err(SovereignError::ConfigError("Boot aborted due to invalid rules in non-interactive mode.".into()));
+                use std::io::IsTerminal;
+                if std::io::stdin().is_terminal() {
+                    println!("WARNING: Some rules failed to load. Proceed anyway? [y/N]");
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input).unwrap();
+                    if input.trim().to_lowercase() != "y" {
+                        return Err(SovereignError::ConfigError(
+                            "Boot aborted by user due to invalid rules.".into(),
+                        ));
+                    }
+                } else {
+                    return Err(SovereignError::ConfigError(
+                        "Boot aborted due to invalid rules in non-interactive mode.".into(),
+                    ));
+                }
             }
-        }
-        
-        config.compile_engine(&pepper_init)
-    }).await.map_err(|e| SovereignError::InternalError(format!("Initialization task panicked: {}", e)))??;
+
+            config.compile_engine(&pepper_init)
+        },
+    )
+    .await
+    .map_err(|e| SovereignError::InternalError(format!("Initialization task panicked: {}", e)))??;
 
     let dynamic_shield = Arc::new(DynamicShield {
         engine: ArcSwap::from_pointee(initial_engine),
@@ -126,19 +146,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. Infrastructure Data Paths
     let audit_db_path = std::env::var("AUDIT_DB_PATH").unwrap_or_else(|_| "audit.db".to_string());
-    let knowledge_path = std::env::var("KNOWLEDGE_PATH").unwrap_or_else(|_| "data/knowledge".to_string());
+    let knowledge_path =
+        std::env::var("KNOWLEDGE_PATH").unwrap_or_else(|_| "data/knowledge".to_string());
 
     // 5. Instantiate Control Plane Components
     let remote_audit_endpoint = std::env::var("REMOTE_AUDIT_ENDPOINT").ok();
     let remote_audit_token = std::env::var("REMOTE_AUDIT_TOKEN").ok();
-    
-    let remote_forwarder: Option<Arc<dyn worker::audit::RemoteAuditForwarder>> = if let (Some(ep), Some(tk)) = (remote_audit_endpoint, remote_audit_token) {
-        tracing::info!("Remote Audit Streaming: ENABLED (Endpoint: {})", ep);
-        Some(Arc::new(worker::audit::HttpAuditForwarder::new(ep, secrecy::SecretString::new(tk.into()))))
-    } else {
-        tracing::warn!("Remote Audit Streaming: DISABLED. Audit logs are local-only.");
-        None
-    };
+
+    let remote_forwarder: Option<Arc<dyn worker::audit::RemoteAuditForwarder>> =
+        if let (Some(ep), Some(tk)) = (remote_audit_endpoint, remote_audit_token) {
+            tracing::info!("Remote Audit Streaming: ENABLED (Endpoint: {})", ep);
+            Some(Arc::new(worker::audit::HttpAuditForwarder::new(
+                ep,
+                secrecy::SecretString::new(tk.into()),
+            )))
+        } else {
+            tracing::warn!("Remote Audit Streaming: DISABLED. Audit logs are local-only.");
+            None
+        };
 
     // Hot-reload background task
     let hot_reload_shield = dynamic_shield.clone();
@@ -154,7 +179,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 latest
-            }).await.unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+            })
+            .await
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
         };
 
         let mut last_modified = get_latest_modified(hot_reload_path.clone()).await;
@@ -162,23 +189,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             interval.tick().await;
             let current_modified = get_latest_modified(hot_reload_path.clone()).await;
-            
+
             if current_modified > last_modified {
                 tracing::info!("Detected file modification in config regions directory. Hot-reloading WardenEngine...");
                 let hot_reload_path_inner = hot_reload_path.clone();
                 let pepper_inner = secrecy::SecretVec::new(hot_reload_pepper_raw.clone());
-                let reload_result = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
-                    if let Ok((new_config, warnings)) = WardenConfig::from_manifest(&hot_reload_path_inner) {
-                        if !warnings.is_empty() {
-                            tracing::warn!("Hot-reload Configuration Warnings:");
-                            for w in &warnings {
-                                tracing::warn!(" - {}", w);
+                let reload_result =
+                    iw_core::executor::BlockingExecutor::spawn_blocking(move || {
+                        if let Ok((new_config, warnings)) =
+                            WardenConfig::from_manifest(&hot_reload_path_inner)
+                        {
+                            if !warnings.is_empty() {
+                                tracing::warn!("Hot-reload Configuration Warnings:");
+                                for w in &warnings {
+                                    tracing::warn!(" - {}", w);
+                                }
                             }
+                            return new_config.compile_engine(&pepper_inner);
                         }
-                        return new_config.compile_engine(&pepper_inner);
-                    }
-                    Err(iw_core::SovereignError::ConfigError("Reload failed".into()))
-                }).await;
+                        Err(iw_core::SovereignError::ConfigError("Reload failed".into()))
+                    })
+                    .await;
 
                 if let Ok(Ok(new_engine)) = reload_result {
                     hot_reload_shield.engine.store(Arc::new(new_engine));
@@ -189,30 +220,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let queue = Arc::new(worker::SearchBoostQueue::new(audit_db_path.clone(), &global_pepper, Some(shield.clone()), Some(grounding_shield.clone()))?);
+    let queue = Arc::new(worker::SearchBoostQueue::new(
+        audit_db_path.clone(),
+        &global_pepper,
+        Some(shield.clone()),
+        Some(grounding_shield.clone()),
+    )?);
     let session_manager = worker::LocalSessionManager::new(audit_db_path.clone(), &global_pepper)?;
-    
+
     // ... rest of hot-reload block ...
-    
-    let storage = Arc::new(worker::WorkerStorage::new(
-        &audit_db_path, 
-        &knowledge_path,
-        global_pepper, 
-        Some((*queue).clone()), 
-        remote_forwarder,
-    ).await?);
+
+    let storage = Arc::new(
+        worker::WorkerStorage::new(
+            &audit_db_path,
+            &knowledge_path,
+            global_pepper,
+            Some((*queue).clone()),
+            remote_forwarder,
+        )
+        .await?,
+    );
 
     let router = Arc::new(worker::OpenAIGateway::new(api_key, base_url));
 
     // 6. Initialize Parallel Control Planes (MCP + Bridge)
-    tracing::info!("IronWarden Deployment Profile: {}", deployment_profile.to_uppercase());
+    tracing::info!(
+        "IronWarden Deployment Profile: {}",
+        deployment_profile.to_uppercase()
+    );
 
     let mcp_handle = if deployment_profile == "hybrid" || deployment_profile == "mcp" {
         let mcp_server = StdioMcpServer::new(
-            shield.clone(), 
-            storage.clone(), 
+            shield.clone(),
+            storage.clone(),
             router.clone(),
-            session_manager.clone()
+            session_manager.clone(),
         );
         Some(tokio::spawn(async move {
             if let Err(e) = mcp_server.run().await {
@@ -223,11 +265,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let jwt_public_key_raw = std::env::var("JWT_PUBLIC_KEY").map_err(|_| "Missing JWT_PUBLIC_KEY")?.into_bytes();
+    let jwt_public_key_raw = std::env::var("JWT_PUBLIC_KEY")
+        .map_err(|_| "Missing JWT_PUBLIC_KEY")?
+        .into_bytes();
     let jwt_public_key = secrecy::SecretVec::new(jwt_public_key_raw);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-    
+
     let bridge_handle = if deployment_profile == "hybrid" || deployment_profile == "bridge" {
         let bridge_state = Arc::new(worker::BridgeState {
             shield: shield.clone(),
@@ -244,19 +288,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let full_addr = format!("{}:{}", bridge_bind, bridge_port);
 
         let bridge_router = worker::create_bridge_router(bridge_state.clone());
-        
+
         Some(tokio::spawn(async move {
             match tokio::net::TcpListener::bind(&full_addr).await {
                 Ok(listener) => {
                     let server = axum::serve(
-                        listener, 
-                        bridge_router.into_make_service_with_connect_info::<std::net::SocketAddr>()
+                        listener,
+                        bridge_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
                     );
-                    let _ = server.with_graceful_shutdown(async {
-                        let _ = shutdown_rx.await;
-                        tracing::info!("Bridge: Graceful shutdown signal received.");
-                    }).await;
-                },
+                    let _ = server
+                        .with_graceful_shutdown(async {
+                            let _ = shutdown_rx.await;
+                            tracing::info!("Bridge: Graceful shutdown signal received.");
+                        })
+                        .await;
+                }
                 Err(e) => {
                     tracing::error!("CRITICAL: Bridge failed to bind to {}: {}", full_addr, e);
                 }

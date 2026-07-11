@@ -1,20 +1,20 @@
 // Stress and concurrency tests for the bridge router verifying high-concurrency request handling, role-based authorization (JWT verification), and security policy blocking behavior.
-use std::sync::Arc;
-use iw_warden::{WardenConfig};
-use worker::{WorkerStorage, BridgeState, create_bridge_router};
+use axum::http::StatusCode;
 use iw_core::crypto::Claims;
-use axum::{http::StatusCode};
-use tempfile::tempdir;
+use iw_warden::WardenConfig;
+use jsonwebtoken::{encode, EncodingKey, Header};
+use secrecy::SecretVec;
 use std::fs;
-use jsonwebtoken::{encode, Header, EncodingKey};
-use secrecy::{SecretVec};
+use std::sync::Arc;
+use tempfile::tempdir;
+use worker::{create_bridge_router, BridgeState, WorkerStorage};
 
 #[tokio::test]
 async fn test_adversarial_bridge_stress_and_blocking() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("audit.db").to_str().unwrap().to_string();
     let config_path = dir.path().join("rules.yaml");
-    
+
     // Define a rule with action: Block
     let rules_yaml = r#"
 rules:
@@ -28,7 +28,7 @@ rules:
     let config = WardenConfig::from_file(&config_path).unwrap();
     let pepper = secrecy::SecretVec::new(vec![1u8; 32]);
     let storage_pepper = secrecy::SecretVec::new(vec![2u8; 32]);
-    
+
     let private_key_pem = r#"-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7IpCkoSDThK2w
 Ma6XkCPPvq5CpzIUXLCJ5TzAfvC5hX52/b7ilyBBHuHjQajC0AtsUocHuJoWPOyr
@@ -71,10 +71,20 @@ cwIDAQAB
     let jwt_public_key = secrecy::SecretVec::new(public_key_pem.as_bytes().to_vec());
 
     let engine = Arc::new(config.compile_engine(&pepper).unwrap());
-    
-    let storage = Arc::new(WorkerStorage::new(&db_path, dir.path().to_str().unwrap(), storage_pepper, None, None).await.unwrap());
+
+    let storage = Arc::new(
+        WorkerStorage::new(
+            &db_path,
+            dir.path().to_str().unwrap(),
+            storage_pepper,
+            None,
+            None,
+        )
+        .await
+        .unwrap(),
+    );
     let session_manager = worker::LocalSessionManager::new(db_path.clone(), &pepper).unwrap();
-    
+
     // Create a user session
     session_manager.get_session("test_user").await.unwrap();
 
@@ -82,20 +92,33 @@ cwIDAQAB
         ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
         shield: engine.clone(),
         grounding_shield: engine.clone(),
-        queue: Arc::new(worker::SearchBoostQueue::new(db_path.clone(), &pepper, Some(engine.clone()), Some(engine.clone())).unwrap()),
+        queue: Arc::new(
+            worker::SearchBoostQueue::new(
+                db_path.clone(),
+                &pepper,
+                Some(engine.clone()),
+                Some(engine.clone()),
+            )
+            .unwrap(),
+        ),
         storage: storage.clone(),
         session_manager: session_manager.clone(),
         jwt_public_key,
     });
 
     let router = create_bridge_router(state);
-    
+
     // Start the server on a random port
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    
+
     tokio::spawn(async move {
-        axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
 
     // Generate JWT (RS256) with valid role
@@ -104,7 +127,12 @@ cwIDAQAB
         exp: 10000000000, // far future
         roles: vec!["admin".to_string()],
     };
-    let token = encode(&Header::new(jsonwebtoken::Algorithm::RS256), &claims, &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap()).unwrap();
+    let token = encode(
+        &Header::new(jsonwebtoken::Algorithm::RS256),
+        &claims,
+        &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap(),
+    )
+    .unwrap();
 
     // Generate JWT (RS256) with no roles
     let claims_no_roles = Claims {
@@ -112,7 +140,12 @@ cwIDAQAB
         exp: 10000000000, // far future
         roles: vec![],
     };
-    let token_no_roles = encode(&Header::new(jsonwebtoken::Algorithm::RS256), &claims_no_roles, &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap()).unwrap();
+    let token_no_roles = encode(
+        &Header::new(jsonwebtoken::Algorithm::RS256),
+        &claims_no_roles,
+        &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap(),
+    )
+    .unwrap();
 
     std::env::set_var("WARDEN_JWT_AUDIENCE", "test_aud");
     std::env::set_var("WARDEN_JWT_ISSUER", "test_iss");
@@ -125,13 +158,18 @@ cwIDAQAB
         "query": "Hello Bob",
         "thread_id": "test_thread"
     });
-    let res = client.post(&url)
+    let res = client
+        .post(&url)
         .header("Authorization", format!("Bearer {}", token_no_roles))
         .json(&payload)
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::FORBIDDEN, "Unprivileged token should be rejected with 403 Forbidden");
+    assert_eq!(
+        res.status(),
+        StatusCode::FORBIDDEN,
+        "Unprivileged token should be rejected with 403 Forbidden"
+    );
 
     let num_requests = 100; // Small sample for CI, but enough to test concurrency
     let mut handlers = Vec::new();
@@ -140,20 +178,21 @@ cwIDAQAB
         let client = client.clone();
         let url = url.clone();
         let token = token.clone();
-        
+
         handlers.push(tokio::spawn(async move {
             let payload = serde_json::json!({
                 "query": if i % 2 == 0 { "Hello Alice" } else { "Hello Bob" },
                 "thread_id": "test_thread"
             });
-            
-            let res = client.post(&url)
+
+            let res = client
+                .post(&url)
                 .header("Authorization", format!("Bearer {}", token))
                 .json(&payload)
                 .send()
                 .await
                 .unwrap();
-            
+
             let status = res.status();
             if status == StatusCode::INTERNAL_SERVER_ERROR {
                 println!("500 Error: {}", res.text().await.unwrap());
@@ -176,8 +215,11 @@ cwIDAQAB
         }
     }
 
-    println!("Results: {} Blocked, {} Success, {} Rate Limited", blocked_count, success_count, rate_limited_count);
-    
+    println!(
+        "Results: {} Blocked, {} Success, {} Rate Limited",
+        blocked_count, success_count, rate_limited_count
+    );
+
     // Half the requests contained "Alice" and should be blocked (unless rate limited)
     // The other half "Bob" should be successful (unless rate limited)
     assert!(blocked_count > 0, "Should have blocked some requests");

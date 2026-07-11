@@ -1,15 +1,15 @@
 // Integration tests verifying auditor database creation, HMAC chain integrity, AES-256-GCM encryption roundtrips, database busy fail-closed behavior, and HMAC chain breakage detection.
-use worker::audit::AsyncAuditor;
-use iw_core::{ScrubbingReport, Redaction, EnforcementAction};
-use tempfile::NamedTempFile;
-use std::collections::HashMap;
-use rusqlite::Connection;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use aes_gcm::{aead::Aead, Aes256Gcm, Key, KeyInit, Nonce};
 use hkdf::Hkdf;
-use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit, aead::Aead};
+use hmac::{Hmac, Mac};
+use iw_core::{EnforcementAction, Redaction, ScrubbingReport};
+use iw_core::{KDF_SALT_ENCRYPTION, KDF_SALT_GENESIS, KDF_SALT_INTEGRITY};
+use rusqlite::Connection;
 use secrecy::SecretVec;
-use iw_core::{KDF_SALT_ENCRYPTION, KDF_SALT_INTEGRITY, KDF_SALT_GENESIS};
+use sha2::Sha256;
+use std::collections::HashMap;
+use tempfile::NamedTempFile;
+use worker::audit::AsyncAuditor;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -21,7 +21,11 @@ fn derive_keys(pepper: &[u8]) -> (Key<Aes256Gcm>, [u8; 32], [u8; 32]) {
     hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key).unwrap();
     let mut genesis_hash = [0u8; 32];
     hk.expand(KDF_SALT_GENESIS, &mut genesis_hash).unwrap();
-    (Key::<Aes256Gcm>::from_slice(&enc_key).clone(), hmac_key, genesis_hash)
+    (
+        Key::<Aes256Gcm>::from_slice(&enc_key).clone(),
+        hmac_key,
+        genesis_hash,
+    )
 }
 
 #[tokio::test]
@@ -30,27 +34,41 @@ async fn test_audit_db_creation() {
     let db_path = tmp_file.path().to_str().unwrap();
     let pepper = vec![0u8; 32];
 
-    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper), None).await.unwrap();
-    
+    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper), None)
+        .await
+        .unwrap();
+
     // Trigger initialization by sending a no-op message
-    auditor.log_report(ScrubbingReport {
-        sanitized_text: "".into(),
-        is_blocked: false,
-        redactions: vec![],
-        token_map: HashMap::new(),
-        potential_misses: vec![],
-        execution_time_ms: 0,
-    }, "".into(), "test_user".into()).await;
-    
+    auditor
+        .log_report(
+            ScrubbingReport {
+                sanitized_text: "".into(),
+                is_blocked: false,
+                redactions: vec![],
+                token_map: HashMap::new(),
+                potential_misses: vec![],
+                execution_time_ms: 0,
+            },
+            "".into(),
+            "test_user".into(),
+        )
+        .await;
+
     // --- STABILITY FIX: Retry Loop for DB Creation ---
     let mut tables_ready = false;
     for _ in 0..10 {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         if let Ok(conn) = Connection::open(db_path) {
-            if let Ok(mut stmt) = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'") {
-                let table_names: Vec<String> = stmt.query_map([], |row| row.get(0)).unwrap()
-                    .map(|r| r.unwrap()).collect();
-                if table_names.contains(&"audit_reports".to_string()) && table_names.contains(&"ephemeral_raw_logs".to_string()) {
+            if let Ok(mut stmt) = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            {
+                let table_names: Vec<String> = stmt
+                    .query_map([], |row| row.get(0))
+                    .unwrap()
+                    .map(|r| r.unwrap())
+                    .collect();
+                if table_names.contains(&"audit_reports".to_string())
+                    && table_names.contains(&"ephemeral_raw_logs".to_string())
+                {
                     tables_ready = true;
                     break;
                 }
@@ -58,7 +76,10 @@ async fn test_audit_db_creation() {
         }
     }
 
-    assert!(tables_ready, "Audit tables were not created within the timeout period.");
+    assert!(
+        tables_ready,
+        "Audit tables were not created within the timeout period."
+    );
 }
 
 #[tokio::test]
@@ -68,8 +89,10 @@ async fn test_hmac_chain_integrity() {
     let pepper = b"a_very_secret_pepper_32_bytes_long".to_vec();
     let (_, hmac_key, genesis_hash) = derive_keys(&pepper);
 
-    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.unwrap();
-    
+    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None)
+        .await
+        .unwrap();
+
     let report = ScrubbingReport {
         sanitized_text: "Hello [TOKEN_1]".to_string(),
         is_blocked: false,
@@ -86,7 +109,9 @@ async fn test_hmac_chain_integrity() {
         potential_misses: vec![],
     };
 
-    auditor.log_report(report.clone(), "Hello Alice".to_string(), "Alice".into()).await;
+    auditor
+        .log_report(report.clone(), "Hello Alice".to_string(), "Alice".into())
+        .await;
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
 
     let conn = Connection::open(db_path).unwrap();
@@ -101,7 +126,7 @@ async fn test_hmac_chain_integrity() {
     mac.update(timestamp.as_bytes());
     mac.update(b"Alice"); // Bind username to integrity chain
     mac.update(&[is_blocked as u8]);
-    
+
     let redactions_vec: Vec<Redaction> = serde_json::from_str(&redactions_json).unwrap_or_default();
     let redactions_bin = bincode::serialize(&redactions_vec).unwrap_or_default();
     mac.update(&redactions_bin);
@@ -120,9 +145,11 @@ async fn test_encryption_roundtrip() {
     let pepper = b"a_very_secret_pepper_32_bytes_long".to_vec();
     let (_, _, genesis_hash) = derive_keys(&pepper);
 
-    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.unwrap();
+    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None)
+        .await
+        .unwrap();
     let raw_input = "Extremely Sensitive Data";
-    
+
     let report = ScrubbingReport {
         sanitized_text: "[TOKEN_1]".to_string(),
         is_blocked: false,
@@ -132,7 +159,9 @@ async fn test_encryption_roundtrip() {
         potential_misses: vec![],
     };
 
-    auditor.log_report(report, raw_input.to_string(), "user_1".into()).await;
+    auditor
+        .log_report(report, raw_input.to_string(), "user_1".into())
+        .await;
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
 
     let conn = Connection::open(db_path).unwrap();
@@ -170,7 +199,9 @@ async fn test_database_busy_fail_closed() {
     let db_path = tmp_file.path().to_str().unwrap();
     let pepper = b"a_very_secret_pepper_32_bytes_long".to_vec();
 
-    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.unwrap();
+    let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None)
+        .await
+        .unwrap();
 
     // Lock the database exclusively from another connection
     let conn = Connection::open(db_path).unwrap();
@@ -186,15 +217,20 @@ async fn test_database_busy_fail_closed() {
     };
 
     // The auditor uses a 2000ms busy_timeout. We expect it to fail with DatabaseBusy
-    let result = auditor.log_report(report, "Raw".to_string(), "test_user".into()).await;
-    
-    assert!(result.is_err(), "Expected DatabaseBusy error, but succeeded");
+    let result = auditor
+        .log_report(report, "Raw".to_string(), "test_user".into())
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Expected DatabaseBusy error, but succeeded"
+    );
     if let Err(iw_core::SovereignError::DatabaseBusy(_)) = result {
         // Success
     } else {
         panic!("Expected DatabaseBusy error, got: {:?}", result);
     }
-    
+
     conn.execute("ROLLBACK", []).unwrap();
 }
 
@@ -206,7 +242,9 @@ async fn test_hmac_chain_breakage() {
 
     // Spawn first auditor and write a log
     {
-        let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.unwrap();
+        let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None)
+            .await
+            .unwrap();
         let report = ScrubbingReport {
             sanitized_text: "Valid".to_string(),
             is_blocked: false,
@@ -215,22 +253,32 @@ async fn test_hmac_chain_breakage() {
             execution_time_ms: 10,
             potential_misses: vec![],
         };
-        auditor.log_report(report, "Raw".to_string(), "user_1".into()).await.unwrap();
+        auditor
+            .log_report(report, "Raw".to_string(), "user_1".into())
+            .await
+            .unwrap();
     }
-    
+
     // Give it time to write and shut down
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Tamper with the database
     let conn = Connection::open(db_path).unwrap();
-    conn.execute("UPDATE audit_reports SET is_blocked = 1", []).unwrap();
+    conn.execute("UPDATE audit_reports SET is_blocked = 1", [])
+        .unwrap();
     drop(conn);
 
     // Attempt to spawn a new auditor on the tampered database
     let result = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await;
-    assert!(result.is_err(), "Auditor spawn should fail due to HMAC chain breakage");
+    assert!(
+        result.is_err(),
+        "Auditor spawn should fail due to HMAC chain breakage"
+    );
     if let Err(iw_core::SovereignError::InternalError(msg)) = result {
-        assert!(msg.contains("DB Init Failed"), "Expected DB Init Failed message");
+        assert!(
+            msg.contains("DB Init Failed"),
+            "Expected DB Init Failed message"
+        );
     } else {
         panic!("Expected InternalError for DB Init Failed");
     }
