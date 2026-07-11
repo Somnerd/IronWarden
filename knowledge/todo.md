@@ -51,7 +51,7 @@
 * [x] **WP-97: [V-14 Violation]**: Fix RAW unsanitized query leak in `bridge.rs`. (Verified)
 * [x] **WP-98: [V-19 Fragility]**: Centralize AAD-bound encryption logic in `iw-core`. (Verified)
 * [ ] **WP-99: [SQLite Silo]**: Implement unified connection pooling (SqlitePool). (High)
-* [ ] **WP-100: [Boilerplate]**: Standardize `spawn_blocking` via `BlockingExecutor`. (Medium)
+* [x] **WP-100: [Boilerplate]**: Standardize `spawn_blocking` via `BlockingExecutor`. (Medium)
 * [ ] **WP-101: [Config/Errors]**: Unify YAML configuration loading and standardize error mapping. (Medium)
 * [ ] **WP-102: [JWT]**: Refactor JWT verification into a reusable component. (Medium)
 

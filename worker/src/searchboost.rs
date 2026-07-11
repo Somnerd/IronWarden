@@ -81,7 +81,7 @@ impl SearchBoostQueue {
 
         let pool_clone = pool.clone();
         let tx_clone = tx.clone();
-        tokio::task::spawn_blocking(move || {
+        iw_core::executor::BlockingExecutor::spawn_blocking(move || {
             if let Ok(conn) = pool_clone.get() {
                 if let Ok(mut stmt) = conn.prepare("SELECT id, username, query FROM search_jobs WHERE status = 'pending' ORDER BY created_at ASC") {
                     if let Ok(mut rows) = stmt.query([]) {
@@ -172,7 +172,7 @@ impl SearchBoostQueue {
             // 1. Decrypt Queries using centralized AadCipher (WP-98)
             let pepper = self.pepper.clone();
             let username_clone = username.clone();
-            let decrypted_bytes = tokio::task::spawn_blocking(move || {
+            let decrypted_bytes = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                 AadCipher::decrypt(
                     &encrypted_sanitized,
                     &username_clone,
@@ -213,7 +213,7 @@ impl SearchBoostQueue {
             // 3. Encrypt Result using centralized AadCipher (WP-98)
             let pepper_clone = self.pepper.clone();
             let username_clone = username.clone();
-            let encrypted_result = tokio::task::spawn_blocking(move || {
+            let encrypted_result = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                 AadCipher::encrypt(
                     consolidated_result.as_bytes(),
                     &username_clone,
@@ -234,7 +234,7 @@ impl SearchBoostQueue {
 
             let pool = self.pool.clone();
             let id_clone = id.clone();
-            tokio::task::spawn_blocking(move || {
+            iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                 let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
                 conn.execute(
                     "UPDATE search_jobs SET result = ?1, status = 'complete' WHERE id = ?2",
@@ -265,7 +265,7 @@ impl SearchBoostQueue {
         let pepper = self.pepper.clone();
         let username_clone = username.clone();
         let sanitized_query_clone = sanitized_query.clone();
-        let encrypted_sanitized = tokio::task::spawn_blocking(move || {
+        let encrypted_sanitized = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
             AadCipher::encrypt(
                 sanitized_query_clone.as_bytes(),
                 &username_clone,
@@ -294,7 +294,7 @@ impl SearchBoostQueue {
         let pool = self.pool.clone();
 
         let encrypted_sanitized_clone = encrypted_sanitized.clone();
-        tokio::task::spawn_blocking(move || {
+        iw_core::executor::BlockingExecutor::spawn_blocking(move || {
             let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
             conn.execute(
                 "INSERT INTO search_jobs (id, username, thread_id, query) VALUES (?1, ?2, ?3, ?4)",
@@ -341,7 +341,7 @@ impl SearchBoostQueue {
             Some(d)
         } else {
             let pool = self.pool.clone();
-            tokio::task::spawn_blocking(move || {
+            iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                 let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
                 let mut stmt = conn.prepare("SELECT username, result FROM search_jobs WHERE id = ?1 AND status = 'complete'").map_err(|e| SovereignError::StorageError(e.to_string()))?;
                 let mut rows = stmt.query([job_id_str]).map_err(|e| {
@@ -369,7 +369,7 @@ impl SearchBoostQueue {
                 }
                 if data.is_empty() { return Ok(None); }
                 
-                let decrypted_string = tokio::task::spawn_blocking(move || {
+                let decrypted_string = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                     // Decrypt result using centralized AadCipher (WP-98)
                     let decrypted_bytes = AadCipher::decrypt(
                         &data,
@@ -460,7 +460,7 @@ impl LocalSessionManager {
         let username_str = username.to_string();
         let pool = self.pool.clone();
         
-        let mut encrypted_data = tokio::task::spawn_blocking(move || {
+        let mut encrypted_data = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
             let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
             let mut stmt = conn.prepare("SELECT session_data FROM sessions WHERE username = ?1").map_err(|e| SovereignError::StorageError(e.to_string()))?;
             let mut rows = stmt.query([username_str]).map_err(|e| {
@@ -496,7 +496,7 @@ impl LocalSessionManager {
         let pepper = self.pepper.clone();
         let ctx = match encrypted_data {
             Some(data) => {
-                let res = tokio::task::spawn_blocking(move || {
+                let res = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                     // Decrypt session using centralized AadCipher (WP-98)
                     let decrypted = AadCipher::decrypt(
                         &data,
@@ -531,7 +531,7 @@ impl LocalSessionManager {
         let pool = self.pool.clone();
         let pepper = self.pepper.clone();
         
-        let combined = tokio::task::spawn_blocking(move || {
+        let combined = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
             // Encrypt session using centralized AadCipher (WP-98)
             let combined = AadCipher::encrypt(
                 &json_bytes,
@@ -576,7 +576,7 @@ impl LocalSessionManager {
             let pepper = self.pepper.clone();
             
             // Encrypt session using centralized AadCipher (WP-98)
-            let combined_res = tokio::task::spawn_blocking(move || {
+            let combined_res = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                 AadCipher::encrypt(
                     &json_bytes,
                     &username,
@@ -595,7 +595,7 @@ impl LocalSessionManager {
         }
 
         let pool = self.pool.clone();
-        tokio::task::spawn_blocking(move || {
+        iw_core::executor::BlockingExecutor::spawn_blocking(move || {
             let mut conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| {
                 if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {

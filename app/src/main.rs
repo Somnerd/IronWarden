@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- PERFORMANCE FIX: Initialize heavy AI engine in a blocking task ---
     let config_path_clone = config_path.clone();
     let pepper_init = secrecy::SecretVec::new(pepper_raw.clone());
-    let initial_engine = tokio::task::spawn_blocking(move || {
+    let initial_engine = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
         let config = WardenConfig::from_dir(&config_path_clone)?;
         config.compile_engine(&pepper_init)
     }).await.map_err(|e| SovereignError::InternalError(format!("Initialization task panicked: {}", e)))??;
@@ -127,7 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hot_reload_pepper_raw = pepper_raw.clone();
     tokio::spawn(async move {
         let get_latest_modified = |path: String| async move {
-            tokio::task::spawn_blocking(move || {
+            iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                 let mut latest = std::time::SystemTime::UNIX_EPOCH;
                 if let Ok(entries) = std::fs::read_dir(&path) {
                     for entry in entries.flatten() {
@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tracing::info!("Detected file modification in config regions directory. Hot-reloading WardenEngine...");
                 let hot_reload_path_inner = hot_reload_path.clone();
                 let pepper_inner = secrecy::SecretVec::new(hot_reload_pepper_raw.clone());
-                let reload_result = tokio::task::spawn_blocking(move || {
+                let reload_result = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                     if let Ok(new_config) = WardenConfig::from_dir(&hot_reload_path_inner) {
                         return new_config.compile_engine(&pepper_inner);
                     }
