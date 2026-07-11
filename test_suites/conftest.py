@@ -84,6 +84,7 @@ class IronWardenRunner:
         }
         self.process = None
         self.stderr_output = []
+        self.stderr_lock = threading.Lock()
 
     def start(self, env_vars=None, **kwargs):
         # We use self.env from __init__ instead of overwriting with os.environ.copy()
@@ -117,21 +118,26 @@ class IronWardenRunner:
         start_time = time.time()
         ignited = False
         while time.time() - start_time < 30:
-            if any("IronWarden Forge ignited" in line for line in self.stderr_output):
+            current_stderr = self.get_stderr_output()
+            if any("IronWarden Forge ignited" in line for line in current_stderr):
                 ignited = True
                 break
             if self.process.poll() is not None:
-                stderr = "\n".join(self.stderr_output)
+                stderr = "\n".join(self.get_stderr_output())
                 raise RuntimeError(f"IronWarden failed to start. Exit code: {self.process.returncode}\nStderr: {stderr}")
             time.sleep(0.1)
 
         if not ignited:
-             stderr = "\n".join(self.stderr_output)
+             stderr = "\n".join(self.get_stderr_output())
              self.stop()
              raise RuntimeError(f"IronWarden timed out starting. Stderr:\n{stderr}")
         
         # Settle delay to ensure background DB tasks are fully committed
         time.sleep(1)
+
+    def get_stderr_output(self):
+        with self.stderr_lock:
+            return list(self.stderr_output)
 
     def _read_stderr(self):
         while not self.stop_event.is_set():
@@ -139,7 +145,8 @@ class IronWardenRunner:
             if not line:
                 break
             line = line.strip()
-            self.stderr_output.append(line)
+            with self.stderr_lock:
+                self.stderr_output.append(line)
             print(f"DEBUG LOG: {line}")
 
     def stop(self):
