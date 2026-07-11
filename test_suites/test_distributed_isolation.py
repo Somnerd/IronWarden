@@ -45,7 +45,13 @@ def test_distributed_session_mismatch(warden_bin):
         runner_a.stop()
         runner_b.stop()
         if os.path.exists("audit_a.db"): os.remove("audit_a.db")
+        if os.path.exists("audit_a.db-shm"): os.remove("audit_a.db-shm")
+        if os.path.exists("audit_a.db-wal"): os.remove("audit_a.db-wal")
+        if os.path.exists("audit_a.db.anchor"): os.remove("audit_a.db.anchor")
         if os.path.exists("audit_b.db"): os.remove("audit_b.db")
+        if os.path.exists("audit_b.db-shm"): os.remove("audit_b.db-shm")
+        if os.path.exists("audit_b.db-wal"): os.remove("audit_b.db-wal")
+        if os.path.exists("audit_b.db.anchor"): os.remove("audit_b.db.anchor")
 
 def test_distributed_audit_contention_real(warden_bin):
     """
@@ -78,5 +84,8 @@ def test_distributed_audit_contention_real(warden_bin):
         runner_a.stop()
         runner_b.stop()
         if os.path.exists(shared_db): os.remove(shared_db)
+        if os.path.exists(shared_db + "-shm"): os.remove(shared_db + "-shm")
+        if os.path.exists(shared_db + "-wal"): os.remove(shared_db + "-wal")
+        if os.path.exists(shared_db + ".anchor"): os.remove(shared_db + ".anchor")
 
 import os

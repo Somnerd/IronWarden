@@ -14,6 +14,8 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     
     let _ = std::fs::remove_file(db_path);
     let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    let _ = std::fs::remove_file(format!("{}-shm", db_path));
+    let _ = std::fs::remove_file(format!("{}-wal", db_path));
 
     // 1. Initialize Auditor
     let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None).await.expect("Failed to spawn auditor");
@@ -105,4 +107,7 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     assert!(stdout_tampered.contains("STATUS: CHAIN CORRUPTED (1 records tampered)"), "Expected corrupted chain status");
 
     let _ = std::fs::remove_file(db_path);
+    let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    let _ = std::fs::remove_file(format!("{}-shm", db_path));
+    let _ = std::fs::remove_file(format!("{}-wal", db_path));
 }

@@ -156,7 +156,7 @@ class IronWardenRunner:
             if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
                 os.remove(self.env["AUDIT_DB_PATH"])
                 # Also remove WAL/SHM files
-                for ext in ["-shm", "-wal"]:
+                for ext in ["-shm", "-wal", ".anchor"]:
                     if os.path.exists(self.env["AUDIT_DB_PATH"] + ext):
                         os.remove(self.env["AUDIT_DB_PATH"] + ext)
 

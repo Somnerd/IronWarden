@@ -16,6 +16,7 @@ async fn test_ha_logic_detection() {
     let _ = std::fs::remove_file("test_ha.db");
     let _ = std::fs::remove_file("test_ha.db-shm");
     let _ = std::fs::remove_file("test_ha.db-wal");
+    let _ = std::fs::remove_file("test_ha.db.anchor");
 }
 
 #[tokio::test]
@@ -29,4 +30,5 @@ async fn test_ha_logic_disabled_without_env() {
     let _ = std::fs::remove_file("test_no_ha.db");
     let _ = std::fs::remove_file("test_no_ha.db-shm");
     let _ = std::fs::remove_file("test_no_ha.db-wal");
+    let _ = std::fs::remove_file("test_no_ha.db.anchor");
 }
