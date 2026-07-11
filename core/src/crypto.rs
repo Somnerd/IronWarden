@@ -4,6 +4,44 @@ use sha2::Sha256;
 use rand::RngCore;
 use zeroize::Zeroize;
 use crate::error::SovereignError;
+use serde::{Serialize, Deserialize};
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: String, // The username/tenant_id
+    pub exp: usize,
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
+pub struct JwtVerifier;
+
+impl JwtVerifier {
+    pub fn verify(
+        token: &str,
+        public_key_pem: &[u8],
+        audience: &str,
+        issuer: &str,
+    ) -> Result<Claims, SovereignError> {
+        let mut validation = Validation::new(Algorithm::RS256);
+        validation.set_audience(&[audience]);
+        validation.set_issuer(&[issuer]);
+
+        let decoding_key = match DecodingKey::from_rsa_pem(public_key_pem) {
+            Ok(k) => k,
+            Err(_) => return Err(SovereignError::InternalError("Invalid RSA Public Key Configuration".into())),
+        };
+
+        match decode::<Claims>(token, &decoding_key, &validation) {
+            Ok(token_data) => Ok(token_data.claims),
+            Err(e) => {
+                tracing::error!("JWT Validation Failure: {}", e);
+                Err(SovereignError::UnauthorizedAccess("Invalid or Expired Token".into()))
+            }
+        }
+    }
+}
 
 pub fn build_hkdf_info(info: &[u8], aad: &str) -> Vec<u8> {
     let aad_bytes = aad.as_bytes();

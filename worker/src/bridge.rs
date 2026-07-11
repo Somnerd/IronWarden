@@ -9,24 +9,15 @@ use std::collections::HashMap;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use crate::searchboost::{SearchBoostQueue, LocalSessionManager};
 use iw_core::{PiiShield, StorageProvider, SovereignError};
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use iw_core::crypto::{JwtVerifier};
 use serde::{Serialize, Deserialize};
 use secrecy::{SecretVec, ExposeSecret};
-
 
 #[derive(Serialize)]
 struct EnqueueResponse<'a> {
     status: &'a str,
     id: String,
     pii_scrubbed: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Claims {
-    pub sub: String, // The username/tenant_id
-    pub exp: usize,
-    #[serde(default)]
-    pub roles: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -103,7 +94,6 @@ async fn handle_enqueue(
     };
 
     // --- SECURITY FIX (Section 3.3 / Finding B.3): RS256 Decoupled Verification ---
-    let mut validation = Validation::new(Algorithm::RS256);
     let aud = match std::env::var("WARDEN_JWT_AUDIENCE") {
         Ok(v) => v,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_AUDIENCE environment variable is strictly required. Refusing to boot with default fallbacks.").into_response(),
@@ -112,33 +102,20 @@ async fn handle_enqueue(
         Ok(v) => v,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_ISSUER environment variable is strictly required. Refusing to boot with default fallbacks.").into_response(),
     };
-    validation.set_audience(&[aud]);
-    validation.set_issuer(&[iss]);
 
-    let decoding_key = match DecodingKey::from_rsa_pem(state.jwt_public_key.expose_secret()) {
-        Ok(k) => k,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid RSA Public Key Configuration").into_response(),
+    let token_data = match JwtVerifier::verify(token, state.jwt_public_key.expose_secret(), &aud, &iss) {
+        Ok(claims) => claims,
+        Err(SovereignError::UnauthorizedAccess(msg)) => return (StatusCode::UNAUTHORIZED, msg).into_response(),
+        Err(e) => return map_error(e).into_response(),
     };
 
-    let token_data = match decode::<Claims>(
-        token,
-        &decoding_key,
-        &validation,
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("JWT Validation Failure: {}", e);
-            return (StatusCode::UNAUTHORIZED, "Invalid or Expired Token").into_response();
-        }
-    };
-
-    let has_required_role = token_data.claims.roles.contains(&"admin".to_string()) || token_data.claims.roles.contains(&"privileged_search".to_string());
+    let has_required_role = token_data.roles.contains(&"admin".to_string()) || token_data.roles.contains(&"privileged_search".to_string());
     if !has_required_role {
-        tracing::error!("RBAC Enforcement Failure: {} lacks required roles", token_data.claims.sub);
+        tracing::error!("RBAC Enforcement Failure: {} lacks required roles", token_data.sub);
         return (StatusCode::FORBIDDEN, "Insufficient privileges. Requires 'admin' or 'privileged_search' role.").into_response();
     }
 
-    let username = token_data.claims.sub.clone();
+    let username = token_data.sub.clone();
 
     // 2. Local Session Retrieval
     let user_context = match state.session_manager.get_session(&username).await {
@@ -217,7 +194,6 @@ async fn handle_get_result(
         None => return (StatusCode::UNAUTHORIZED, "Missing Bearer Token").into_response(),
     };
 
-    let mut validation = Validation::new(Algorithm::RS256);
     let aud = match std::env::var("WARDEN_JWT_AUDIENCE") {
         Ok(v) => v,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_AUDIENCE environment variable is strictly required.").into_response(),
@@ -226,29 +202,16 @@ async fn handle_get_result(
         Ok(v) => v,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_ISSUER environment variable is strictly required.").into_response(),
     };
-    validation.set_audience(&[aud]);
-    validation.set_issuer(&[iss]);
 
-    let decoding_key = match DecodingKey::from_rsa_pem(state.jwt_public_key.expose_secret()) {
-        Ok(k) => k,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid RSA Public Key Configuration").into_response(),
+    let token_data = match JwtVerifier::verify(token, state.jwt_public_key.expose_secret(), &aud, &iss) {
+        Ok(claims) => claims,
+        Err(SovereignError::UnauthorizedAccess(msg)) => return (StatusCode::UNAUTHORIZED, msg).into_response(),
+        Err(e) => return map_error(e).into_response(),
     };
 
-    let token_data = match decode::<Claims>(
-        token,
-        &decoding_key,
-        &validation,
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("JWT Validation Failure: {}", e);
-            return (StatusCode::UNAUTHORIZED, "Invalid or Expired Token").into_response();
-        }
-    };
-
-    let username = token_data.claims.sub.clone();
-    let has_required_role = token_data.claims.roles.contains(&"admin".to_string()) || token_data.claims.roles.contains(&"privileged_search".to_string());
-    let is_admin = token_data.claims.roles.contains(&"admin".to_string());
+    let username = token_data.sub.clone();
+    let has_required_role = token_data.roles.contains(&"admin".to_string()) || token_data.roles.contains(&"privileged_search".to_string());
+    let is_admin = token_data.roles.contains(&"admin".to_string());
     if !has_required_role {
         tracing::error!("RBAC Enforcement Failure: {} lacks required roles", username);
         return (StatusCode::FORBIDDEN, "Insufficient privileges. Requires 'admin' or 'privileged_search' role.").into_response();

@@ -18,6 +18,8 @@ rand = "0.8"
 zeroize = { version = "1.8", features = ["zeroize_derive"] }
 aead = "0.5"
 tokio = { version = "1.0", features = ["rt", "macros", "rt-multi-thread"] }
+jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
+
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }

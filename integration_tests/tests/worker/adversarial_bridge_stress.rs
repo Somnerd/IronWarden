@@ -1,7 +1,8 @@
 // Stress and concurrency tests for the bridge router verifying high-concurrency request handling, role-based authorization (JWT verification), and security policy blocking behavior.
 use std::sync::Arc;
 use iw_warden::{WardenConfig};
-use worker::{WorkerStorage, BridgeState, create_bridge_router, bridge::Claims};
+use worker::{WorkerStorage, BridgeState, create_bridge_router};
+use iw_core::crypto::Claims;
 use axum::{http::StatusCode};
 use tempfile::tempdir;
 use std::fs;
