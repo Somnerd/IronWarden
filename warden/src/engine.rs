@@ -262,16 +262,7 @@ impl PiiShield for WardenEngine {
                 let after_ok = mat.end() == norm_res.normalized_ascii.len()
                     || !norm_res.normalized_ascii[mat.end()..]
                         .starts_with(|c: char| c.is_alphanumeric());
-                if norm_res.normalized_ascii.contains("Malice") {
-                    println!(
-                        "DEBUG DIC: pattern={:?}, start={}, end={}, before_ok={}, after_ok={}",
-                        mat.pattern(),
-                        mat.start(),
-                        mat.end(),
-                        before_ok,
-                        after_ok
-                    );
-                }
+
                 if !before_ok || !after_ok {
                     continue;
                 }
@@ -331,6 +322,19 @@ impl PiiShield for WardenEngine {
                     } else {
                         orig_start
                     };
+
+                    let ascii_start = norm_res.original_to_ascii[orig_start];
+                    let ascii_end = norm_res.original_to_ascii[orig_end];
+
+                    let before_ok = ascii_start == 0
+                        || !norm_res.normalized_ascii[..ascii_start]
+                            .ends_with(|c: char| c.is_alphanumeric());
+                    let after_ok = ascii_end == norm_res.normalized_ascii.len()
+                        || !norm_res.normalized_ascii[ascii_end..]
+                            .starts_with(|c: char| c.is_alphanumeric());
+                    if !before_ok || !after_ok {
+                        continue;
+                    }
 
                     let unicode_start = norm_res.original_to_unicode[orig_start];
                     let unicode_end = norm_res.original_to_unicode[orig_end];

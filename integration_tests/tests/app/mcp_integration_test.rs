@@ -22,6 +22,7 @@ impl InferenceGateway for MockRouter {
 
 #[tokio::test]
 async fn test_mcp_full_pipeline_with_tantivy() {
+    std::env::set_var("WARDEN_ENV", "test");
     std::env::set_var("WARDEN_USER", "test_user");
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("audit.db").to_str().unwrap().to_string();
