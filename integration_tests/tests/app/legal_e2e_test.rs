@@ -9,7 +9,7 @@ use warden::WardenConfig;
 #[tokio::test]
 async fn test_legal_e2e() {
     let config_dir = "../config/regions";
-    let mut config = WardenConfig::from_dir(config_dir).expect("Failed to load config");
+    let mut config = WardenConfig::from_manifest("/tmp/manifest_legal.yaml").expect("Failed to load config manifest").0;
     config.ai_enabled = false;
     let secret = secrecy::SecretVec::new(vec![0u8; 32]);
     let engine = config.compile_engine(&secret).expect("Failed to compile engine");

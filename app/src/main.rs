@@ -89,13 +89,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if pepper_raw.len() < 32 { return Err("Insecure WARDEN_PEPPER (min 32 bytes)".into()); }
     let global_pepper = secrecy::SecretVec::new(pepper_raw.clone());
 
-    let config_path = std::env::var("WARDEN_CONFIG_PATH").unwrap_or_else(|_| "config/regions".to_string());
+    let config_path = std::env::var("WARDEN_MANIFEST_PATH").unwrap_or_else(|_| "config/manifest.yaml".to_string());
     
     // --- PERFORMANCE FIX: Initialize heavy AI engine in a blocking task ---
     let config_path_clone = config_path.clone();
     let pepper_init = secrecy::SecretVec::new(pepper_raw.clone());
-    let initial_engine = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
-        let config = WardenConfig::from_dir(&config_path_clone)?;
+    let initial_engine = iw_core::executor::BlockingExecutor::spawn_blocking(move || -> Result<_, SovereignError> {
+        let (config, warnings) = WardenConfig::from_manifest(&config_path_clone)?;
+        
+        if !warnings.is_empty() {
+            tracing::warn!("Configuration Warnings:");
+            for w in &warnings {
+                tracing::warn!(" - {}", w);
+            }
+            use std::io::IsTerminal;
+            if std::io::stdin().is_terminal() {
+                println!("WARNING: Some rules failed to load. Proceed anyway? [y/N]");
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input).unwrap();
+                if input.trim().to_lowercase() != "y" {
+                    return Err(SovereignError::ConfigError("Boot aborted by user due to invalid rules.".into()));
+                }
+            } else {
+                return Err(SovereignError::ConfigError("Boot aborted due to invalid rules in non-interactive mode.".into()));
+            }
+        }
+        
         config.compile_engine(&pepper_init)
     }).await.map_err(|e| SovereignError::InternalError(format!("Initialization task panicked: {}", e)))??;
 
@@ -129,15 +148,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let get_latest_modified = |path: String| async move {
             iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                 let mut latest = std::time::SystemTime::UNIX_EPOCH;
-                if let Ok(entries) = std::fs::read_dir(&path) {
-                    for entry in entries.flatten() {
-                        if let Ok(metadata) = entry.metadata() {
-                            if let Ok(modified) = metadata.modified() {
-                                if modified > latest {
-                                    latest = modified;
-                                }
-                            }
-                        }
+                if let Ok(metadata) = std::fs::metadata(&path) {
+                    if let Ok(modified) = metadata.modified() {
+                        latest = modified;
                     }
                 }
                 latest
@@ -154,8 +167,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tracing::info!("Detected file modification in config regions directory. Hot-reloading WardenEngine...");
                 let hot_reload_path_inner = hot_reload_path.clone();
                 let pepper_inner = secrecy::SecretVec::new(hot_reload_pepper_raw.clone());
+<<<<<<< HEAD
                 let reload_result = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                     if let Ok(new_config) = WardenConfig::from_dir(&hot_reload_path_inner) {
+=======
+                let reload_result = tokio::task::spawn_blocking(move || {
+                    if let Ok((new_config, warnings)) = WardenConfig::from_manifest(&hot_reload_path_inner) {
+                        if !warnings.is_empty() {
+                            tracing::warn!("Hot-reload Configuration Warnings:");
+                            for w in &warnings {
+                                tracing::warn!(" - {}", w);
+                            }
+                        }
+>>>>>>> f9c1f25 (feat: implement unified Configurator & Error Mapping (WP-101))
                         return new_config.compile_engine(&pepper_inner);
                     }
                     Err(iw_core::SovereignError::ConfigError("Reload failed".into()))

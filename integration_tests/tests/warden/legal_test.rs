@@ -5,7 +5,7 @@ use iw_core::PiiShield;
 #[tokio::test]
     async fn test_legal_rules_loading() {
     let config_dir = "../config/regions";
-    let mut config = WardenConfig::from_dir(config_dir).expect("Failed to load config directory");
+    let mut config = WardenConfig::from_manifest("test_manifest_legal.yaml").expect("Failed to load config manifest").0;
     config.ai_enabled = false;
     
     // Verify legal rules are loaded
@@ -22,7 +22,7 @@ use iw_core::PiiShield;
 #[tokio::test]
     async fn test_legal_pii_redaction() {
     let config_dir = "../config/regions";
-    let mut config = WardenConfig::from_dir(config_dir).expect("Failed to load config directory");
+    let mut config = WardenConfig::from_manifest("test_manifest_legal.yaml").expect("Failed to load config manifest").0;
     config.ai_enabled = false;
     
     let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
