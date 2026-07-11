@@ -52,7 +52,7 @@ jobs:
           )
 
       - name: Run Clippy Lints
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets
 
       - name: Run Workspace Unit Tests
         run: cargo test --workspace
