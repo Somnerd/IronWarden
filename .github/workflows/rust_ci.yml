@@ -13,6 +13,8 @@ jobs:
   test:
     name: Build & Test (Rust & Python Integration)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Code
@@ -34,7 +36,14 @@ jobs:
           pip install pytest pyjwt cryptography
 
       - name: Check Code Formatting
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all
+          if [ -n "$(git status --porcelain)" ]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -am "style: auto format code with rustfmt"
+            git push
+          fi
 
       - name: Run Clippy Lints
         run: cargo clippy --workspace --all-targets -- -D warnings
