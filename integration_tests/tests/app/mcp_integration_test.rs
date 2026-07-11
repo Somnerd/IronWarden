@@ -22,7 +22,6 @@ impl InferenceGateway for MockRouter {
 
 #[tokio::test]
 async fn test_mcp_full_pipeline_with_tantivy() {
-    std::env::set_var("WARDEN_ENV", "test");
     std::env::set_var("WARDEN_USER", "test_user");
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("audit.db").to_str().unwrap().to_string();
@@ -63,13 +62,41 @@ rules:
 
     let mcp = StdioMcpServer::new(shield, storage, router, session_manager);
 
-    // 3. Simulate Request
+    // 3. Simulate Request with valid _auth signature
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    use hmac::digest::KeyInit;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let mcp_secret = std::env::var("WARDEN_MCP_SECRET")
+        .unwrap_or_else(|_| "dummy_mcp_secret_value_for_testing_purposes".to_string());
+
+    let business_params_string = r#"{"prompt":"Tell me about Project X","username":"test_user"}"#;
+
+    let target_string = format!(
+        "mcp_orchestrate:test_user:{}:{}",
+        timestamp, business_params_string
+    );
+
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac = HmacSha256::new_from_slice(mcp_secret.as_bytes()).unwrap();
+    mac.update(target_string.as_bytes());
+    let signature = hex::encode(mac.finalize().into_bytes());
+
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "mcp_orchestrate",
         "params": {
             "prompt": "Tell me about Project X",
-            "username": "test_user"
+            "username": "test_user",
+            "_auth": {
+                "timestamp": timestamp,
+                "signature": signature
+            }
         },
         "id": "1"
     });
