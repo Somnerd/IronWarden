@@ -167,11 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tracing::info!("Detected file modification in config regions directory. Hot-reloading WardenEngine...");
                 let hot_reload_path_inner = hot_reload_path.clone();
                 let pepper_inner = secrecy::SecretVec::new(hot_reload_pepper_raw.clone());
-<<<<<<< HEAD
                 let reload_result = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
-                    if let Ok(new_config) = WardenConfig::from_dir(&hot_reload_path_inner) {
-=======
-                let reload_result = tokio::task::spawn_blocking(move || {
                     if let Ok((new_config, warnings)) = WardenConfig::from_manifest(&hot_reload_path_inner) {
                         if !warnings.is_empty() {
                             tracing::warn!("Hot-reload Configuration Warnings:");
@@ -179,7 +175,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 tracing::warn!(" - {}", w);
                             }
                         }
->>>>>>> f9c1f25 (feat: implement unified Configurator & Error Mapping (WP-101))
                         return new_config.compile_engine(&pepper_inner);
                     }
                     Err(iw_core::SovereignError::ConfigError("Reload failed".into()))

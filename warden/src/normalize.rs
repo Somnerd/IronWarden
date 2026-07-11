@@ -138,7 +138,7 @@ impl Normalizer {
     fn is_invisible(c: char) -> bool {
         // Broaden detection to all Unicode Format (Cf) and Control (Cc) characters,
         // as well as other non-spacing characters used for evasion.
-        c.is_control() || 
+        c.is_control() ||
         ('\u{200B}'..='\u{200F}').contains(&c) || // ZWSP, ZWNJ, ZWJ, LRM, RLM
         ('\u{202A}'..='\u{202E}').contains(&c) || // LRE, RLE, PDF, LRO, RLO
         ('\u{2060}'..='\u{206F}').contains(&c) || // Word Joiner, Format characters
