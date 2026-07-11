@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  WARDEN_MCP_SECRET: "dummy_mcp_secret_value_for_testing_purposes"
 
 jobs:
   test:
