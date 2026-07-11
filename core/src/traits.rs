@@ -199,7 +199,6 @@ pub enum PiiCategory {
     Other,
 }
 
-
 // DO NOT REORDER FIELDS: This struct is serialized via `bincode` for the cryptographic audit chain.
 // Any field reordering will break historical HMAC validation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
