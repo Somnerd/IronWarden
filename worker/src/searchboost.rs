@@ -8,6 +8,7 @@ use iw_core::{SessionContext, SessionState, SovereignError, AadCipher};
 use dashmap::DashMap;
 use rusqlite::{Connection, ErrorCode};
 use secrecy::{SecretVec, ExposeSecret};
+use r2d2_sqlite::SqliteConnectionManager;
 
 /// Represents the job payload for consolidated storage.
 #[derive(Serialize, Deserialize, Debug)]
@@ -24,7 +25,7 @@ pub struct LocalJob {
 pub struct SearchBoostQueue {
     db_path: String,
     pepper: Arc<SecretVec<u8>>,
-    conn: Arc<std::sync::Mutex<Connection>>,
+    pool: r2d2::Pool<SqliteConnectionManager>,
     shield: Option<Arc<dyn iw_core::PiiShield + Send + Sync>>,
     grounding_shield: Option<Arc<dyn iw_core::GroundingShield + Send + Sync>>,
     redis_client: Option<redis::Client>,
@@ -39,12 +40,25 @@ impl SearchBoostQueue {
         shield: Option<Arc<dyn iw_core::PiiShield + Send + Sync>>,
         grounding_shield: Option<Arc<dyn iw_core::GroundingShield + Send + Sync>>,
     ) -> Result<Self, SovereignError> {
-        let conn = Connection::open(&db_path).map_err(|e| SovereignError::StorageError(format!("Failed to open SearchBoost DB: {}", e)))?;
-        conn.busy_timeout(std::time::Duration::from_millis(10000)).map_err(|e| SovereignError::StorageError(e.to_string()))?;
+        let manager = SqliteConnectionManager::file(&db_path)
+            .with_init(|c| {
+                c.busy_timeout(std::time::Duration::from_millis(10000))?;
+                c.execute_batch("
+                    PRAGMA journal_mode = WAL; 
+                    PRAGMA synchronous = NORMAL;
+                    PRAGMA secure_delete = ON;
+                ")?;
+                Ok(())
+            });
+        
+        let pool = r2d2::Pool::builder()
+            .max_size(15)
+            .build(manager)
+            .map_err(|e| SovereignError::StorageError(format!("Failed to create connection pool: {}", e)))?;
+            
+        let conn = pool.get().map_err(|e| SovereignError::StorageError(format!("Failed to get connection from pool: {}", e)))?;
+
         conn.execute_batch("
-            PRAGMA journal_mode = WAL; 
-            PRAGMA synchronous = NORMAL;
-            PRAGMA secure_delete = ON;
             CREATE TABLE IF NOT EXISTS search_jobs (
                 id TEXT PRIMARY KEY, 
                 username TEXT, 
@@ -65,27 +79,26 @@ impl SearchBoostQueue {
 
         let (tx, rx) = flume::unbounded();
 
-        let conn_arc = Arc::new(std::sync::Mutex::new(conn));
-
-        // Resilience: Recover pending jobs
+        let pool_clone = pool.clone();
         let tx_clone = tx.clone();
-        let conn_clone = conn_arc.clone();
-        if let Ok(conn) = conn_clone.lock() {
-            if let Ok(mut stmt) = conn.prepare("SELECT id, username, query FROM search_jobs WHERE status = 'pending' ORDER BY created_at ASC") {
-                if let Ok(mut rows) = stmt.query([]) {
-                    while let Ok(Some(row)) = rows.next() {
-                        if let (Ok(id), Ok(username), Ok(query)) = (row.get::<_, String>(0), row.get::<_, String>(1), row.get::<_, Vec<u8>>(2)) {
-                            let _ = tx_clone.send((id, username, query));
+        tokio::task::spawn_blocking(move || {
+            if let Ok(conn) = pool_clone.get() {
+                if let Ok(mut stmt) = conn.prepare("SELECT id, username, query FROM search_jobs WHERE status = 'pending' ORDER BY created_at ASC") {
+                    if let Ok(mut rows) = stmt.query([]) {
+                        while let Ok(Some(row)) = rows.next() {
+                            if let (Ok(id), Ok(username), Ok(query)) = (row.get::<_, String>(0), row.get::<_, String>(1), row.get::<_, Vec<u8>>(2)) {
+                                let _ = tx_clone.send((id, username, query));
+                            }
                         }
                     }
                 }
             }
-        }
+        });
 
         let queue = Self {
             db_path, 
             pepper: Arc::new(SecretVec::new(pepper.expose_secret().to_vec())),
-            conn: conn_arc,
+            pool,
             shield,
             grounding_shield,
             redis_client,
@@ -219,10 +232,10 @@ impl SearchBoostQueue {
                 }
             }
 
-            let conn_arc = self.conn.clone();
+            let pool = self.pool.clone();
             let id_clone = id.clone();
             tokio::task::spawn_blocking(move || {
-                let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
+                let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
                 conn.execute(
                     "UPDATE search_jobs SET result = ?1, status = 'complete' WHERE id = ?2",
                     (&encrypted_result, &id_clone),
@@ -278,11 +291,11 @@ impl SearchBoostQueue {
         let username_clone = username.clone();
         let thread_id_clone = thread_id.clone();
         let job_id_clone = job_id.clone();
-        let conn_arc = self.conn.clone();
+        let pool = self.pool.clone();
 
         let encrypted_sanitized_clone = encrypted_sanitized.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
+            let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
             conn.execute(
                 "INSERT INTO search_jobs (id, username, thread_id, query) VALUES (?1, ?2, ?3, ?4)",
                 (&job_id_clone, &username_clone, &thread_id_clone, &encrypted_sanitized_clone),
@@ -327,9 +340,9 @@ impl SearchBoostQueue {
         let result_data = if let Some(d) = redis_data {
             Some(d)
         } else {
-            let conn_arc = self.conn.clone();
+            let pool = self.pool.clone();
             tokio::task::spawn_blocking(move || {
-                let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
+                let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
                 let mut stmt = conn.prepare("SELECT username, result FROM search_jobs WHERE id = ?1 AND status = 'complete'").map_err(|e| SovereignError::StorageError(e.to_string()))?;
                 let mut rows = stmt.query([job_id_str]).map_err(|e| {
                     if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
@@ -383,20 +396,32 @@ pub struct LocalSessionManager {
     sessions: DashMap<String, Arc<SessionContext>>,
     db_path: String,
     pepper: Arc<SecretVec<u8>>,
-    conn: Arc<std::sync::Mutex<Connection>>,
+    pool: r2d2::Pool<SqliteConnectionManager>,
     redis_client: Option<redis::Client>,
 }
 
 impl LocalSessionManager {
     pub fn new(db_path: String, pepper: &SecretVec<u8>) -> Result<Arc<Self>, SovereignError> {
-        let conn = Connection::open(&db_path).map_err(|e| SovereignError::StorageError(format!("Failed to open Session DB: {}", e)))?;
-        conn.busy_timeout(std::time::Duration::from_millis(10000)).map_err(|e| SovereignError::StorageError(e.to_string()))?;
+        let manager = SqliteConnectionManager::file(&db_path)
+            .with_init(|c| {
+                c.busy_timeout(std::time::Duration::from_millis(10000))?;
+                c.execute_batch("
+                    PRAGMA journal_mode = WAL; 
+                    PRAGMA synchronous = NORMAL;
+                    PRAGMA secure_delete = ON;
+                ")?;
+                Ok(())
+            });
+            
+        let pool = r2d2::Pool::builder()
+            .max_size(15)
+            .build(manager)
+            .map_err(|e| SovereignError::StorageError(format!("Failed to create connection pool: {}", e)))?;
+            
+        let conn = pool.get().map_err(|e| SovereignError::StorageError(format!("Failed to get connection from pool: {}", e)))?;
         conn.execute_batch("
-            PRAGMA journal_mode = WAL; 
-            PRAGMA synchronous = NORMAL;
-            PRAGMA secure_delete = ON;
             CREATE TABLE IF NOT EXISTS sessions (username TEXT PRIMARY KEY, session_data TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
-        ").map_err(|e| SovereignError::StorageError(format!("Failed to set PRAGMAs or create sessions table: {}", e)))?;
+        ").map_err(|e| SovereignError::StorageError(format!("Failed to create sessions table: {}", e)))?;
 
         let redis_url = std::env::var("REDIS_URL").ok();
         let redis_client = redis_url.and_then(|url| redis::Client::open(url).ok());
@@ -408,7 +433,7 @@ impl LocalSessionManager {
             sessions: DashMap::new(),
             db_path: db_path.clone(),
             pepper: Arc::new(SecretVec::new(pepper.expose_secret().to_vec())),
-            conn: Arc::new(std::sync::Mutex::new(conn)),
+            pool,
             redis_client,
         });
 
@@ -433,10 +458,10 @@ impl LocalSessionManager {
         }
 
         let username_str = username.to_string();
-        let conn_arc = self.conn.clone();
+        let pool = self.pool.clone();
         
         let mut encrypted_data = tokio::task::spawn_blocking(move || {
-            let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
+            let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
             let mut stmt = conn.prepare("SELECT session_data FROM sessions WHERE username = ?1").map_err(|e| SovereignError::StorageError(e.to_string()))?;
             let mut rows = stmt.query([username_str]).map_err(|e| {
                 if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
@@ -503,7 +528,7 @@ impl LocalSessionManager {
         let json_bytes = serde_json::to_vec(&state).unwrap_or_default();
         
         let username_str = username.to_string();
-        let conn_arc = self.conn.clone();
+        let pool = self.pool.clone();
         let pepper = self.pepper.clone();
         
         let combined = tokio::task::spawn_blocking(move || {
@@ -515,7 +540,7 @@ impl LocalSessionManager {
                 b"warden-v1-session-encryption"
             )?;
 
-            let conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
+            let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
             conn.execute(
                 "INSERT INTO sessions (username, session_data, updated_at) VALUES (?1, ?2, CURRENT_TIMESTAMP)
                  ON CONFLICT(username) DO UPDATE SET session_data = ?2, updated_at = CURRENT_TIMESTAMP",
@@ -569,9 +594,9 @@ impl LocalSessionManager {
             return Ok(());
         }
 
-        let conn_arc = self.conn.clone();
+        let pool = self.pool.clone();
         tokio::task::spawn_blocking(move || {
-            let mut conn = conn_arc.lock().map_err(|_| SovereignError::InternalError("Mutex poisoned".into()))?;
+            let mut conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| {
                 if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
                     SovereignError::DatabaseBusy("Session DB busy".into())
