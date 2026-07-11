@@ -63,9 +63,9 @@ rules:
     let mcp = StdioMcpServer::new(shield, storage, router, session_manager);
 
     // 3. Simulate Request with valid _auth signature
+    use hmac::digest::KeyInit;
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
-    use hmac::digest::KeyInit;
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
