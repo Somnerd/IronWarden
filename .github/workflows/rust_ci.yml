@@ -55,6 +55,11 @@ jobs:
       - name: Run Clippy Lints
         run: cargo clippy --workspace --all-targets
 
+      - name: Prepare Test Manifests
+        run: |
+          cp warden/test_manifest_*.yaml integration_tests/
+          cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml
+
       - name: Run Workspace Unit Tests
         run: cargo test --workspace
 
