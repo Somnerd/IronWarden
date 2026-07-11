@@ -67,7 +67,10 @@ rules:
         .sanitize_prompt("Do not match Malice.", Some(&session))
         .await
         .unwrap();
-    println!("DEBUG: report5.sanitized_text = {:?}", report5.sanitized_text);
+    println!(
+        "DEBUG: report5.sanitized_text = {:?}",
+        report5.sanitized_text
+    );
     assert!(!report5.sanitized_text.contains("[TOKEN_1]"));
     assert!(report5.sanitized_text.contains("Malice"));
 }
