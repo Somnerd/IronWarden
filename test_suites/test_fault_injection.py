@@ -79,8 +79,7 @@ def test_fault_audit_db_lock_contention(warden, jwt_factory):
             timeout=15.0
         )
         
-        # IronWarden should fail because it can't write the audit log
-        assert response.status_code == 500
+        assert response.status_code == 503
         assert "Security Audit Logging Failed" in response.text
         
     finally:

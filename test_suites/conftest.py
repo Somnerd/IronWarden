@@ -154,7 +154,12 @@ class IronWardenRunner:
                     with open(original_manifest_path, "r") as f:
                         orig = yaml.safe_load(f)
                         if orig and "active_rules" in orig:
-                            active_rules = orig["active_rules"]
+                            active_rules = [
+                                r for r in orig["active_rules"]
+                                if os.path.exists(os.path.join(config_dir, r))
+                            ]
+                            if not active_rules:
+                                active_rules = ["rules.yaml"]
                 except Exception:
                     pass
             
