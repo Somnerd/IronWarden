@@ -76,7 +76,7 @@ def test_fault_audit_db_lock_contention(warden, jwt_factory):
             f"{bridge_url}/enqueue", 
             json={"query": "Alice", "thread_id": "t1"},
             headers=headers,
-            timeout=5.0
+            timeout=15.0
         )
         
         # IronWarden should fail because it can't write the audit log

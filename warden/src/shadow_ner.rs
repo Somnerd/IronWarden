@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use tracing::warn;
 
 static GLOBAL_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+(?:\s+(?:[a-z]{1,3}\s+)*[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z]+)+\b").unwrap()
+    Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z']*(?:[\s\-']+(?:[a-z']{1,3}[\s\-']+)*[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CEa-z']+)+\b").unwrap()
 });
 
 static GREEK_SUFFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -49,8 +49,8 @@ impl ShadowNer {
         }
         Self {
             patterns: compiled,
-            global_name_re: Regex::new(r"\b[A-Z][a-z]+(?:\s+(?:[a-z]{1,3}\s+)*[A-Z][a-z]+)+\b").unwrap(),
-            greek_name_re: Regex::new(r"\b[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(?:\s+[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+)+\b").unwrap(),
+            global_name_re: Regex::new(r"\b[A-Z][a-z']*(?:[\s\-']+(?:[a-z']{1,3}[\s\-']+)*[A-Z][a-z']+)+\b").unwrap(),
+            greek_name_re: Regex::new(r"\b[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE']*(?:[\s\-']+[\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE']+)+\b").unwrap(),
         }
     }
 
