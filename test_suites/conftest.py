@@ -145,6 +145,7 @@ class IronWardenRunner:
             import yaml
             import tempfile
             
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
             # Read original active_rules if they exist to prevent breaking regional tests
             original_manifest_path = os.path.join(project_root, "config/manifest.yaml")
             active_rules = ["rules.yaml"]
