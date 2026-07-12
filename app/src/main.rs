@@ -180,7 +180,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(manifest) = serde_yaml::from_str::<serde_json::Value>(&content) {
-                        if let Some(rules_dir) = manifest.get("rules_dir").and_then(|v| v.as_str()) {
+                        if let Some(rules_dir) = manifest.get("rules_dir").and_then(|v| v.as_str())
+                        {
                             if let Ok(metadata) = std::fs::metadata(rules_dir) {
                                 if let Ok(modified) = metadata.modified() {
                                     latest = latest.max(modified);
