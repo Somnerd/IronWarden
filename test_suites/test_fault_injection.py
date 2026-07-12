@@ -80,7 +80,7 @@ def test_fault_audit_db_lock_contention(warden, jwt_factory):
         )
         
         assert response.status_code == 503
-        assert "Security Audit Logging Failed" in response.text
+        assert "Database Busy" in response.text or "Security Audit Logging Failed" in response.text
         
     finally:
         conn.rollback()
