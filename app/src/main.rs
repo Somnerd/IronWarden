@@ -244,7 +244,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 session_data TEXT,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
-            "
+            ",
         )?;
     }
 
