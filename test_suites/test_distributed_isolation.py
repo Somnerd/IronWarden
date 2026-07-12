@@ -61,7 +61,7 @@ def test_distributed_session_mismatch(warden_bin, jwt_keys):
                 os.remove(path)
 
 
-def test_distributed_audit_contention_real(warden_bin):
+def test_distributed_audit_contention_real(warden_bin, jwt_keys):
     """
     Test how the system handles concurrent writes to the SAME audit DB from multiple processes.
     (Simulating a misconfigured shared-disk deployment).

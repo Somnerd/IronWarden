@@ -173,6 +173,25 @@ async fn handle_request_internal(
             .map_err(|e| SovereignError::InternalError(e.to_string()));
     }
 
+    let valid_methods = [
+        "initialize",
+        "mcp_sanitize_prompt",
+        "mcp_restore_prompt",
+        "mcp_get_compliance_report",
+        "mcp_halt_system",
+        "mcp_orchestrate",
+    ];
+
+    if !valid_methods.contains(&req.method.as_str()) {
+        let resp = JsonRpcResponse::<serde_json::Value>::error(
+            id,
+            -32601,
+            format!("Method not found: {}", req.method),
+        );
+        return serde_json::to_string(&resp)
+            .map_err(|e| SovereignError::InternalError(e.to_string()));
+    }
+
     let params = req
         .params
         .as_ref()

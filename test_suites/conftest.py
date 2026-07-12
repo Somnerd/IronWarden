@@ -122,6 +122,13 @@ class IronWardenRunner:
         self.stderr_output = []
         self.stderr_lock = threading.Lock()
 
+        # Initial clean up of old files
+        if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
+            try:
+                os.remove(self.env["AUDIT_DB_PATH"])
+            except Exception:
+                pass
+
 
     def start(self, env_vars=None, **kwargs):
         # We use self.env from __init__ instead of overwriting with os.environ.copy()
@@ -132,9 +139,24 @@ class IronWardenRunner:
         self.env["WARDEN_MODE"] = "hybrid"
         self.env["REMOTE_AUDIT_ENDPOINT"] = "http://127.0.0.1:9999/mock-audit"
 
-        # Cleanup old files
-        if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
-            os.remove(self.env["AUDIT_DB_PATH"])
+        # Generate temporary manifest mapping rules_dir to WARDEN_CONFIG_PATH for tests
+        if "WARDEN_CONFIG_PATH" in self.env:
+            config_dir = self.env["WARDEN_CONFIG_PATH"]
+            manifest_content = {
+                "rules_dir": config_dir,
+                "active_rules": ["rules.yaml"]
+            }
+            import yaml
+            import tempfile
+            temp_manifest = tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w")
+            yaml.dump(manifest_content, temp_manifest)
+            temp_manifest.close()
+            self.env["WARDEN_MANIFEST_PATH"] = temp_manifest.name
+            self._temp_manifest_path = temp_manifest.name
+        else:
+            self._temp_manifest_path = None
+
+
 
         self.process = subprocess.Popen(
             [self.bin_path],
@@ -197,6 +219,9 @@ class IronWardenRunner:
 
         # Cleanup temporary resources
         try:
+            if hasattr(self, "_temp_manifest_path") and self._temp_manifest_path and os.path.exists(self._temp_manifest_path):
+                os.remove(self._temp_manifest_path)
+
             if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
                 os.remove(self.env["AUDIT_DB_PATH"])
                 # Also remove WAL/SHM files
