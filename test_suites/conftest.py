@@ -266,11 +266,13 @@ def jwt_factory(warden):
     def _create_token(username, roles=None):
         if roles is None:
             roles = ["admin"]
-        secret = warden.env["JWT_SECRET"]
+        private_key = warden.env["JWT_PRIVATE_KEY"]
         payload = {
             "sub": username,
             "exp": int(time.time()) + 3600,
-            "roles": roles
+            "roles": roles,
+            "aud": warden.env.get("WARDEN_JWT_AUDIENCE", "test_audience"),
+            "iss": warden.env.get("WARDEN_JWT_ISSUER", "test_issuer"),
         }
-        return jwt.encode(payload, secret, algorithm="HS256")
+        return jwt.encode(payload, private_key, algorithm="RS256")
     return _create_token

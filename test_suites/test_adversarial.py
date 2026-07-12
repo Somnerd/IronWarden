@@ -43,14 +43,12 @@ def test_security_path_traversal_config(warden_bin):
     finally:
         runner.stop()
 
-def test_scaling_payload_limits(warden):
+def test_scaling_payload_limits(warden, jwt_factory):
     """
     Verify the gateway's payload size limits.
     """
     bridge_url = f"http://localhost:{warden.env['BRIDGE_PORT']}"
-    import jwt
-    secret = warden.env["JWT_SECRET"]
-    token = jwt.encode({"sub": "tester", "exp": int(time.time()) + 3600}, secret, algorithm="HS256")
+    token = jwt_factory("tester")
     headers = {"Authorization": f"Bearer {token}"}
     
     # 2MB should be rejected (413)
@@ -63,7 +61,7 @@ def test_scaling_payload_limits(warden):
     response = requests.post(f"{bridge_url}/enqueue", json={"query": medium_query, "thread_id": "m"}, headers=headers)
     assert response.status_code == 200
 
-def test_scaling_ai_mutex_contention(warden):
+def test_scaling_ai_mutex_contention(warden, jwt_factory):
     """
     Verify that multiple concurrent requests are serialized by the AI Mutex.
     (Indirectly observed via latency spikes).
@@ -71,9 +69,7 @@ def test_scaling_ai_mutex_contention(warden):
     # Note: Since our AI is a mock, this might be fast, but if we add a sleep in the mock...
     # For now, just ensure 5 concurrent heavy requests don't crash.
     bridge_url = f"http://localhost:{warden.env['BRIDGE_PORT']}"
-    import jwt
-    secret = warden.env["JWT_SECRET"]
-    token = jwt.encode({"sub": "tester", "exp": int(time.time()) + 3600}, secret, algorithm="HS256")
+    token = jwt_factory("tester")
     headers = {"Authorization": f"Bearer {token}"}
     
     def send():

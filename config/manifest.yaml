@@ -1,3 +1,6 @@
 rules_dir: 'config/regions'
 active_rules:
+  - rules.yaml
   - rules_legal.yaml
+  - rules_medical.yaml
+  - rules_shipping.yaml
