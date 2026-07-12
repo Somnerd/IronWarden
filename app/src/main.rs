@@ -179,17 +179,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(manifest) = serde_yaml::from_str::<serde_json::Value>(&content) {
-                        if let Some(rules_dir) = manifest.get("rules_dir").and_then(|v| v.as_str()) {
-                            if let Ok(metadata) = std::fs::metadata(rules_dir) {
-                                if let Ok(modified) = metadata.modified() {
-                                    latest = latest.max(modified);
-                                }
-                            }
-                            let rules_yaml = std::path::Path::new(rules_dir).join("rules.yaml");
-                            if let Ok(metadata) = std::fs::metadata(rules_yaml) {
-                                if let Ok(modified) = metadata.modified() {
-                                    latest = latest.max(modified);
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("rules_dir:") {
+                            let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+                            if parts.len() == 2 {
+                                let dir = parts[1].trim().trim_matches('\'').trim_matches('"');
+                                if !dir.is_empty() {
+                                    if let Ok(metadata) = std::fs::metadata(dir) {
+                                        if let Ok(modified) = metadata.modified() {
+                                            latest = latest.max(modified);
+                                        }
+                                    }
+                                    let rules_yaml = std::path::Path::new(dir).join("rules.yaml");
+                                    if let Ok(metadata) = std::fs::metadata(rules_yaml) {
+                                        if let Ok(modified) = metadata.modified() {
+                                            latest = latest.max(modified);
+                                        }
+                                    }
                                 }
                             }
                         }
