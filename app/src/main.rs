@@ -220,6 +220,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Sequential SQLite database initialization to prevent concurrent CREATE TABLE locks
+    {
+        let conn = rusqlite::Connection::open(&audit_db_path)?;
+        conn.busy_timeout(std::time::Duration::from_millis(5000))?;
+        conn.execute_batch(
+            "
+            PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA secure_delete = ON;
+            CREATE TABLE IF NOT EXISTS search_jobs (
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                thread_id TEXT,
+                query BLOB,
+                sealed_query BLOB,
+                result BLOB,
+                status TEXT DEFAULT 'pending',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                username TEXT PRIMARY KEY,
+                session_data TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            "
+        )?;
+    }
+
     let queue = Arc::new(worker::SearchBoostQueue::new(
         audit_db_path.clone(),
         &global_pepper,

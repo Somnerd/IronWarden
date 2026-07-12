@@ -63,18 +63,41 @@ class IronWardenRunner:
             if os.path.exists(libc10):
                 ld_preload = f"{libc10}:{ld_preload}"
 
+        # Generate default JWT keys if not provided in overrides
+        if not env_overrides or "JWT_PUBLIC_KEY" not in env_overrides:
+            from cryptography.hazmat.primitives.asymmetric import rsa
+            from cryptography.hazmat.primitives import serialization
+            private_key = rsa.generate_private_key(
+                public_exponent=65537,
+                key_size=2048,
+            )
+            pem_private = private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ).decode('utf-8')
+            pem_public = private_key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ).decode('utf-8')
+        else:
+            pem_private = env_overrides.get("JWT_PRIVATE_KEY", "")
+            pem_public = env_overrides.get("JWT_PUBLIC_KEY", "")
+
         import socket
         def get_free_port():
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(('', 0))
                 return s.getsockname()[1]
-                
+
         base_env = {
             **os.environ,
             "WARDEN_MODE": "ephemeral",
             "WARDEN_PEPPER": "a_very_secret_pepper_32_bytes_long",
             "OPENAI_API_KEY": "sk-mock-key",
             "JWT_SECRET": "another_very_secret_key_32_bytes_long",
+            "JWT_PRIVATE_KEY": pem_private,
+            "JWT_PUBLIC_KEY": pem_public,
             "DATABASE_URL": "postgres://somnerd:postgres@localhost:5432/ironwarden",
             "REDIS_URL": "redis://localhost:6379",
             "AUDIT_DB_PATH": os.path.join(project_root, f"test_audit_{unique_id}.db"),
