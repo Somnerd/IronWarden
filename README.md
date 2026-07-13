@@ -39,6 +39,19 @@ Ground your AI prompts in local knowledge without the complexity of external dat
 
 ---
 
+## 💻 System Requirements
+
+**Tesseract OCR** is a mandatory host-level dependency for document and image parsing. 
+
+Without Tesseract installed, document OCR falls back to a mock mode which is unsafe for production. In production environments, missing this dependency will cause parsing to fail-closed.
+
+Installation instructions for major platforms:
+*   **macOS:** `brew install tesseract`
+*   **Ubuntu/Debian:** `sudo apt-get install tesseract-ocr`
+*   **RedHat/CentOS:** `sudo dnf install tesseract`
+
+---
+
 ## 🚀 Deployment
 
 1.  **Configure:** Set your 32-byte `WARDEN_PEPPER` in the environment.
