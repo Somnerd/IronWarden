@@ -293,7 +293,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?,
     );
 
-    let router = Arc::new(worker::OpenAIGateway::new(secrecy::SecretString::new(api_key), base_url));
+    let router = Arc::new(worker::OpenAIGateway::new(
+        secrecy::SecretString::new(api_key),
+        base_url,
+    ));
 
     // 6. Initialize Parallel Control Planes (MCP + Bridge)
     tracing::info!(
