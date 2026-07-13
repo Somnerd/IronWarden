@@ -225,7 +225,7 @@ impl PiiShield for WardenEngine {
                 }
             }
             let input_search = aho_corasick::Input::new(&*buf);
-            INJECTION_BLOCKLIST.find(input_search).next().is_some()
+            INJECTION_BLOCKLIST.find(input_search).is_some()
         });
 
         if has_match {
