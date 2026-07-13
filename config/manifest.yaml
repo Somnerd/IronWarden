@@ -1,4 +1,4 @@
-rules_dir: 'config/regions'
+rules_dir: 'config/rules'
 active_rules:
   - rules.yaml
   - rules_legal.yaml

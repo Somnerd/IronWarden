@@ -8,7 +8,7 @@ use worker::{LocalSessionManager, SearchBoostQueue, WorkerStorage};
 
 #[tokio::test]
 async fn test_legal_e2e() {
-    let config_dir = "../config/regions";
+    let config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("/tmp/manifest_legal.yaml")
         .expect("Failed to load config manifest")
         .0;

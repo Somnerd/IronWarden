@@ -42,7 +42,7 @@ Ground your AI prompts in local knowledge without the complexity of external dat
 ## 🚀 Deployment
 
 1.  **Configure:** Set your 32-byte `WARDEN_PEPPER` in the environment.
-2.  **Rules:** Drop your regional rules into `config/regions/`.
+2.  **Rules:** Drop your regional rules into `config/rules/`.
 3.  **Knowledge:** Drop your policy files into `data/knowledge/`.
 4.  **Run:** `./ironwarden`
 
