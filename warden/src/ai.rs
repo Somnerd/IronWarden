@@ -1,7 +1,7 @@
 use ort::session::Session;
 use ort::value::Tensor;
-use std::cell::UnsafeCell;
 use std::path::Path;
+use std::sync::Mutex;
 use tokenizers::Tokenizer;
 use tracing::{error, info, warn};
 
@@ -23,17 +23,10 @@ pub enum NerBackend {
 }
 
 pub struct OnnxNer {
-    // UnsafeCell because ort::Session::run() requires &mut self.
-    // Safety: HybridNerPool guarantees exclusive access via its bounded channel —
-    // only one thread holds a given OnnxNer at a time.
-    session: UnsafeCell<Session>,
+    session: Mutex<Session>,
     tokenizer: Tokenizer,
     threshold: f64,
 }
-
-// SAFETY: OnnxNer is only accessed by one thread at a time via HybridNerPool.
-unsafe impl Send for OnnxNer {}
-unsafe impl Sync for OnnxNer {}
 
 impl OnnxNer {
     pub fn new(model_path: &Path, tokenizer_path: &Path, threshold: f64) -> Result<Self, String> {
@@ -50,7 +43,7 @@ impl OnnxNer {
             .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
 
         Ok(Self {
-            session: UnsafeCell::new(session),
+            session: Mutex::new(session),
             tokenizer,
             threshold,
         })
@@ -93,9 +86,7 @@ impl OnnxNer {
         };
 
         // Run ONNX inference via named inputs.
-        // SAFETY: We use UnsafeCell because Session::run() requires &mut self.
-        // HybridNerPool's bounded channel guarantees exclusive ownership.
-        let session = unsafe { &mut *self.session.get() };
+        let mut session = self.session.lock().unwrap();
         let outputs = match session.run(ort::inputs! {
             "input_ids" => input_ids_tensor,
             "attention_mask" => attention_mask_tensor

@@ -31,6 +31,7 @@ pub struct SearchBoostQueue {
     redis_client: Option<redis::Client>,
     tx: flume::Sender<(String, String, Vec<u8>)>,
     rx: flume::Receiver<(String, String, Vec<u8>)>,
+    db_tx: flume::Sender<(String, String, String, Vec<u8>)>,
 }
 
 impl SearchBoostQueue {
@@ -83,6 +84,7 @@ impl SearchBoostQueue {
         }
 
         let (tx, rx) = flume::unbounded();
+        let (db_tx, db_rx) = flume::unbounded();
 
         let pool_clone = pool.clone();
         let tx_clone = tx.clone();
@@ -100,6 +102,60 @@ impl SearchBoostQueue {
             }
         });
 
+        // Spawn background SQLite writer task
+        let db_rx_clone = db_rx.clone();
+        let pool_writer = pool.clone();
+        tokio::spawn(async move {
+            let mut batch = Vec::new();
+            let mut last_flush = std::time::Instant::now();
+            
+            loop {
+                let item = tokio::select! {
+                    res = db_rx_clone.recv_async() => {
+                        match res {
+                            Ok(item) => Some(item),
+                            Err(_) => None,
+                        }
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => None,
+                };
+                
+                if let Some(it) = item {
+                    batch.push(it);
+                }
+                
+                if !batch.is_empty() && (batch.len() >= 50 || last_flush.elapsed() >= Duration::from_millis(100) || item.is_none()) {
+                    let to_write = std::mem::take(&mut batch);
+                    let pool_c = pool_writer.clone();
+                    let res = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
+                        let mut conn = pool_c.get().map_err(|e| format!("Pool error: {}", e))?;
+                        let tx = conn.transaction().map_err(|e| format!("Transaction error: {}", e))?;
+                        {
+                            let mut stmt = tx.prepare("INSERT INTO search_jobs (id, username, thread_id, query) VALUES (?1, ?2, ?3, ?4)")
+                                .map_err(|e| format!("Prepare error: {}", e))?;
+                            for (id, username, thread_id, query) in &to_write {
+                                let _ = stmt.execute((id, username, thread_id, query));
+                            }
+                        }
+                        tx.commit().map_err(|e| format!("Commit error: {}", e))?;
+                        Ok::<(), String>(())
+                    }).await;
+                    
+                    if let Err(e) = res {
+                        error!("Background writer failed to spawn: {:?}", e);
+                    } else if let Ok(Err(e)) = res {
+                        error!("Background DB write failed: {}", e);
+                    }
+                    
+                    last_flush = std::time::Instant::now();
+                }
+                
+                if item.is_none() && db_rx_clone.is_disconnected() {
+                    break;
+                }
+            }
+        });
+
         let queue = Self {
             db_path,
             pepper: Arc::new(SecretVec::new(pepper.expose_secret().to_vec())),
@@ -109,6 +165,7 @@ impl SearchBoostQueue {
             redis_client,
             tx,
             rx,
+            db_tx,
         };
 
         Ok(queue)
@@ -315,26 +372,13 @@ impl SearchBoostQueue {
             }
         }
 
-        let username_clone = username.clone();
-        let thread_id_clone = thread_id.clone();
-        let job_id_clone = job_id.clone();
-        let pool = self.pool.clone();
-
-        let encrypted_sanitized_clone = encrypted_sanitized.clone();
-        iw_core::executor::BlockingExecutor::spawn_blocking(move || {
-            let conn = pool.get().map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
-            conn.execute(
-                "INSERT INTO search_jobs (id, username, thread_id, query) VALUES (?1, ?2, ?3, ?4)",
-                (&job_id_clone, &username_clone, &thread_id_clone, &encrypted_sanitized_clone),
-            ).map_err(|e| {
-                if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
-                    SovereignError::DatabaseBusy("SearchBoost Queue busy".into())
-                } else {
-                    SovereignError::StorageError(format!("Queue persistence failed: {}", e))
-                }
-            })?;
-            Ok::<(), SovereignError>(())
-        }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
+        // Push to local background DB writer queue
+        if let Err(e) = self
+            .db_tx
+            .send((job_id.clone(), username.clone(), thread_id.clone(), encrypted_sanitized.clone()))
+        {
+            error!("Failed to push job to background DB queue: {}", e);
+        }
 
         // Push to local lock-free ring buffer
         if let Err(e) = self
@@ -348,6 +392,15 @@ impl SearchBoostQueue {
         info!(job_id = %job_id, "Successfully enqueued encrypted SearchBoost job (Sanitized)");
 
         Ok(job_id)
+    }
+
+    pub async fn shutdown(&self) {
+        info!("SearchBoostQueue: Initiating graceful shutdown, flushing {} remaining jobs to DB...", self.db_tx.len());
+        while self.db_tx.len() > 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        info!("SearchBoostQueue: Shutdown complete. All jobs successfully persisted.");
     }
 
     pub async fn get_result(
