@@ -108,7 +108,7 @@ impl SearchBoostQueue {
         tokio::spawn(async move {
             let mut batch = Vec::new();
             let mut last_flush = std::time::Instant::now();
-            
+
             loop {
                 let item = tokio::select! {
                     res = db_rx_clone.recv_async() => {
@@ -119,12 +119,16 @@ impl SearchBoostQueue {
                     }
                     _ = tokio::time::sleep(Duration::from_millis(50)) => None,
                 };
-                
+
                 if let Some(it) = item {
                     batch.push(it);
                 }
-                
-                if !batch.is_empty() && (batch.len() >= 50 || last_flush.elapsed() >= Duration::from_millis(100) || item.is_none()) {
+
+                if !batch.is_empty()
+                    && (batch.len() >= 50
+                        || last_flush.elapsed() >= Duration::from_millis(100)
+                        || item.is_none())
+                {
                     let to_write = std::mem::take(&mut batch);
                     let pool_c = pool_writer.clone();
                     let res = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
@@ -140,16 +144,16 @@ impl SearchBoostQueue {
                         tx.commit().map_err(|e| format!("Commit error: {}", e))?;
                         Ok::<(), String>(())
                     }).await;
-                    
+
                     if let Err(e) = res {
                         error!("Background writer failed to spawn: {:?}", e);
                     } else if let Ok(Err(e)) = res {
                         error!("Background DB write failed: {}", e);
                     }
-                    
+
                     last_flush = std::time::Instant::now();
                 }
-                
+
                 if item.is_none() && db_rx_clone.is_disconnected() {
                     break;
                 }
@@ -373,10 +377,12 @@ impl SearchBoostQueue {
         }
 
         // Push to local background DB writer queue
-        if let Err(e) = self
-            .db_tx
-            .send((job_id.clone(), username.clone(), thread_id.clone(), encrypted_sanitized.clone()))
-        {
+        if let Err(e) = self.db_tx.send((
+            job_id.clone(),
+            username.clone(),
+            thread_id.clone(),
+            encrypted_sanitized.clone(),
+        )) {
             error!("Failed to push job to background DB queue: {}", e);
         }
 
@@ -395,7 +401,10 @@ impl SearchBoostQueue {
     }
 
     pub async fn shutdown(&self) {
-        info!("SearchBoostQueue: Initiating graceful shutdown, flushing {} remaining jobs to DB...", self.db_tx.len());
+        info!(
+            "SearchBoostQueue: Initiating graceful shutdown, flushing {} remaining jobs to DB...",
+            self.db_tx.len()
+        );
         while self.db_tx.len() > 0 {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
