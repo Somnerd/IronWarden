@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use secrecy::{SecretString, SecretVec};
-use std::path::Path;
-use std::fs;
 use iw_core::SovereignError;
+use secrecy::{SecretString, SecretVec};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalConfig {
@@ -44,14 +44,30 @@ pub struct GlobalConfig {
     pub allow_fallback: bool,
 }
 
-fn default_warden_mode() -> String { "hybrid".to_string() }
-fn default_openai_api_key() -> SecretString { SecretString::new("ollama".to_string()) }
-fn default_openai_base_url() -> String { "https://api.openai.com/v1/chat/completions".to_string() }
-fn default_warden_manifest_path() -> String { "config/manifest.yaml".to_string() }
-fn default_audit_db_path() -> String { "audit.db".to_string() }
-fn default_knowledge_path() -> String { "data/knowledge".to_string() }
-fn default_bridge_port() -> String { "14141".to_string() }
-fn default_bridge_addr() -> String { "0.0.0.0".to_string() }
+fn default_warden_mode() -> String {
+    "hybrid".to_string()
+}
+fn default_openai_api_key() -> SecretString {
+    SecretString::new("ollama".to_string())
+}
+fn default_openai_base_url() -> String {
+    "https://api.openai.com/v1/chat/completions".to_string()
+}
+fn default_warden_manifest_path() -> String {
+    "config/manifest.yaml".to_string()
+}
+fn default_audit_db_path() -> String {
+    "audit.db".to_string()
+}
+fn default_knowledge_path() -> String {
+    "data/knowledge".to_string()
+}
+fn default_bridge_port() -> String {
+    "14141".to_string()
+}
+fn default_bridge_addr() -> String {
+    "0.0.0.0".to_string()
+}
 
 impl Default for GlobalConfig {
     fn default() -> Self {
@@ -80,14 +96,18 @@ impl GlobalConfig {
         let env_allow_fallback = std::env::var("ALLOW_FALLBACK")
             .map(|v| v.trim().to_lowercase() == "true")
             .unwrap_or(false)
-            || std::env::var("WARDEN_ENV").map(|v| v == "test" || v == "ephemeral").unwrap_or(false)
+            || std::env::var("WARDEN_ENV")
+                .map(|v| v == "test" || v == "ephemeral")
+                .unwrap_or(false)
             || std::env::var("CARGO_MANIFEST_DIR").is_ok();
 
         let mut config: GlobalConfig = if Path::new("config/config.yaml").exists() {
-            let content = fs::read_to_string("config/config.yaml")
-                .map_err(|e| SovereignError::ConfigError(format!("Failed to read config/config.yaml: {}", e)))?;
-            serde_yaml::from_str(&content)
-                .map_err(|e| SovereignError::ConfigError(format!("Failed to parse config/config.yaml: {}", e)))?
+            let content = fs::read_to_string("config/config.yaml").map_err(|e| {
+                SovereignError::ConfigError(format!("Failed to read config/config.yaml: {}", e))
+            })?;
+            serde_yaml::from_str(&content).map_err(|e| {
+                SovereignError::ConfigError(format!("Failed to parse config/config.yaml: {}", e))
+            })?
         } else {
             if !env_allow_fallback {
                 return Err(SovereignError::ConfigError(
@@ -149,7 +169,11 @@ impl GlobalConfig {
         if !config.allow_fallback {
             // Check pepper
             use secrecy::ExposeSecret;
-            let pepper_len = config.warden_pepper.as_ref().map(|p| p.expose_secret().len()).unwrap_or(0);
+            let pepper_len = config
+                .warden_pepper
+                .as_ref()
+                .map(|p| p.expose_secret().len())
+                .unwrap_or(0);
             if pepper_len < 32 {
                 return Err(SovereignError::ConfigError(
                     "Strict mode violation: WARDEN_PEPPER must be configured and be at least 32 bytes.".into()
@@ -159,21 +183,26 @@ impl GlobalConfig {
             // Check manifest path existence
             let manifest_path = Path::new(&config.warden_manifest_path);
             if !manifest_path.exists() {
-                return Err(SovereignError::ConfigError(
-                    format!("Strict mode violation: manifest file {:?} is missing.", manifest_path)
-                ));
+                return Err(SovereignError::ConfigError(format!(
+                    "Strict mode violation: manifest file {:?} is missing.",
+                    manifest_path
+                )));
             }
 
             // Check rules directory existence
-            let manifest_content = fs::read_to_string(manifest_path)
-                .map_err(|e| SovereignError::ConfigError(format!("Failed to read manifest file: {}", e)))?;
+            let manifest_content = fs::read_to_string(manifest_path).map_err(|e| {
+                SovereignError::ConfigError(format!("Failed to read manifest file: {}", e))
+            })?;
             let manifest: crate::config::ManifestConfig = serde_yaml::from_str(&manifest_content)
-                .map_err(|e| SovereignError::ConfigError(format!("Failed to parse manifest: {}", e)))?;
+                .map_err(|e| {
+                SovereignError::ConfigError(format!("Failed to parse manifest: {}", e))
+            })?;
             let rules_dir = Path::new(&manifest.rules_dir);
             if !rules_dir.exists() {
-                return Err(SovereignError::ConfigError(
-                    format!("Strict mode violation: rules directory {:?} is missing.", rules_dir)
-                ));
+                return Err(SovereignError::ConfigError(format!(
+                    "Strict mode violation: rules directory {:?} is missing.",
+                    rules_dir
+                )));
             }
         }
 

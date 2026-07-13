@@ -1,9 +1,9 @@
 use iw_core::SovereignError;
 use mcp::StdioMcpServer;
+use secrecy::ExposeSecret;
 use std::sync::Arc;
 use std::time::Duration;
-use warden::{WardenConfig, GlobalConfig};
-use secrecy::ExposeSecret;
+use warden::{GlobalConfig, WardenConfig};
 
 use arc_swap::ArcSwap;
 
@@ -81,7 +81,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             && std::env::var("IGNORE_HA_ENFORCEMENT").is_err());
 
     if is_ha && env_mode != "test" {
-        match std::env::var("REMOTE_AUDIT_ENDPOINT").ok().or(global_config.remote_audit_endpoint.clone()) {
+        match std::env::var("REMOTE_AUDIT_ENDPOINT")
+            .ok()
+            .or(global_config.remote_audit_endpoint.clone())
+        {
             Some(endpoint) if !endpoint.is_empty() => {}
             _ => {
                 tracing::error!(
@@ -175,10 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let remote_forwarder: Option<Arc<dyn worker::audit::RemoteAuditForwarder>> =
         if let (Some(ep), Some(tk)) = (remote_audit_endpoint, remote_audit_token) {
             tracing::info!("Remote Audit Streaming: ENABLED (Endpoint: {})", ep);
-            Some(Arc::new(worker::audit::HttpAuditForwarder::new(
-                ep,
-                tk,
-            )))
+            Some(Arc::new(worker::audit::HttpAuditForwarder::new(ep, tk)))
         } else {
             tracing::warn!("Remote Audit Streaming: DISABLED. Audit logs are local-only.");
             None
