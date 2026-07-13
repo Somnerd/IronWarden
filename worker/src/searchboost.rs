@@ -155,7 +155,7 @@ impl SearchBoostQueue {
                     last_flush = std::time::Instant::now();
                 }
 
-                if item.is_none() && db_rx_clone.is_disconnected() {
+                if is_none && db_rx_clone.is_disconnected() {
                     break;
                 }
             }
