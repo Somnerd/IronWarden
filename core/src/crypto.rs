@@ -192,11 +192,14 @@ mod tests {
     #[test]
     fn test_aad_cipher_wrong_aad_rejection() {
         let payload = b"super secret message";
-        
+
         let encrypted = AadCipher::encrypt(payload, "userA", PEPPER, INFO).unwrap();
         let decrypted = AadCipher::decrypt(&encrypted, "userB", PEPPER, INFO);
 
-        assert!(decrypted.is_err(), "V-19 Isolation Violation: Decrypted with wrong AAD");
+        assert!(
+            decrypted.is_err(),
+            "V-19 Isolation Violation: Decrypted with wrong AAD"
+        );
     }
 
     #[test]
@@ -205,7 +208,7 @@ mod tests {
         let aad = "tenant_id_123";
 
         let mut encrypted = AadCipher::encrypt(payload, aad, PEPPER, INFO).unwrap();
-        
+
         // Tamper with the last byte
         if let Some(last) = encrypted.last_mut() {
             *last ^= 1;
@@ -333,7 +336,7 @@ mod tests {
             roles: vec![],
         };
         let mut token = generate_test_token(&claims);
-        
+
         // tamper signature
         token.pop();
         token.push('A');

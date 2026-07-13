@@ -210,8 +210,8 @@ impl GlobalConfig {
 mod tests {
     use super::*;
     use std::env;
-    use std::sync::Mutex;
     use std::sync::LazyLock;
+    use std::sync::Mutex;
 
     static ENV_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
@@ -241,11 +241,21 @@ mod tests {
         setup();
 
         // Restore
-        if let Ok(val) = orig_cargo { env::set_var("CARGO_MANIFEST_DIR", val); }
-        if let Ok(val) = orig_warden { env::set_var("WARDEN_ENV", val); }
-        if let Ok(val) = orig_allow { env::set_var("ALLOW_FALLBACK", val); }
-        if let Ok(val) = orig_pepper { env::set_var("WARDEN_PEPPER", val); }
-        if let Ok(val) = orig_manifest { env::set_var("WARDEN_MANIFEST_PATH", val); }
+        if let Ok(val) = orig_cargo {
+            env::set_var("CARGO_MANIFEST_DIR", val);
+        }
+        if let Ok(val) = orig_warden {
+            env::set_var("WARDEN_ENV", val);
+        }
+        if let Ok(val) = orig_allow {
+            env::set_var("ALLOW_FALLBACK", val);
+        }
+        if let Ok(val) = orig_pepper {
+            env::set_var("WARDEN_PEPPER", val);
+        }
+        if let Ok(val) = orig_manifest {
+            env::set_var("WARDEN_MANIFEST_PATH", val);
+        }
     }
 
     #[test]
@@ -257,8 +267,14 @@ mod tests {
             env::set_current_dir(env::temp_dir()).unwrap();
 
             let res = GlobalConfig::resolve();
-            assert!(res.is_err(), "Must reject when config/config.yaml is missing in strict mode");
-            assert!(res.unwrap_err().to_string().contains("config/config.yaml is missing"));
+            assert!(
+                res.is_err(),
+                "Must reject when config/config.yaml is missing in strict mode"
+            );
+            assert!(res
+                .unwrap_err()
+                .to_string()
+                .contains("config/config.yaml is missing"));
 
             env::set_current_dir(old_dir).unwrap();
         });
@@ -273,7 +289,11 @@ mod tests {
             let config_dir = temp_dir.path().join("config");
             fs::create_dir(&config_dir).unwrap();
             fs::write(config_dir.join("config.yaml"), "warden_mode: test").unwrap();
-            fs::write(config_dir.join("manifest.yaml"), "rules_dir: \"rules\"\nrule_categories: []").unwrap();
+            fs::write(
+                config_dir.join("manifest.yaml"),
+                "rules_dir: \"rules\"\nrule_categories: []",
+            )
+            .unwrap();
             fs::create_dir(temp_dir.path().join("rules")).unwrap();
 
             let old_dir = env::current_dir().unwrap();
@@ -290,7 +310,11 @@ mod tests {
             // Pepper >= 32 bytes
             env::set_var("WARDEN_PEPPER", "12345678901234567890123456789012");
             let res_ok = GlobalConfig::resolve();
-            assert!(res_ok.is_ok(), "Must accept pepper >= 32 bytes: {:?}", res_ok.err());
+            assert!(
+                res_ok.is_ok(),
+                "Must accept pepper >= 32 bytes: {:?}",
+                res_ok.err()
+            );
 
             env::set_current_dir(old_dir).unwrap();
         });
@@ -311,7 +335,10 @@ mod tests {
             env::set_var("WARDEN_MANIFEST_PATH", "non_existent_manifest.yaml");
 
             let res = GlobalConfig::resolve();
-            assert!(res.is_err(), "Must reject missing manifest file in strict mode");
+            assert!(
+                res.is_err(),
+                "Must reject missing manifest file in strict mode"
+            );
             assert!(res.unwrap_err().to_string().contains("manifest file"));
 
             env::set_current_dir(old_dir).unwrap();

@@ -330,20 +330,39 @@ mod tests {
     struct FailingStorage;
     #[async_trait]
     impl StorageProvider for FailingStorage {
-        async fn fetch_context(&self, _: &str, _: &str) -> Result<Vec<String>, SovereignError> { Ok(vec![]) }
-        async fn log_audit_event(&self, _: &ScrubbingReport, _: &str, _: &str) -> Result<(), SovereignError> {
+        async fn fetch_context(&self, _: &str, _: &str) -> Result<Vec<String>, SovereignError> {
+            Ok(vec![])
+        }
+        async fn log_audit_event(
+            &self,
+            _: &ScrubbingReport,
+            _: &str,
+            _: &str,
+        ) -> Result<(), SovereignError> {
             Err(SovereignError::InternalError("Audit write failure".into()))
         }
-        async fn validate_job_access(&self, _: &str, _: &str) -> Result<bool, SovereignError> { Ok(true) }
-        async fn purge_user_data(&self, _: &str) -> Result<(), SovereignError> { Ok(()) }
-        async fn check_health(&self) -> Result<(), SovereignError> { Ok(()) }
-        async fn get_compliance_report(&self) -> Result<ComplianceReport, SovereignError> { unimplemented!() }
+        async fn validate_job_access(&self, _: &str, _: &str) -> Result<bool, SovereignError> {
+            Ok(true)
+        }
+        async fn purge_user_data(&self, _: &str) -> Result<(), SovereignError> {
+            Ok(())
+        }
+        async fn check_health(&self) -> Result<(), SovereignError> {
+            Ok(())
+        }
+        async fn get_compliance_report(&self) -> Result<ComplianceReport, SovereignError> {
+            unimplemented!()
+        }
     }
 
     struct MockPiiShield;
     #[async_trait]
     impl PiiShield for MockPiiShield {
-        async fn sanitize_prompt(&self, prompt: &str, _: Option<&iw_core::SessionContext>) -> Result<ScrubbingReport, SovereignError> {
+        async fn sanitize_prompt(
+            &self,
+            prompt: &str,
+            _: Option<&iw_core::SessionContext>,
+        ) -> Result<ScrubbingReport, SovereignError> {
             Ok(ScrubbingReport {
                 sanitized_text: prompt.to_string(),
                 is_blocked: false,
@@ -360,8 +379,12 @@ mod tests {
 
     struct MockGroundingShield;
     impl iw_core::GroundingShield for MockGroundingShield {
-        fn seal_query(&self, _: &str, _: &str) -> Result<Vec<u8>, SovereignError> { Ok(vec![]) }
-        fn unseal_query(&self, _: &[u8], _: &str) -> Result<String, SovereignError> { Ok(String::new()) }
+        fn seal_query(&self, _: &str, _: &str) -> Result<Vec<u8>, SovereignError> {
+            Ok(vec![])
+        }
+        fn unseal_query(&self, _: &[u8], _: &str) -> Result<String, SovereignError> {
+            Ok(String::new())
+        }
     }
 
     #[tokio::test]
@@ -380,8 +403,15 @@ mod tests {
         let token = encode(&Header::new(Algorithm::RS256), &claims, &key).unwrap();
 
         let pepper = SecretVec::from(vec![0u8; 32]);
-        let queue = SearchBoostQueue::new("file::memory:?cache=shared".to_string(), &pepper, None, None).unwrap();
-        let session_manager = LocalSessionManager::new("file::memory:?cache=shared".to_string(), &pepper).unwrap();
+        let queue = SearchBoostQueue::new(
+            "file::memory:?cache=shared".to_string(),
+            &pepper,
+            None,
+            None,
+        )
+        .unwrap();
+        let session_manager =
+            LocalSessionManager::new("file::memory:?cache=shared".to_string(), &pepper).unwrap();
 
         let state = Arc::new(BridgeState {
             shield: Arc::new(MockPiiShield),
@@ -400,11 +430,14 @@ mod tests {
             .uri("/enqueue")
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_string(&SearchRequest {
-                query: "test query".to_string(),
-                thread_id: "thread123".to_string(),
-                options: None,
-            }).unwrap()))
+            .body(Body::from(
+                serde_json::to_string(&SearchRequest {
+                    query: "test query".to_string(),
+                    thread_id: "thread123".to_string(),
+                    options: None,
+                })
+                .unwrap(),
+            ))
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
