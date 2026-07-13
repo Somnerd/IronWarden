@@ -114,12 +114,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     iw_core::fips::FipsValidator::verify_readiness()?;
 
     // 2. Load Configuration
-    let api_key = global_config.openai_api_key.clone();
+    let api_key = secrecy::SecretString::new(global_config.openai_api_key.clone());
     let base_url = global_config.openai_base_url.clone();
 
     // 3. Security & Rules
     let global_pepper = match global_config.warden_pepper.clone() {
-        Some(p) => p,
+        Some(p) => secrecy::SecretVec::new(p),
         None => secrecy::SecretVec::new(vec![0u8; 32]),
     };
     let pepper_raw = global_pepper.expose_secret().clone();

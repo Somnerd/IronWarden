@@ -1,8 +1,7 @@
-use iw_core::SovereignError;
-use secrecy::{SecretString, SecretVec};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::Path;
+use std::fs;
+use iw_core::SovereignError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalConfig {
@@ -10,12 +9,12 @@ pub struct GlobalConfig {
     pub warden_mode: String,
 
     #[serde(default = "default_openai_api_key")]
-    pub openai_api_key: SecretString,
+    pub openai_api_key: String,
 
     #[serde(default = "default_openai_base_url")]
     pub openai_base_url: String,
 
-    pub warden_pepper: Option<SecretVec<u8>>,
+    pub warden_pepper: Option<Vec<u8>>,
 
     #[serde(default = "default_warden_manifest_path")]
     pub warden_manifest_path: String,
@@ -27,9 +26,9 @@ pub struct GlobalConfig {
     pub knowledge_path: String,
 
     pub remote_audit_endpoint: Option<String>,
-    pub remote_audit_token: Option<SecretString>,
+    pub remote_audit_token: Option<String>,
 
-    pub jwt_public_key: Option<SecretVec<u8>>,
+    pub jwt_public_key: Option<Vec<u8>>,
 
     #[serde(default = "default_bridge_port")]
     pub bridge_port: String,
@@ -47,8 +46,8 @@ pub struct GlobalConfig {
 fn default_warden_mode() -> String {
     "hybrid".to_string()
 }
-fn default_openai_api_key() -> SecretString {
-    SecretString::new("ollama".to_string())
+fn default_openai_api_key() -> String {
+    "ollama".to_string()
 }
 fn default_openai_base_url() -> String {
     "https://api.openai.com/v1/chat/completions".to_string()
@@ -111,7 +110,8 @@ impl GlobalConfig {
         } else {
             if !env_allow_fallback {
                 return Err(SovereignError::ConfigError(
-                    "Strict mode violation: config/config.yaml is missing and fallback is not allowed.".into()
+                    "Strict mode violation: config/config.yaml is missing and fallback is not allowed."
+                        .into(),
                 ));
             }
             GlobalConfig::default()
@@ -126,13 +126,13 @@ impl GlobalConfig {
             config.warden_mode = v;
         }
         if let Ok(v) = std::env::var("OPENAI_API_KEY") {
-            config.openai_api_key = SecretString::new(v);
+            config.openai_api_key = v;
         }
         if let Ok(v) = std::env::var("OPENAI_BASE_URL") {
             config.openai_base_url = v;
         }
         if let Ok(v) = std::env::var("WARDEN_PEPPER") {
-            config.warden_pepper = Some(SecretVec::new(v.into_bytes()));
+            config.warden_pepper = Some(v.into_bytes());
         }
         if let Ok(v) = std::env::var("WARDEN_MANIFEST_PATH") {
             config.warden_manifest_path = v;
@@ -147,10 +147,10 @@ impl GlobalConfig {
             config.remote_audit_endpoint = Some(v);
         }
         if let Ok(v) = std::env::var("REMOTE_AUDIT_TOKEN") {
-            config.remote_audit_token = Some(SecretString::new(v));
+            config.remote_audit_token = Some(v);
         }
         if let Ok(v) = std::env::var("JWT_PUBLIC_KEY") {
-            config.jwt_public_key = Some(SecretVec::new(v.into_bytes()));
+            config.jwt_public_key = Some(v.into_bytes());
         }
         if let Ok(v) = std::env::var("BRIDGE_PORT") {
             config.bridge_port = v;
@@ -168,15 +168,11 @@ impl GlobalConfig {
         // Strict mode validations
         if !config.allow_fallback {
             // Check pepper
-            use secrecy::ExposeSecret;
-            let pepper_len = config
-                .warden_pepper
-                .as_ref()
-                .map(|p| p.expose_secret().len())
-                .unwrap_or(0);
+            let pepper_len = config.warden_pepper.as_ref().map(|p| p.len()).unwrap_or(0);
             if pepper_len < 32 {
                 return Err(SovereignError::ConfigError(
-                    "Strict mode violation: WARDEN_PEPPER must be configured and be at least 32 bytes.".into()
+                    "Strict mode violation: WARDEN_PEPPER must be configured and be at least 32 bytes."
+                        .into(),
                 ));
             }
 
@@ -193,10 +189,10 @@ impl GlobalConfig {
             let manifest_content = fs::read_to_string(manifest_path).map_err(|e| {
                 SovereignError::ConfigError(format!("Failed to read manifest file: {}", e))
             })?;
-            let manifest: crate::config::ManifestConfig = serde_yaml::from_str(&manifest_content)
-                .map_err(|e| {
-                SovereignError::ConfigError(format!("Failed to parse manifest: {}", e))
-            })?;
+            let manifest: crate::config::ManifestConfig =
+                serde_yaml::from_str(&manifest_content).map_err(|e| {
+                    SovereignError::ConfigError(format!("Failed to parse manifest: {}", e))
+                })?;
             let rules_dir = Path::new(&manifest.rules_dir);
             if !rules_dir.exists() {
                 return Err(SovereignError::ConfigError(format!(
