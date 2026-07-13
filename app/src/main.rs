@@ -422,7 +422,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     }
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    queue.shutdown().await;
     tracing::info!("IronWarden shutting down. Sessions persisted in local SQLite ledger.");
     Ok(())
 }

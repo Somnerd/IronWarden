@@ -39,6 +39,10 @@ static INJECTION_BLOCKLIST: LazyLock<AhoCorasick> = LazyLock::new(|| {
         .unwrap()
 });
 
+thread_local! {
+    static NORMALIZATION_BUFFER: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -210,13 +214,21 @@ impl PiiShield for WardenEngine {
     ) -> Result<ScrubbingReport, SovereignError> {
         // --- SECURITY FIX (Finding 4): Dual-Layer Prompt Injection Guardrails ---
         // Layer 1: Robust Heuristic Tree
-        let aggressive_normalized: String = input
-            .chars()
-            .filter(|c| c.is_alphanumeric())
-            .collect::<String>()
-            .to_lowercase();
+        let has_match = NORMALIZATION_BUFFER.with(|buf_cell| {
+            let mut buf = buf_cell.borrow_mut();
+            buf.clear();
+            for c in input.chars() {
+                if c.is_alphanumeric() {
+                    for lowercase_c in c.to_lowercase() {
+                        buf.push(lowercase_c);
+                    }
+                }
+            }
+            let input_search = aho_corasick::Input::new(&*buf);
+            INJECTION_BLOCKLIST.find(input_search).is_some()
+        });
 
-        if INJECTION_BLOCKLIST.is_match(&aggressive_normalized) {
+        if has_match {
             return Err(SovereignError::UnauthorizedAccess(
                 "Prompt injection attempt blocked by Layer 1 Heuristic Guardrail".into(),
             ));
