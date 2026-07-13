@@ -21,6 +21,19 @@ pub struct LocalJob {
     pub created_at: u64,
 }
 
+pub enum DbCommand {
+    Insert {
+        id: String,
+        username: String,
+        thread_id: String,
+        query: Vec<u8>,
+    },
+    UpdateResult {
+        id: String,
+        result: Vec<u8>,
+    },
+}
+
 #[derive(Clone)]
 pub struct SearchBoostQueue {
     db_path: String,
@@ -31,7 +44,7 @@ pub struct SearchBoostQueue {
     redis_client: Option<redis::Client>,
     tx: flume::Sender<(String, String, Vec<u8>)>,
     rx: flume::Receiver<(String, String, Vec<u8>)>,
-    db_tx: flume::Sender<(String, String, String, Vec<u8>)>,
+    db_tx: flume::Sender<DbCommand>,
 }
 
 impl SearchBoostQueue {
@@ -136,10 +149,19 @@ impl SearchBoostQueue {
                         let mut conn = pool_c.get().map_err(|e| format!("Pool error: {}", e))?;
                         let tx = conn.transaction().map_err(|e| format!("Transaction error: {}", e))?;
                         {
-                            let mut stmt = tx.prepare("INSERT INTO search_jobs (id, username, thread_id, query) VALUES (?1, ?2, ?3, ?4)")
-                                .map_err(|e| format!("Prepare error: {}", e))?;
-                            for (id, username, thread_id, query) in &to_write {
-                                let _ = stmt.execute((id, username, thread_id, query));
+                            let mut stmt_insert = tx.prepare("INSERT INTO search_jobs (id, username, thread_id, query) VALUES (?1, ?2, ?3, ?4)")
+                                .map_err(|e| format!("Prepare insert error: {}", e))?;
+                            let mut stmt_update = tx.prepare("UPDATE search_jobs SET result = ?1, status = 'complete' WHERE id = ?2")
+                                .map_err(|e| format!("Prepare update error: {}", e))?;
+                            for cmd in &to_write {
+                                match cmd {
+                                    DbCommand::Insert { id, username, thread_id, query } => {
+                                        let _ = stmt_insert.execute((id, username, thread_id, query));
+                                    }
+                                    DbCommand::UpdateResult { id, result } => {
+                                        let _ = stmt_update.execute((result, id));
+                                    }
+                                }
                             }
                         }
                         tx.commit().map_err(|e| format!("Commit error: {}", e))?;
@@ -314,21 +336,10 @@ impl SearchBoostQueue {
                 }
             }
 
-            let pool = self.pool.clone();
-            let id_clone = id.clone();
-            iw_core::executor::BlockingExecutor::spawn_blocking(move || {
-                let conn = pool
-                    .get()
-                    .map_err(|e| SovereignError::InternalError(format!("Pool error: {}", e)))?;
-                conn.execute(
-                    "UPDATE search_jobs SET result = ?1, status = 'complete' WHERE id = ?2",
-                    (&encrypted_result, &id_clone),
-                )
-                .map_err(|e| SovereignError::StorageError(e.to_string()))?;
-                Ok::<(), SovereignError>(())
-            })
-            .await
-            .map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
+            let _ = self.db_tx.send(DbCommand::UpdateResult {
+                id: id.clone(),
+                result: encrypted_result,
+            });
 
             info!(job_id = %id, "SearchBoost job completed and encrypted.");
         }
@@ -378,12 +389,12 @@ impl SearchBoostQueue {
         }
 
         // Push to local background DB writer queue
-        if let Err(e) = self.db_tx.send((
-            job_id.clone(),
-            username.clone(),
-            thread_id.clone(),
-            encrypted_sanitized.clone(),
-        )) {
+        if let Err(e) = self.db_tx.send(DbCommand::Insert {
+            id: job_id.clone(),
+            username: username.clone(),
+            thread_id: thread_id.clone(),
+            query: encrypted_sanitized.clone(),
+        }) {
             error!("Failed to push job to background DB queue: {}", e);
         }
 
