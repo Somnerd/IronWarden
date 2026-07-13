@@ -4,7 +4,7 @@ use iw_warden::WardenConfig;
 
 #[tokio::test]
 async fn test_medical_rules_loading() {
-    let config_dir = "../config/regions";
+    let config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_medical.yaml")
         .expect("Failed to load config manifest")
         .0;
@@ -32,7 +32,7 @@ async fn test_medical_rules_loading() {
 
 #[tokio::test]
 async fn test_medical_pii_redaction() {
-    let config_dir = "../config/regions";
+    let config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_medical.yaml")
         .expect("Failed to load config manifest")
         .0;
@@ -86,7 +86,7 @@ async fn test_medical_pii_redaction() {
 
 #[tokio::test]
 async fn test_medical_heuristics_audit_only() {
-    let config_dir = "../config/regions";
+    let config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_medical.yaml")
         .expect("Failed to load config manifest")
         .0;

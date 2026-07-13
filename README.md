@@ -58,7 +58,7 @@ Installation instructions for major platforms:
 
 1.  **Model Setup:** Run `./scripts/setup_models.sh` to download ONNX weights. These weights are required for Hybrid NER mode. Note that IronWarden falls back to Heuristic-Only mode if weights are missing.
 2.  **Configure:** Set your 32-byte `WARDEN_PEPPER` in the environment.
-3.  **Rules:** Drop your regional rules into `config/regions/`.
+3.  **Rules:** Drop your regional rules into `config/rules/`.
 4.  **Knowledge:** Drop your policy files into `data/knowledge/`.
 5.  **Run:** `./ironwarden`
 

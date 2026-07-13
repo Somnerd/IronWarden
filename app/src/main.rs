@@ -1,8 +1,9 @@
 use iw_core::SovereignError;
 use mcp::StdioMcpServer;
+use secrecy::ExposeSecret;
 use std::sync::Arc;
 use std::time::Duration;
-use warden::WardenConfig;
+use warden::{GlobalConfig, WardenConfig};
 
 use arc_swap::ArcSwap;
 
@@ -46,8 +47,32 @@ impl iw_core::GroundingShield for DynamicShield {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 0. Load dotenvy configuration
+    dotenvy::dotenv().ok();
+
+    // Resolve global configuration
+    let global_config = match GlobalConfig::resolve() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .init();
+            tracing::error!("CRITICAL CONFIGURATION ERROR: {}", e);
+            std::process::exit(1);
+        }
+    };
+
     let env_mode = std::env::var("WARDEN_ENV").unwrap_or_else(|_| "development".to_string());
-    let deployment_profile = std::env::var("WARDEN_MODE").unwrap_or_else(|_| "hybrid".to_string());
+    let deployment_profile = global_config.warden_mode.clone();
+
+    // Export resolved JWT values to process env for downstream compat
+    if let Some(ref aud) = global_config.warden_jwt_audience {
+        std::env::set_var("WARDEN_JWT_AUDIENCE", aud);
+    }
+    if let Some(ref iss) = global_config.warden_jwt_issuer {
+        std::env::set_var("WARDEN_JWT_ISSUER", iss);
+    }
+
     let is_ha = deployment_profile == "HA"
         || deployment_profile == "enterprise"
         || deployment_profile == "multi-node"
@@ -56,8 +81,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             && std::env::var("IGNORE_HA_ENFORCEMENT").is_err());
 
     if is_ha && env_mode != "test" {
-        match std::env::var("REMOTE_AUDIT_ENDPOINT") {
-            Ok(endpoint) if !endpoint.is_empty() => {}
+        match std::env::var("REMOTE_AUDIT_ENDPOINT")
+            .ok()
+            .or(global_config.remote_audit_endpoint.clone())
+        {
+            Some(endpoint) if !endpoint.is_empty() => {}
             _ => {
                 tracing::error!(
                     "HA deployment profile ({}) enabled but REMOTE_AUDIT_ENDPOINT is not configured. Set REMOTE_AUDIT_ENDPOINT to a highly-available sink or use IGNORE_HA_ENFORCEMENT to override.",
@@ -86,22 +114,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     iw_core::fips::FipsValidator::verify_readiness()?;
 
     // 2. Load Configuration
-    dotenvy::dotenv().ok();
-    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "ollama".to_string());
-    let base_url = std::env::var("OPENAI_BASE_URL")
-        .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string());
+    let api_key = secrecy::SecretString::new(global_config.openai_api_key.clone());
+    let base_url = global_config.openai_base_url.clone();
 
     // 3. Security & Rules
-    let pepper_raw = std::env::var("WARDEN_PEPPER")
-        .map_err(|_| "Missing WARDEN_PEPPER")?
-        .into_bytes();
-    if pepper_raw.len() < 32 {
-        return Err("Insecure WARDEN_PEPPER (min 32 bytes)".into());
-    }
-    let global_pepper = secrecy::SecretVec::new(pepper_raw.clone());
+    let global_pepper = match global_config.warden_pepper.clone() {
+        Some(p) => secrecy::SecretVec::new(p),
+        None => secrecy::SecretVec::new(vec![0u8; 32]),
+    };
+    let pepper_raw = global_pepper.expose_secret().clone();
 
-    let config_path = std::env::var("WARDEN_MANIFEST_PATH")
-        .unwrap_or_else(|_| "config/manifest.yaml".to_string());
+    let config_path = global_config.warden_manifest_path.clone();
 
     // --- PERFORMANCE FIX: Initialize heavy AI engine in a blocking task ---
     let config_path_clone = config_path.clone();
@@ -145,20 +168,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grounding_shield: Arc<dyn iw_core::GroundingShield + Send + Sync> = dynamic_shield.clone();
 
     // 4. Infrastructure Data Paths
-    let audit_db_path = std::env::var("AUDIT_DB_PATH").unwrap_or_else(|_| "audit.db".to_string());
-    let knowledge_path =
-        std::env::var("KNOWLEDGE_PATH").unwrap_or_else(|_| "data/knowledge".to_string());
+    let audit_db_path = global_config.audit_db_path.clone();
+    let knowledge_path = global_config.knowledge_path.clone();
 
     // 5. Instantiate Control Plane Components
-    let remote_audit_endpoint = std::env::var("REMOTE_AUDIT_ENDPOINT").ok();
-    let remote_audit_token = std::env::var("REMOTE_AUDIT_TOKEN").ok();
+    let remote_audit_endpoint = global_config.remote_audit_endpoint.clone();
+    let remote_audit_token = global_config.remote_audit_token.clone();
 
     let remote_forwarder: Option<Arc<dyn worker::audit::RemoteAuditForwarder>> =
         if let (Some(ep), Some(tk)) = (remote_audit_endpoint, remote_audit_token) {
             tracing::info!("Remote Audit Streaming: ENABLED (Endpoint: {})", ep);
             Some(Arc::new(worker::audit::HttpAuditForwarder::new(
                 ep,
-                secrecy::SecretString::new(tk.into()),
+                secrecy::SecretString::new(tk),
             )))
         } else {
             tracing::warn!("Remote Audit Streaming: DISABLED. Audit logs are local-only.");
@@ -293,10 +315,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?,
     );
 
-    let router = Arc::new(worker::OpenAIGateway::new(
-        secrecy::SecretString::new(api_key),
-        base_url,
-    ));
+    let router = Arc::new(worker::OpenAIGateway::new(api_key, base_url));
 
     // 6. Initialize Parallel Control Planes (MCP + Bridge)
     tracing::info!(
@@ -320,10 +339,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let jwt_public_key_raw = std::env::var("JWT_PUBLIC_KEY")
-        .map_err(|_| "Missing JWT_PUBLIC_KEY")?
-        .into_bytes();
-    let jwt_public_key = secrecy::SecretVec::new(jwt_public_key_raw);
+    let jwt_public_key = match global_config.jwt_public_key.clone() {
+        Some(k) => secrecy::SecretVec::new(k),
+        None => {
+            if deployment_profile == "hybrid" || deployment_profile == "bridge" {
+                if !global_config.allow_fallback {
+                    tracing::error!("CRITICAL CONFIGURATION ERROR: Missing JWT_PUBLIC_KEY in bridge/hybrid mode");
+                    std::process::exit(1);
+                }
+            }
+            secrecy::SecretVec::new(Vec::new())
+        }
+    };
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
@@ -338,8 +365,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
         });
 
-        let bridge_port = std::env::var("BRIDGE_PORT").unwrap_or_else(|_| "14141".to_string());
-        let bridge_bind = std::env::var("BRIDGE_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
+        let bridge_port = global_config.bridge_port.clone();
+        let bridge_bind = global_config.bridge_addr.clone();
         let full_addr = format!("{}:{}", bridge_bind, bridge_port);
 
         let bridge_router = worker::create_bridge_router(bridge_state.clone());

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_shipping_rules_loading() {
-    let config_dir = "../config/regions";
+    let config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_shipping.yaml")
         .expect("Failed to load config manifest")
         .0;
@@ -71,7 +71,7 @@ async fn test_shipping_rules_loading() {
 
 #[tokio::test]
 async fn test_logistics_heuristics() {
-    let config_dir = "../config/regions";
+    let config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_shipping.yaml")
         .expect("Failed to load config manifest")
         .0;
