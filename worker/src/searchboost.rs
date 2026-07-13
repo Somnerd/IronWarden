@@ -120,6 +120,7 @@ impl SearchBoostQueue {
                     _ = tokio::time::sleep(Duration::from_millis(50)) => None,
                 };
 
+                let is_none = item.is_none();
                 if let Some(it) = item {
                     batch.push(it);
                 }
@@ -127,7 +128,7 @@ impl SearchBoostQueue {
                 if !batch.is_empty()
                     && (batch.len() >= 50
                         || last_flush.elapsed() >= Duration::from_millis(100)
-                        || item.is_none())
+                        || is_none)
                 {
                     let to_write = std::mem::take(&mut batch);
                     let pool_c = pool_writer.clone();
