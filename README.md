@@ -39,12 +39,28 @@ Ground your AI prompts in local knowledge without the complexity of external dat
 
 ---
 
+## 💻 System Requirements
+
+**Tesseract OCR** is a mandatory host-level dependency for document and image parsing. 
+
+Without Tesseract installed, document OCR falls back to a mock mode which is unsafe for production. In production environments, missing this dependency will cause parsing to fail-closed.
+
+Installation instructions for major platforms:
+*   **macOS:** `brew install tesseract`
+*   **Ubuntu/Debian:** `sudo apt-get install tesseract-ocr`
+*   **RedHat/CentOS:** `sudo dnf install tesseract`
+
+---
+
 ## 🚀 Deployment
 
-1.  **Configure:** Set your 32-byte `WARDEN_PEPPER` in the environment.
-2.  **Rules:** Drop your regional rules into `config/rules/`.
-3.  **Knowledge:** Drop your policy files into `data/knowledge/`.
-4.  **Run:** `./ironwarden`
+### Installation & Run
+
+1.  **Model Setup:** Run `./scripts/setup_models.sh` to download ONNX weights. These weights are required for Hybrid NER mode. Note that IronWarden falls back to Heuristic-Only mode if weights are missing.
+2.  **Configure:** Set your 32-byte `WARDEN_PEPPER` in the environment.
+3.  **Rules:** Drop your regional rules into `config/rules/`.
+4.  **Knowledge:** Drop your policy files into `data/knowledge/`.
+5.  **Run:** `./ironwarden`
 
 ---
 
