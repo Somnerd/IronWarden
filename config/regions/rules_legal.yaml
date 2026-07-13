@@ -49,7 +49,7 @@ rules:
 
 heuristics:
   - label: "POTENTIAL_CLIENT_NAME"
-    pattern: '\b[A-Z\u0391-\u03A9][a-z\u03B1-\u03C9\u03AC-\u03CE]+ [A-Z\u0391-\u03A9][a-z\u03B1-\u03C9\u03AC-\u03CE]+\b'
+    pattern: '\b[A-Z\u0391-\u03A9][a-z\u03B1-\u03C9\u03AC-\u03CE]+(?:[ \-''](?:da|de|von|van|Ibn|al)?[ \-'']?[A-Z\u0391-\u03A9][a-z\u03B1-\u03C9\u03AC-\u03CE]+)+\b'
     skip_sentence_start: true
     category: "IndividualName"
 

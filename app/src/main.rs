@@ -175,7 +175,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut latest = std::time::SystemTime::UNIX_EPOCH;
                 if let Ok(metadata) = std::fs::metadata(&path) {
                     if let Ok(modified) = metadata.modified() {
-                        latest = modified;
+                        latest = latest.max(modified);
+                    }
+                }
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("rules_dir:") {
+                            let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+                            if parts.len() == 2 {
+                                let dir = parts[1].trim().trim_matches('\'').trim_matches('"');
+                                if !dir.is_empty() {
+                                    if let Ok(metadata) = std::fs::metadata(dir) {
+                                        if let Ok(modified) = metadata.modified() {
+                                            latest = latest.max(modified);
+                                        }
+                                    }
+                                    let rules_yaml = std::path::Path::new(dir).join("rules.yaml");
+                                    if let Ok(metadata) = std::fs::metadata(rules_yaml) {
+                                        if let Ok(modified) = metadata.modified() {
+                                            latest = latest.max(modified);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 latest

@@ -122,6 +122,13 @@ class IronWardenRunner:
         self.stderr_output = []
         self.stderr_lock = threading.Lock()
 
+        # Initial clean up of old files
+        if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
+            try:
+                os.remove(self.env["AUDIT_DB_PATH"])
+            except Exception:
+                pass
+
 
     def start(self, env_vars=None, **kwargs):
         # We use self.env from __init__ instead of overwriting with os.environ.copy()
@@ -132,9 +139,43 @@ class IronWardenRunner:
         self.env["WARDEN_MODE"] = "hybrid"
         self.env["REMOTE_AUDIT_ENDPOINT"] = "http://127.0.0.1:9999/mock-audit"
 
-        # Cleanup old files
-        if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
-            os.remove(self.env["AUDIT_DB_PATH"])
+        # Generate temporary manifest mapping rules_dir to WARDEN_CONFIG_PATH for tests
+        if "WARDEN_CONFIG_PATH" in self.env:
+            config_dir = self.env["WARDEN_CONFIG_PATH"]
+            import yaml
+            import tempfile
+            
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            # Read original active_rules if they exist to prevent breaking regional tests
+            original_manifest_path = os.path.join(project_root, "config/manifest.yaml")
+            active_rules = ["rules.yaml"]
+            if os.path.exists(original_manifest_path):
+                try:
+                    with open(original_manifest_path, "r") as f:
+                        orig = yaml.safe_load(f)
+                        if orig and "active_rules" in orig:
+                            active_rules = [
+                                r for r in orig["active_rules"]
+                                if os.path.exists(os.path.join(config_dir, r))
+                            ]
+                            if not active_rules:
+                                active_rules = ["rules.yaml"]
+                except Exception:
+                    pass
+            
+            manifest_content = {
+                "rules_dir": config_dir,
+                "active_rules": active_rules
+            }
+            temp_manifest = tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w")
+            yaml.dump(manifest_content, temp_manifest)
+            temp_manifest.close()
+            self.env["WARDEN_MANIFEST_PATH"] = temp_manifest.name
+            self._temp_manifest_path = temp_manifest.name
+        else:
+            self._temp_manifest_path = None
+
+
 
         self.process = subprocess.Popen(
             [self.bin_path],
@@ -186,7 +227,7 @@ class IronWardenRunner:
                 self.stderr_output.append(line)
             print(f"DEBUG LOG: {line}")
 
-    def stop(self):
+    def stop(self, cleanup=False):
         if self.process:
             self.process.send_signal(signal.SIGINT)
             try:
@@ -195,20 +236,24 @@ class IronWardenRunner:
                 self.process.kill()
             self.stop_event.set()
 
-        # Cleanup temporary resources
-        try:
-            if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
-                os.remove(self.env["AUDIT_DB_PATH"])
-                # Also remove WAL/SHM files
-                for ext in ["-shm", "-wal", ".anchor"]:
-                    if os.path.exists(self.env["AUDIT_DB_PATH"] + ext):
-                        os.remove(self.env["AUDIT_DB_PATH"] + ext)
+        if cleanup:
+            # Cleanup temporary resources
+            try:
+                if hasattr(self, "_temp_manifest_path") and self._temp_manifest_path and os.path.exists(self._temp_manifest_path):
+                    os.remove(self._temp_manifest_path)
 
-            if "LANCEDB_PATH" in self.env and os.path.exists(self.env["LANCEDB_PATH"]):
-                import shutil
-                shutil.rmtree(self.env["LANCEDB_PATH"], ignore_errors=True)
-        except Exception as e:
-            print(f"DEBUG: Cleanup failed: {e}")
+                if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
+                    os.remove(self.env["AUDIT_DB_PATH"])
+                    # Also remove WAL/SHM files
+                    for ext in ["-shm", "-wal", ".anchor"]:
+                        if os.path.exists(self.env["AUDIT_DB_PATH"] + ext):
+                            os.remove(self.env["AUDIT_DB_PATH"] + ext)
+
+                if "LANCEDB_PATH" in self.env and os.path.exists(self.env["LANCEDB_PATH"]):
+                    import shutil
+                    shutil.rmtree(self.env["LANCEDB_PATH"], ignore_errors=True)
+            except Exception as e:
+                print(f"DEBUG: Cleanup failed: {e}")
 
     def send_mcp(self, method, params, request_id=1):
         request = {
@@ -258,7 +303,7 @@ def warden(warden_bin, jwt_keys):
     runner = IronWardenRunner(warden_bin)
     runner.start(env_vars={"JWT_PRIVATE_KEY": jwt_keys["private"], "JWT_PUBLIC_KEY": jwt_keys["public"]})
     yield runner
-    runner.stop()
+    runner.stop(cleanup=True)
 
 @pytest.fixture
 def jwt_factory(warden):
