@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::fs;
 use iw_core::SovereignError;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalConfig {
@@ -189,10 +189,10 @@ impl GlobalConfig {
             let manifest_content = fs::read_to_string(manifest_path).map_err(|e| {
                 SovereignError::ConfigError(format!("Failed to read manifest file: {}", e))
             })?;
-            let manifest: crate::config::ManifestConfig =
-                serde_yaml::from_str(&manifest_content).map_err(|e| {
-                    SovereignError::ConfigError(format!("Failed to parse manifest: {}", e))
-                })?;
+            let manifest: crate::config::ManifestConfig = serde_yaml::from_str(&manifest_content)
+                .map_err(|e| {
+                SovereignError::ConfigError(format!("Failed to parse manifest: {}", e))
+            })?;
             let rules_dir = Path::new(&manifest.rules_dir);
             if !rules_dir.exists() {
                 return Err(SovereignError::ConfigError(format!(
