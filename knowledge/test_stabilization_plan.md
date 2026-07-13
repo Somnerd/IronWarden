@@ -1,84 +1,97 @@
 # 🏰 IronWarden V1.3 Test Stabilization Plan
 
-This document outlines the testing gaps identified across the codebase and specifies the implementation plans for both unit and integration tests.
+This document outlines the testing gaps identified across the codebase and specifies the implementation plans for both unit and integration tests, prioritizing Critical Security Invariant (Code Red) gaps.
 
 ---
 
-## 🎯 1. Phase 2: Safe ONNX Mutex Concurrency
+## 🚨 PART 1: Critical Security Gaps (V-Series Invariants)
+
+These are Code Red gaps that threaten the security invariants from the GEMINI.md mandate and must be written immediately.
+
+### 🎯 1. Isolation via AAD (V-19) - Cipher & GroundingShield
+* **Crate:** `iw-core`, `iw-warden`
+* **Files:** `core/src/crypto.rs`, `warden/src/engine.rs`
+* **Objective:** Ensure AAD mismatch fails decryption and Job/Session swapping is impossible.
+* **Implementation Plan (Jules):**
+  * `core/crypto.rs`: Unit tests for `AadCipher::encrypt/decrypt`. Test roundtrip, wrong-key rejection, wrong AAD rejection (V-19), tampered ciphertext, empty payload.
+  * `warden/engine.rs`: Test `GroundingShield::seal_query` and `unseal_query` round-trip. Test that unseal with a wrong username fails due to AAD mismatch.
+
+### 🎯 2. Overlap Integrity (V-12) - PII Restoration
 * **Crate:** `iw-warden`
-* **File:** [warden/src/ai.rs](file:///Users/nikolasalexandrakis/Documents/IronWarden/warden/src/ai.rs)
-* **Objective:** Verify that wrapping the ONNX session inside a `Mutex` prevents data corruption, data races, and deadlocks under concurrent multi-threaded inference.
+* **File:** `warden/src/engine.rs`
+* **Objective:** Validate that the inverse operation of `sanitize_prompt` (`restore_prompt`) never leaks raw PII to the user.
+* **Implementation Plan (Jules):**
+  * Test `PiiShield::restore_prompt` round-trip: sanitize → restore original. Test with empty map and overlapping token strings.
 
-### 📋 Implementation Plan (Jules)
-* Create `integration_tests/tests/warden/onnx_concurrency.rs`.
-* Spawn 10 parallel threads, each feeding distinct sentences to the `WardenEngine::classify_ner` concurrently.
-* Assert that:
-  1. No deadlocks occur.
-  2. All classifications return the correct respective redacted labels.
-  3. No threads panic due to poison locks or internal cell mutability violations.
+### 🎯 3. Leak-Proof Routing (V-14) - Prompt Injection Guardrails
+* **Crate:** `iw-warden`, `iw-worker`
+* **Files:** `warden/src/engine.rs`, `worker/src/bridge.rs`
+* **Objective:** Ensure Layer 1/1.5/2 guardrails prevent raw queries from reaching the LLM and audit failures abort requests.
+* **Implementation Plan (Jules):**
+  * `warden/engine.rs`: Unit tests for `INJECTION_BLOCKLIST` (test "ignore previous instructions", mixed case) triggering `UnauthorizedAccess`.
+  * `warden/engine.rs`: Unit test for `check_shannon_entropy_smuggling` (base64 payload >40 chars & entropy >5.8 triggering block).
+  * `warden/engine.rs`: Unit test for `check_ml_sidecar` fallback.
+  * `worker/bridge.rs`: Integration test verifying that an audit log failure aborts the request (circuit breaker).
 
----
+### 🎯 4. Strict Mode Configurations (V-Series)
+* **Crate:** `iw-warden`, `iw-core`
+* **Files:** `warden/src/configurator.rs`, `core/src/crypto.rs`
+* **Objective:** Prevent weak encryption keys and unauthorized access.
+* **Implementation Plan (Jules):**
+  * `warden/configurator.rs`: Test `GlobalConfig::resolve()` strict mode: missing config.yaml rejection, pepper <32 bytes rejection (Critical), missing manifest path.
+  * `core/crypto.rs`: Unit tests for `JwtVerifier::verify`. Test valid token, expired token, wrong audience, wrong issuer, invalid PEM, tampered signature.
 
-## 🎯 2. Phase 3: FIFO SQLite Queue Writer & Graceful Shutdown
+### 🎯 5. GDPR Purge Pipeline (Hard Requirement)
+* **Crate:** `iw-core`, `iw-worker`
+* **Files:** `core/src/traits.rs`, `worker/src/audit.rs`, `worker/src/storage.rs`
+* **Objective:** Verify all user data across all tables and systems is deleted.
+* **Implementation Plan (Jules):**
+  * `worker/audit.rs`: Test `purge_user` handler deletes from `audit_reports` and `ephemeral_raw_logs`.
+  * `worker/storage.rs`: Test `purge_user_data` full pipeline across audit, librarian, sessions, threads, jobs.
+
+### 🎯 6. Cross-User Data Isolation (V-19)
 * **Crate:** `iw-worker`
-* **File:** [worker/src/searchboost.rs](file:///Users/nikolasalexandrakis/Documents/IronWarden/worker/src/searchboost.rs)
-* **Objective:** Ensure sequential execution consistency of DB commands (Insert ➔ Update) and verify zero-loss graceful shutdown flushes.
+* **Files:** `worker/src/searchboost.rs`, `worker/src/librarian.rs`
+* **Objective:** Ensure users cannot access other users' jobs or documents.
+* **Implementation Plan (Jules):**
+  * `worker/searchboost.rs`: Test `get_result()` access denial. Enqueue as user A, request as user B, verify `UnauthorizedAccess`.
+  * `worker/librarian.rs`: Test cross-user document isolation. Add docs for user A, query as user B, verify empty results.
 
-### 📋 Implementation Plan (Jules)
-* Create `integration_tests/tests/worker/searchboost_fifo_shutdown.rs`.
-* **Test Case 1 (FIFO Consistency):** Enqueue 50 sequential jobs with immediate results update. Spin up multiple concurrent workers and ensure that every job successfully transitions to `status = 'complete'` without any SQL sequence issues.
-* **Test Case 2 (Graceful Flush):** Enqueue 100 jobs in the background SQLite queue, then immediately execute `queue.shutdown().await`. Assert that:
-  1. The flume channel length drops to 0.
-  2. The SQLite database contains exactly 100 completed/inserted jobs (proving zero log losses).
+### 🎯 7. OCR Fail-Closed Safety
+* **Crate:** `iw-worker`
+* **File:** `worker/src/ocr.rs`
+* **Objective:** Verify OCR module fails closed in production without Tesseract.
+* **Implementation Plan (Jules):**
+  * `worker/ocr.rs`: Test `IRONWARDEN_ENV=production` missing binary triggers `SovereignError::InternalError`. Test Dev fallback mode.
 
 ---
 
-## 🎯 3. Phase 4: Thread-Local Normalization Buffer Isolation
+## 🏗️ PART 2: System Architecture & Stabilization (High Priority)
+
+### 🎯 8. SearchBoost FIFO, Shutdown, & Redis HA
+* **Crate:** `iw-worker`
+* **File:** `worker/src/searchboost.rs`
+* **Implementation Plan (Jules):**
+  * Test graceful flush: Enqueue 100 jobs, call `shutdown().await`, verify flume channel is empty and DB has 100 jobs.
+  * (Optional) Test Redis HA paths for enqueue, process, and session management if a mock is available.
+
+### 🎯 9. Thread-Local Normalization & Concurrent ONNX
 * **Crate:** `iw-warden`
-* **File:** [warden/src/engine.rs](file:///Users/nikolasalexandrakis/Documents/IronWarden/warden/src/engine.rs)
-* **Objective:** Verify that `thread_local!` string buffers isolate states correctly between threads and do not corrupt data when reusing capacity.
-
-### 📋 Implementation Plan (Jules)
-* Create `integration_tests/tests/warden/thread_local_normalization.rs`.
-* **Test Case 1 (Isolation):** Spin up Thread A and Thread B. Pass a very large string to Thread A and a small string to Thread B simultaneously. Verify that Thread B's output is not contaminated by Thread A's data.
-* **Test Case 2 (Capacity Reuse):** Call the normalizer on the same thread sequentially with:
-  1. A very long string.
-  2. A tiny string.
-  3. A string containing special Unicode characters.
-  Verify that the buffer does not truncate or leak remnants of the long string into the subsequent short strings.
+* **Files:** `warden/src/engine.rs`, `warden/src/ai.rs`
+* **Implementation Plan (Jules):**
+  * `engine.rs`: Verify `thread_local!` string buffers isolate states and reuse capacity correctly without data corruption.
+  * `ai.rs`: Verify ONNX Mutex prevents deadlocks and panics under concurrent multi-threaded inference.
 
 ---
 
-## 🎯 4. Configuration Prioritization & Strict Cryptographical Keys
-* **Crate:** `iw-warden`
-* **File:** [warden/src/configurator.rs](file:///Users/nikolasalexandrakis/Documents/IronWarden/warden/src/configurator.rs)
-* **Objective:** Test that env variables take priority over files, and that weak/short keys cause the application to fail-closed during startup.
+## 🚀 PART 3: CI/CD Pipeline Restructuring
 
-### 📋 Implementation Plan (Jules)
-* Create `integration_tests/tests/warden/configurator_rules.rs`.
-* **Test Case 1 (Priorities):** Set `PORT` via env, set a different port in config YAML. Assert that the parsed config uses the env port.
-* **Test Case 2 (Strict Keys):** Attempt to initialize `GlobalConfig` with a pepper key shorter than 32 bytes. Assert that the configuration engine throws a validation error and refuses to load.
-
----
-
-## 🎯 5. OCR Pipeline Fallbacks & Fail-Closed Guardrails
-* **Crate:** `iw-worker`
-* **File:** [worker/src/ocr.rs](file:///Users/nikolasalexandrakis/Documents/IronWarden/worker/src/ocr.rs)
-* **Objective:** Verify mock OCR fallbacks in development mode, fail-closed safety in production mode when dependencies are missing, and actual Greek/English parsing when Tesseract is available.
-
-### 📋 Implementation Plan (Jules)
-* Create `integration_tests/tests/worker/ocr_pipeline.rs`.
-* **Test Case 1 (Dev Fallback):** Unset `IRONWARDEN_ENV` and `RUST_ENV`. Mock a missing `tesseract` binary call. Assert that the provider returns the `[MOCK OCR]` prefix fallback.
-* **Test Case 2 (Production Fail-Closed):** Set `IRONWARDEN_ENV=production`. Mock a missing `tesseract` binary. Assert that the provider returns a hard `SovereignError::InternalError` stating the dependency is missing.
-
----
-
-## 🎯 6. Bridge API Rate Limiting & Concurrency Semaphore
-* **Crate:** `iw-worker`
-* **File:** [worker/src/bridge.rs](file:///Users/nikolasalexandrakis/Documents/IronWarden/worker/src/bridge.rs)
-* **Objective:** Stress test the Axum bridge to verify that rate limiting (Governor layer) and the global concurrency semaphore drop excess requests with expected status codes.
-
-### 📋 Implementation Plan (Jules)
-* Create `integration_tests/tests/worker/bridge_limits.rs`.
-* **Test Case 1 (Concurrency Semaphore):** Set the concurrency semaphore limit to 2. Send 10 concurrent requests and verify that the bridge returns `429 Too Many Requests` (or drops requests) when limits are exceeded.
-* **Test Case 2 (Rate Limiter):** Send high-frequency requests exceeding the burst size (100) or per-second limits. Verify that the client receives rate-limiting headers and `429 Too Many Requests`.
+### 🎯 10. Parallel Split for CI/CD Workflow
+* **File:** `.github/workflows/rust_ci.yml`
+* **Objective:** Split the monolithic CI job into parallel, fast-failing jobs to improve developer velocity.
+* **Implementation Plan (Jules):**
+  * Break current monolithic job into 4 parallel jobs:
+    1. **`lint`**: `cargo fmt --check` + `cargo clippy` + auto-format commit (~2 min)
+    2. **`unit-tests`**: `cargo test --workspace --lib --bins` (crate-level unit tests) (~5 min)
+    3. **`integration-tests`**: `cargo test -p iw-integration-tests` + `pytest test_suites/` (Depends on `lint`) (~8 min)
+    4. **`benchmarks`**: `cargo bench --workspace` (Run actual Criterion benchmarks for perf regression tracking) (~3 min)
