@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use iw_core::{InferenceGateway, SovereignError};
 use reqwest::Client;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -18,13 +19,13 @@ struct OpenAIPayload<'a> {
 /// An InferenceGateway implementation for interacting with OpenAI-compatible APIs.
 pub struct OpenAIGateway {
     client: Client,
-    api_key: String,
+    api_key: SecretString,
     base_url: String,
 }
 
 impl OpenAIGateway {
     /// Creates a new OpenAIGateway instance.
-    pub fn new(api_key: String, base_url: String) -> Self {
+    pub fn new(api_key: SecretString, base_url: String) -> Self {
         let mut builder = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30));
@@ -80,7 +81,10 @@ impl InferenceGateway for OpenAIGateway {
         let response = self
             .client
             .post(&self.base_url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.api_key.expose_secret()),
+            )
             .json(&payload)
             .send()
             .await
