@@ -178,7 +178,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let remote_forwarder: Option<Arc<dyn worker::audit::RemoteAuditForwarder>> =
         if let (Some(ep), Some(tk)) = (remote_audit_endpoint, remote_audit_token) {
             tracing::info!("Remote Audit Streaming: ENABLED (Endpoint: {})", ep);
-            Some(Arc::new(worker::audit::HttpAuditForwarder::new(ep, tk)))
+            Some(Arc::new(worker::audit::HttpAuditForwarder::new(
+                ep,
+                secrecy::SecretString::new(tk),
+            )))
         } else {
             tracing::warn!("Remote Audit Streaming: DISABLED. Audit logs are local-only.");
             None
@@ -337,7 +340,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let jwt_public_key = match global_config.jwt_public_key.clone() {
-        Some(k) => k,
+        Some(k) => secrecy::SecretVec::new(k),
         None => {
             if deployment_profile == "hybrid" || deployment_profile == "bridge" {
                 if !global_config.allow_fallback {
