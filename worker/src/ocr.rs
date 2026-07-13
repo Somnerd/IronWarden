@@ -51,9 +51,18 @@ impl OcrProvider for TesseractOcr {
                 Err(SovereignError::InternalError(format!("Tesseract Error: {}", err)))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                warn!("OCR: Tesseract binary not found. Falling back to mock for development.");
-                let _ = fs::remove_file(&input_path).await;
-                Ok(format!("[MOCK OCR] This is a simulated extraction for {}. Install Tesseract for real processing.", mime_type))
+                let env_prod = std::env::var("IRONWARDEN_ENV").unwrap_or_default() == "production"
+                    || std::env::var("RUST_ENV").unwrap_or_default() == "production";
+
+                if env_prod {
+                    error!("CRITICAL: Tesseract binary not found in production environment! Failing closed to prevent data leaks.");
+                    let _ = fs::remove_file(&input_path).await;
+                    Err(SovereignError::InternalError("Tesseract OCR dependency missing in production mode.".to_string()))
+                } else {
+                    warn!("SECURITY WARNING: Tesseract binary not found. Falling back to mock OCR for development mode. Do not use in production.");
+                    let _ = fs::remove_file(&input_path).await;
+                    Ok(format!("[MOCK OCR] This is a simulated extraction for {}. Install Tesseract for real processing.", mime_type))
+                }
             }
             Err(e) => {
                 error!("OCR Process Error: {}", e);
