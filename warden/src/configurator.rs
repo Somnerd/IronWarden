@@ -1,5 +1,6 @@
 use iw_core::SovereignError;
 use serde::{Deserialize, Serialize};
+use secrecy::SecretString;
 use std::fs;
 use std::path::Path;
 
@@ -9,7 +10,7 @@ pub struct GlobalConfig {
     pub warden_mode: String,
 
     #[serde(default = "default_openai_api_key")]
-    pub openai_api_key: String,
+    pub openai_api_key: SecretString,
 
     #[serde(default = "default_openai_base_url")]
     pub openai_base_url: String,
@@ -46,8 +47,8 @@ pub struct GlobalConfig {
 fn default_warden_mode() -> String {
     "hybrid".to_string()
 }
-fn default_openai_api_key() -> String {
-    "ollama".to_string()
+fn default_openai_api_key() -> SecretString {
+    SecretString::new("ollama".to_string())
 }
 fn default_openai_base_url() -> String {
     "https://api.openai.com/v1/chat/completions".to_string()
@@ -126,7 +127,7 @@ impl GlobalConfig {
             config.warden_mode = v;
         }
         if let Ok(v) = std::env::var("OPENAI_API_KEY") {
-            config.openai_api_key = v;
+            config.openai_api_key = SecretString::new(v);
         }
         if let Ok(v) = std::env::var("OPENAI_BASE_URL") {
             config.openai_base_url = v;
