@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use crate::normalize::Normalizer;
 use crate::shadow_ner::ShadowNer;
 use aes_gcm::{
@@ -189,7 +190,7 @@ struct UnifiedMatch {
     end: usize,
     text: String,
     rule_id: String,
-    is_confirmed: bool,
+    _is_confirmed: bool,
     action: EnforcementAction,
     category: PiiCategory,
 }

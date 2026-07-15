@@ -198,7 +198,7 @@ impl OnnxNer {
 
 pub struct HybridNer {
     backend: NerBackend,
-    threshold: f64,
+    _threshold: f64,
 }
 
 impl HybridNer {
