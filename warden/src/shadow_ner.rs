@@ -14,7 +14,8 @@ static GREEK_SUFFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub struct ShadowNer {
     patterns: Vec<(Regex, String, bool, EnforcementAction, PiiCategory)>,
-    _global_name_re: Regex,
+    #[allow(dead_code)]
+    global_name_re: Regex,
     greek_name_re: Regex,
 }
 

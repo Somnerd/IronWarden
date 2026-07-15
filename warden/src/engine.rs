@@ -1023,7 +1023,7 @@ impl GroundingShield for WardenEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::HeuristicConfig;
+
 
     #[tokio::test]
     async fn test_overlap_merging_correct_offsets() {
@@ -1296,9 +1296,14 @@ mod tests {
         // Point sidecar to a dead port to force connection failure
         std::env::set_var("SIDECAR_ENDPOINT", "http://127.0.0.1:9999");
 
-        let config = GlobalConfig::resolve().unwrap();
-        // Since we allow fallback, engine initialization should not panic, but it will use dummy/regex fallback
-        let engine = WardenEngine::new(&config).await.unwrap();
+        let yaml = r#"
+            name: "Test"
+            rules: []
+            heuristics: []
+        "#;
+        let config: crate::config::WardenConfig = serde_yaml::from_str(yaml).unwrap();
+        let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
+        let engine = config.compile_engine(&pepper).unwrap();
 
         // The query itself isn't blocked by Layer 1, but Layer 2 ML is down.
         // It should gracefully degrade and still return a valid ScrubbingReport (fail open/closed appropriately based on rules).
@@ -1319,8 +1324,15 @@ mod tests {
     async fn test_thread_local_normalization_concurrency() {
         std::env::set_var("WARDEN_ENV", "test");
         std::env::set_var("ALLOW_FALLBACK", "true");
-        let config = GlobalConfig::resolve().unwrap();
-        let engine = Arc::new(WardenEngine::new(&config).await.unwrap());
+        use std::sync::Arc;
+        let yaml = r#"
+            name: "Test"
+            rules: []
+            heuristics: []
+        "#;
+        let config: crate::config::WardenConfig = serde_yaml::from_str(yaml).unwrap();
+        let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
+        let engine = Arc::new(config.compile_engine(&pepper).unwrap());
 
         let mut handles = vec![];
 
