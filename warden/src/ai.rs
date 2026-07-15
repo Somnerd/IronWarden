@@ -299,16 +299,7 @@ impl HybridNerPool {
         // --- SECURITY FIX (Section 4): Decoupled AI Circuit Breaker ---
         // Uses tokio::time::timeout on the receiver side rather than blocking a worker thread.
         // Falls back to Aho-Corasick immediately on 25ms timeout.
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.block_on(async {
-                match tokio::time::timeout(std::time::Duration::from_millis(25), self.receiver.recv_async()).await {
-                    Ok(Ok(ner)) => Some(ner),
-                    _ => None, // Timeout or Channel Closed -> Fallback to deterministic engine
-                }
-            })
-        } else {
-            self.receiver.recv_timeout(std::time::Duration::from_millis(25)).ok()
-        }
+        self.receiver.recv_timeout(std::time::Duration::from_millis(25)).ok()
     }
 
     pub fn release(&self, instance: HybridNer) {

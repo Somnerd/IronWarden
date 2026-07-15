@@ -52,12 +52,36 @@ rules:
     let mcp = StdioMcpServer::new(shield, storage, router, session_manager);
     
     // 3. Simulate Request
+    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+
+    // We must ensure the keys are ordered identically to what `serde_json::to_string(&params_for_mac)` would produce
+    // inside `server.rs` after it deserializes into a Map and serializes again.
+    let mut params_map = serde_json::Map::new();
+    params_map.insert("prompt".to_string(), serde_json::Value::String("Tell me about Project X".to_string()));
+    params_map.insert("username".to_string(), serde_json::Value::String("test_user".to_string()));
+
+    let params_val = serde_json::Value::Object(params_map);
+    let params_str = serde_json::to_string(&params_val).unwrap();
+
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac = HmacSha256::new_from_slice(b"secret").unwrap();
+    mac.update(params_str.as_bytes());
+    mac.update(&timestamp.to_be_bytes());
+    let mac_result = mac.finalize().into_bytes();
+    let mac_hex = hex::encode(mac_result);
+
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "mcp_orchestrate",
         "params": {
             "prompt": "Tell me about Project X",
-            "username": "test_user"
+            "username": "test_user",
+            "_auth": {
+                "mac": mac_hex,
+                "timestamp": timestamp
+            }
         },
         "id": "1"
     });
