@@ -190,7 +190,8 @@ struct UnifiedMatch {
     end: usize,
     text: String,
     rule_id: String,
-    _is_confirmed: bool,
+    #[allow(dead_code)]
+    is_confirmed: bool,
     action: EnforcementAction,
     category: PiiCategory,
 }

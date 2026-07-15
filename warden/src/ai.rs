@@ -198,7 +198,8 @@ impl OnnxNer {
 
 pub struct HybridNer {
     backend: NerBackend,
-    _threshold: f64,
+    #[allow(dead_code)]
+    threshold: f64,
 }
 
 impl HybridNer {
