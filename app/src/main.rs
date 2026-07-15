@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_writer(std::io::stderr)
             .init();
     }
-    tracing::info!("Initializing IronWarden V1.2 - Sovereign Standalone Appliance");
+    tracing::info!("Initializing IronWarden V1.3 - Sovereign Standalone Appliance");
 
     // 1b. FIPS 140-2/3 Readiness (WP #87)
     iw_core::fips::FipsValidator::verify_readiness()?;
