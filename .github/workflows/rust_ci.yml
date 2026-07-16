@@ -84,7 +84,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run Worker Core Tests
-        run: cargo test --package iw-worker
+        run: cargo test --package worker
 
   integration:
     name: Integration (Full Flow)
