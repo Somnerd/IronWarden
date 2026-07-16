@@ -9,7 +9,7 @@ pub struct GlobalConfig {
     #[serde(default = "default_warden_mode")]
     pub warden_mode: String,
 
-    #[serde(default = "default_openai_api_key")]
+    #[serde(default = "default_openai_api_key", skip_serializing)]
     pub openai_api_key: SecretString,
 
     #[serde(default = "default_openai_base_url")]
