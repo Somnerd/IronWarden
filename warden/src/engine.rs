@@ -1024,7 +1024,6 @@ impl GroundingShield for WardenEngine {
 mod tests {
     use super::*;
 
-
     #[tokio::test]
     async fn test_overlap_merging_correct_offsets() {
         let dict_rules = vec![(
