@@ -1,6 +1,6 @@
 use iw_core::SovereignError;
-use serde::{Deserialize, Serialize};
 use secrecy::SecretString;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
@@ -352,18 +352,21 @@ mod tests {
             let config_dir = temp_dir.path().join("config");
             fs::create_dir(&config_dir).unwrap();
             fs::write(config_dir.join("config.yaml"), "warden_mode: hybrid").unwrap();
-            
+
             let old_dir = env::current_dir().unwrap();
             env::set_current_dir(temp_dir.path()).unwrap();
-            
+
             env::set_var("ALLOW_FALLBACK", "true");
             env::set_var("OPENAI_API_KEY", "sk-proj-test-secret-key-12345");
-            
+
             let config = GlobalConfig::resolve().unwrap();
-            
+
             use secrecy::ExposeSecret;
-            assert_eq!(config.openai_api_key.expose_secret(), "sk-proj-test-secret-key-12345");
-            
+            assert_eq!(
+                config.openai_api_key.expose_secret(),
+                "sk-proj-test-secret-key-12345"
+            );
+
             env::set_current_dir(old_dir).unwrap();
         });
     }
