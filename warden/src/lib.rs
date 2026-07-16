@@ -1,3 +1,10 @@
+#![allow(
+    clippy::manual_range_contains,
+    clippy::needless_borrow,
+    clippy::collapsible_if,
+    clippy::borrow_deref_ref,
+    clippy::large_enum_variant
+)]
 pub mod ai;
 pub mod config;
 pub mod configurator;
