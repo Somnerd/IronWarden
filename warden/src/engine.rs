@@ -205,15 +205,21 @@ fn is_standalone_word(text: &str, sub: &str) -> bool {
     while let Some(idx) = text[search_idx..].find(sub) {
         let actual_idx = search_idx + idx;
 
-        let before_ok = actual_idx == 0 || !text[..actual_idx].ends_with(|c: char| c.is_alphanumeric());
+        let before_ok =
+            actual_idx == 0 || !text[..actual_idx].ends_with(|c: char| c.is_alphanumeric());
         let after_idx = actual_idx + sub.len();
-        let after_ok = after_idx == text.len() || !text[after_idx..].starts_with(|c: char| c.is_alphanumeric());
+        let after_ok = after_idx == text.len()
+            || !text[after_idx..].starts_with(|c: char| c.is_alphanumeric());
 
         if before_ok && after_ok {
             return true;
         }
 
-        let next_char_len = text[actual_idx..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+        let next_char_len = text[actual_idx..]
+            .chars()
+            .next()
+            .map(|c| c.len_utf8())
+            .unwrap_or(1);
         search_idx = actual_idx + next_char_len;
     }
     false
@@ -320,10 +326,15 @@ impl PiiShield for WardenEngine {
 
             // 1b. Collect Dictionary Matches (on Stripped for flexible separators)
             // --- SECURITY FIX (Section 2.2 / Finding B.2): Flexible Separator Evasion ---
-            for mat in self.dictionary_automaton.find_overlapping_iter(&norm_res.stripped) {
+            for mat in self
+                .dictionary_automaton
+                .find_overlapping_iter(&norm_res.stripped)
+            {
                 // Word boundary enforcement for flexible separators
-                let before_ok = mat.start() == 0 || !norm_res.stripped[..mat.start()].ends_with(|c: char| c.is_alphanumeric());
-                let after_ok = mat.end() == norm_res.stripped.len() || !norm_res.stripped[mat.end()..].starts_with(|c: char| c.is_alphanumeric());
+                let before_ok = mat.start() == 0
+                    || !norm_res.stripped[..mat.start()].ends_with(|c: char| c.is_alphanumeric());
+                let after_ok = mat.end() == norm_res.stripped.len()
+                    || !norm_res.stripped[mat.end()..].starts_with(|c: char| c.is_alphanumeric());
                 if !before_ok || !after_ok {
                     continue;
                 }
