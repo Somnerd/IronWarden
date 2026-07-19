@@ -1,5 +1,4 @@
-use crate::normalize::OffsetMap;
-use iw_core::traits::{EnforcementAction, PotentialMiss};
+use iw_core::traits::EnforcementAction;
 use iw_core::PiiCategory;
 use regex::Regex;
 use std::sync::LazyLock;
@@ -15,6 +14,7 @@ static GREEK_SUFFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub struct ShadowNer {
     patterns: Vec<(Regex, String, bool, EnforcementAction, PiiCategory)>,
+    #[allow(dead_code)]
     global_name_re: Regex,
     greek_name_re: Regex,
 }

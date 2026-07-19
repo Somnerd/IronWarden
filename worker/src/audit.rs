@@ -388,7 +388,7 @@ impl AsyncAuditor {
             .map_err(|_| {
                 SovereignError::InternalError("Audit worker thread died during init".into())
             })?
-            .map_err(|e| SovereignError::InternalError(e))?;
+            .map_err(SovereignError::InternalError)?;
 
         let tx_clone = tx.clone();
         tokio::spawn(async move {
@@ -456,7 +456,7 @@ impl AsyncAuditor {
                                 healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
                             }
                         }
-                        Err(e) if e == rusqlite::Error::QueryReturnedNoRows => {
+                        Err(rusqlite::Error::QueryReturnedNoRows) => {
                             if let Err(e) = Self::check_anchor(&path_monitor, 0, &[]) {
                                 error!("HARD-STOP MONITOR: Anchor Mismatch (Empty DB): {}. Triggering Fail-Closed state.", e);
                                 healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);

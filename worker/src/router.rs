@@ -81,10 +81,7 @@ impl InferenceGateway for OpenAIGateway {
         let response = self
             .client
             .post(&self.base_url)
-            .header(
-                "Authorization",
-                format!("Bearer {}", self.api_key.expose_secret()),
-            )
+            .bearer_auth(self.api_key.expose_secret())
             .json(&payload)
             .send()
             .await

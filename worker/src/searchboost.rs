@@ -791,11 +791,10 @@ mod tests {
 
         // Force set result to 'complete' for testing retrieval
         let pool = queue.pool.clone();
-        let pepper_clone = pepper.clone();
         let encrypted_result = iw_core::AadCipher::encrypt(
             b"secret result",
             "userA",
-            pepper_clone.expose_secret(),
+            pepper.expose_secret(),
             b"warden-v1-queue-encryption",
         )
         .unwrap();
