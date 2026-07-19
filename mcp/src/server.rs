@@ -165,7 +165,7 @@ async fn handle_request_internal(
             capabilities: serde_json::Value::Object(serde_json::Map::new()),
             server_info: ServerInfo {
                 name: "IronWarden",
-                version: "1.2.0-STABLE",
+                version: "1.3.0-STABLE",
             },
         };
         let resp = JsonRpcResponse::success(id, result);
