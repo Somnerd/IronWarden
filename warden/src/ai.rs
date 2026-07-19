@@ -116,7 +116,7 @@ impl OnnxNer {
 
         // Expected shape: [1, seq_len, num_labels]
         if logits_shape.len() != 3 || logits_shape[0] != 1 {
-            error!("Unexpected logits shape: {:?}", &*logits_shape);
+            error!("Unexpected logits shape: {:?}", logits_shape);
             return Vec::new();
         }
         let num_labels = logits_shape[2] as usize;

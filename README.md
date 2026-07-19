@@ -1,4 +1,4 @@
-# 🏰 IronWarden V1.2-FINAL
+# 🏰 IronWarden V0.1.30-alpha
 ### Sovereign AI Privacy Firewall & Security Gateway
 
 IronWarden is a high-performance, single-binary security appliance designed to protect sensitive professional data (Legal, Medical, Financial) from leaking into external Large Language Models (LLMs). 
@@ -69,5 +69,5 @@ IronWarden is the **Shield**. It focuses on **Security, Redaction, and Auditing*
 For advanced semantic search, multi-format PDF ingestion, and high-dimensional vector retrieval, use the **SearchBoost** extension.
 
 ---
-**Status:** Certified Market-Ready V1.2-FINAL.
+**Status:** Certified Market-Ready V0.1.30-alpha.
 **License:** AGPLv3 / Commercial.

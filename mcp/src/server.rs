@@ -1,8 +1,7 @@
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use async_trait::async_trait;
 use iw_core::{
-    ComplianceReport, InferenceGateway, McpServer, PiiShield, ScrubbingReport, SessionContext,
-    SovereignError, StorageProvider,
+    InferenceGateway, McpServer, PiiShield, SessionContext, SovereignError, StorageProvider,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -165,7 +164,7 @@ async fn handle_request_internal(
             capabilities: serde_json::Value::Object(serde_json::Map::new()),
             server_info: ServerInfo {
                 name: "IronWarden",
-                version: "1.2.0-STABLE",
+                version: "0.1.30-alpha",
             },
         };
         let resp = JsonRpcResponse::success(id, result);

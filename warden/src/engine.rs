@@ -126,6 +126,7 @@ impl WardenEngine {
         let mut key_bytes = [0u8; 32];
         hk.expand(b"warden-v1-grounding-shield", &mut key_bytes)
             .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
+        #[allow(deprecated)]
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
         let cipher = Aes256Gcm::new(key);
         key_bytes.zeroize();
@@ -478,7 +479,7 @@ impl PiiShield for WardenEngine {
                 if let Some(pool) = &self.ai {
                     if let Some(ai_instance) = pool.get() {
                         if let Some(ai_entity) =
-                            ai_instance.validate_miss(&miss, &normalized, session)
+                            ai_instance.validate_miss(&miss, normalized, session)
                         {
                             if ai_entity.score >= self.confidence_threshold || should_force_promote
                             {
@@ -832,11 +833,7 @@ impl PiiShield for WardenEngine {
             let mut exact_capacity = input.len();
             for (orig_start, orig_end, token, ..) in &generated_tokens {
                 exact_capacity += token.len();
-                exact_capacity -= if *orig_end >= *orig_start {
-                    *orig_end - *orig_start
-                } else {
-                    0
-                };
+                exact_capacity -= (*orig_end).saturating_sub(*orig_start);
             }
 
             let mut sanitized_text = String::with_capacity(exact_capacity);
@@ -975,6 +972,7 @@ impl GroundingShield for WardenEngine {
         let mut nonce_bytes = [0u8; 12];
         let mut rng = rand::thread_rng();
         rng.fill_bytes(&mut nonce_bytes);
+        #[allow(deprecated)]
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         // --- SECURITY FIX (V-19): Bind encryption to username via AAD ---
@@ -1001,6 +999,7 @@ impl GroundingShield for WardenEngine {
         }
 
         let (nonce_bytes, ciphertext) = blob.split_at(12);
+        #[allow(deprecated)]
         let nonce = Nonce::from_slice(nonce_bytes);
 
         // --- SECURITY FIX (V-19): Bind decryption to username via AAD ---

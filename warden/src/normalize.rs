@@ -1,5 +1,4 @@
 use any_ascii::any_ascii_char;
-
 use unicode_normalization::UnicodeNormalization;
 
 pub struct OffsetMap {

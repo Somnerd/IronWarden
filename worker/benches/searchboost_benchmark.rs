@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use secrecy::SecretVec;
 use std::collections::HashMap;
-use std::sync::Arc;
+
 use tempfile::NamedTempFile;
 use worker::searchboost::SearchBoostQueue;
 

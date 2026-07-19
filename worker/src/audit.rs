@@ -144,7 +144,7 @@ impl AsyncAuditor {
         std::thread::spawn(move || {
             info!("Warden Audit Worker (Dedicated Writer Thread) ignited.");
 
-            let mut conn: Option<Connection> = None;
+            let mut conn: Option<Connection>;
             let mut last_hash: Vec<u8> = vec![0u8; 32];
             let mut last_id: i64 = 0;
 
@@ -573,7 +573,7 @@ impl AsyncAuditor {
                     hasher.update(&data);
                     hasher.update(&n);
                     let actual_payload_hash = hasher.finalize();
-                    if actual_payload_hash.as_slice() != payload_hash.as_slice() {
+                    if actual_payload_hash[..] != payload_hash[..] {
                         error!("CRITICAL: Audit payload mismatch at record {}. Raw log has been tampered with!", id);
                         return Err(rusqlite::Error::InvalidQuery);
                     }
