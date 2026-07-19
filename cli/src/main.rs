@@ -204,7 +204,7 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
                 hasher.update(&nonce);
                 let actual_payload_hash = hasher.finalize();
 
-                if actual_payload_hash.as_slice() == payload_hash.as_slice() {
+                if actual_payload_hash[..] == payload_hash[..] {
                     verified_count += 1;
                 } else {
                     println!("❌ PAYLOAD TAMPER DETECTED at Log ID {}!", id);

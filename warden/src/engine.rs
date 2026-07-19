@@ -476,7 +476,7 @@ impl PiiShield for WardenEngine {
                 if let Some(pool) = &self.ai {
                     if let Some(ai_instance) = pool.get() {
                         if let Some(ai_entity) =
-                            ai_instance.validate_miss(&miss, &normalized, session)
+                            ai_instance.validate_miss(&miss, normalized, session)
                         {
                             if ai_entity.score >= self.confidence_threshold || should_force_promote
                             {
@@ -830,11 +830,7 @@ impl PiiShield for WardenEngine {
             let mut exact_capacity = input.len();
             for (orig_start, orig_end, token, ..) in &generated_tokens {
                 exact_capacity += token.len();
-                exact_capacity -= if *orig_end >= *orig_start {
-                    *orig_end - *orig_start
-                } else {
-                    0
-                };
+                exact_capacity -= (*orig_end).saturating_sub(*orig_start);
             }
 
             let mut sanitized_text = String::with_capacity(exact_capacity);

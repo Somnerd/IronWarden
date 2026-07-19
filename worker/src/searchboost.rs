@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use iw_core::{AadCipher, SessionContext, SessionState, SovereignError};
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{Connection, ErrorCode};
+use rusqlite::ErrorCode;
 use secrecy::{ExposeSecret, SecretVec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

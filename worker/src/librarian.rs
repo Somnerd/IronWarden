@@ -7,7 +7,7 @@ use lancedb::{connect, Connection};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 /// The Librarian provides local heuristic grounding for policy enforcement.
 /// It uses LanceDB for high-performance ranking and local data sovereignty.

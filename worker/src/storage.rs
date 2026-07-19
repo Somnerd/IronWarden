@@ -3,7 +3,6 @@ use crate::librarian::LocalLibrarian;
 use crate::searchboost::SearchBoostQueue;
 use async_trait::async_trait;
 use iw_core::{ComplianceReport, ScrubbingReport, SovereignError, StorageProvider};
-use rusqlite::ErrorCode;
 use secrecy::SecretVec;
 use std::sync::Arc;
 use tokio_rusqlite::Connection;
