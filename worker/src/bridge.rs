@@ -21,7 +21,7 @@ struct EnqueueResponse<'a> {
     pii_scrubbed: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SearchRequest {
     pub query: String,
     pub thread_id: String,

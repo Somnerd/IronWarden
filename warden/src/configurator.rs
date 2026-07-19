@@ -1,4 +1,5 @@
 use iw_core::SovereignError;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -8,8 +9,8 @@ pub struct GlobalConfig {
     #[serde(default = "default_warden_mode")]
     pub warden_mode: String,
 
-    #[serde(default = "default_openai_api_key")]
-    pub openai_api_key: String,
+    #[serde(default = "default_openai_api_key", skip_serializing)]
+    pub openai_api_key: SecretString,
 
     #[serde(default = "default_openai_base_url")]
     pub openai_base_url: String,
@@ -46,8 +47,8 @@ pub struct GlobalConfig {
 fn default_warden_mode() -> String {
     "hybrid".to_string()
 }
-fn default_openai_api_key() -> String {
-    "ollama".to_string()
+fn default_openai_api_key() -> SecretString {
+    SecretString::new("ollama".to_string())
 }
 fn default_openai_base_url() -> String {
     "https://api.openai.com/v1/chat/completions".to_string()
@@ -126,7 +127,7 @@ impl GlobalConfig {
             config.warden_mode = v;
         }
         if let Ok(v) = std::env::var("OPENAI_API_KEY") {
-            config.openai_api_key = v;
+            config.openai_api_key = SecretString::new(v);
         }
         if let Ok(v) = std::env::var("OPENAI_BASE_URL") {
             config.openai_base_url = v;
@@ -340,6 +341,31 @@ mod tests {
                 "Must reject missing manifest file in strict mode"
             );
             assert!(res.unwrap_err().to_string().contains("manifest file"));
+
+            env::set_current_dir(old_dir).unwrap();
+        });
+    }
+    #[test]
+    fn test_memory_safe_openai_api_key() {
+        run_with_env(|| {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let config_dir = temp_dir.path().join("config");
+            fs::create_dir(&config_dir).unwrap();
+            fs::write(config_dir.join("config.yaml"), "warden_mode: hybrid").unwrap();
+
+            let old_dir = env::current_dir().unwrap();
+            env::set_current_dir(temp_dir.path()).unwrap();
+
+            env::set_var("ALLOW_FALLBACK", "true");
+            env::set_var("OPENAI_API_KEY", "sk-proj-test-secret-key-12345");
+
+            let config = GlobalConfig::resolve().unwrap();
+
+            use secrecy::ExposeSecret;
+            assert_eq!(
+                config.openai_api_key.expose_secret(),
+                "sk-proj-test-secret-key-12345"
+            );
 
             env::set_current_dir(old_dir).unwrap();
         });
