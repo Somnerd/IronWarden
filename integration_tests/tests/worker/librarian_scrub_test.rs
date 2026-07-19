@@ -1,18 +1,23 @@
 // Integration tests verifying the leak-proof Librarian flow, confirming that sensitive patterns in input context snippets are correctly redacted and replaced by tokens by the WardenEngine.
-use iw_core::{PiiShield};
 use iw_core::traits::{EnforcementAction, PiiCategory};
-use tempfile::tempdir;
+use iw_core::PiiShield;
 use secrecy::SecretVec;
+use tempfile::tempdir;
 
 #[tokio::test]
 async fn test_leak_proof_librarian_flow() {
     let base_dir = tempdir().unwrap();
-    
+
     // 1. Setup a direct engine with the rule we want
     let dictionary_rules = Vec::new();
-    let patterns_rules = vec![("confidential_project".to_string(), "(?i)Project (Alpha|Omega|Zion)".to_string(), EnforcementAction::Redact, PiiCategory::Other)];
+    let patterns_rules = vec![(
+        "confidential_project".to_string(),
+        "(?i)Project (Alpha|Omega|Zion)".to_string(),
+        EnforcementAction::Redact,
+        PiiCategory::Other,
+    )];
     let heuristics = Vec::new();
-    
+
     let pepper = SecretVec::new(vec![0u8; 32]);
     let engine = iw_warden::WardenEngine::new(
         dictionary_rules,
@@ -21,14 +26,15 @@ async fn test_leak_proof_librarian_flow() {
         None, // No AI needed for regex test
         0.85,
         &pepper,
-    ).unwrap();
+    )
+    .unwrap();
 
     // 2. The "Confidential" Data
     let raw_snippet = "This document discusses the acquisition details for Project Omega.";
-    
+
     // 3. THE LEAK PROOF BRIDGE: Scrubbing the Context
     let report = engine.sanitize_prompt(raw_snippet, None).await.unwrap();
-    
+
     println!("Raw Snippet: {}", raw_snippet);
     println!("Scrubbed Snippet: {}", report.sanitized_text);
 

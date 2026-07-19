@@ -28,7 +28,7 @@ async fn test_session_concurrency() {
     // Verify all 100 elements were inserted successfully without panicking or deadlocks.
     assert_eq!(session.pii_to_token.len(), 100);
     assert_eq!(session.token_to_pii.len(), 100);
-    
+
     // next_id is atomic and started at 1, after 100 increments it should be 101.
     assert_eq!(session.next_id(), 101);
 }

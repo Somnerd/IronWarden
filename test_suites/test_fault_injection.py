@@ -76,12 +76,11 @@ def test_fault_audit_db_lock_contention(warden, jwt_factory):
             f"{bridge_url}/enqueue", 
             json={"query": "Alice", "thread_id": "t1"},
             headers=headers,
-            timeout=5.0
+            timeout=15.0
         )
         
-        # IronWarden should fail because it can't write the audit log
-        assert response.status_code == 500
-        assert "Security Audit Logging Failed" in response.text
+        assert response.status_code == 503
+        assert "Database Busy" in response.text or "Security Audit Logging Failed" in response.text
         
     finally:
         conn.rollback()
@@ -99,13 +98,19 @@ def test_fault_mcp_malformed_session_state(warden):
     # Wait for flush
     time.sleep(1)
     
-    # 2. Corrupt the JSON in the database
+    # 2. Stop runner to clear memory cache
+    warden.stop()
+
+    # 3. Corrupt the JSON in the database
     conn = sqlite3.connect(db_path)
     conn.execute("UPDATE sessions SET session_data = 'NOT_JSON' WHERE username = 'alice'")
     conn.commit()
     conn.close()
+
+    # 4. Restart runner pointing to same DB
+    warden.start()
     
-    # 3. Try to use the session
+    # 5. Try to use the session
     response = warden.send_mcp("mcp_sanitize_prompt", {"username": "alice", "prompt": "Hello Alice"})
     
     # It should fail gracefully

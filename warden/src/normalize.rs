@@ -1,7 +1,6 @@
-use unicode_normalization::UnicodeNormalization;
-use regex::Regex;
-use once_cell::sync::Lazy;
 use any_ascii::any_ascii_char;
+
+use unicode_normalization::UnicodeNormalization;
 
 pub struct OffsetMap {
     pub normalized_to_original: Vec<usize>,
@@ -63,13 +62,15 @@ pub struct Normalizer;
 impl Normalizer {
     /// Optimized zero-allocation normalization using thread-local pools.
     /// The buffer is cleared, populated, and then immutably borrowed for the closure.
-    pub fn with_normalized<F, R>(input: &str, f: F) -> R 
-    where F: FnOnce(&NormalizationResult) -> R {
+    pub fn with_normalized<F, R>(input: &str, f: F) -> R
+    where
+        F: FnOnce(&NormalizationResult) -> R,
+    {
         NORM_BUFFER.with(|buf| {
             {
                 let mut b = buf.borrow_mut();
                 b.clear(input.len());
-                
+
                 for (orig_idx, c) in input.char_indices() {
                     // 1. Process for ASCII (Homoglyph detection)
                     let ascii_start = b.normalized_ascii.len();
@@ -82,7 +83,7 @@ impl Normalizer {
                             for _ in start_pos..end_pos {
                                 b.ascii_to_original.normalized_to_original.push(orig_idx);
                             }
-                            
+
                             // --- SECURITY FIX (Section 2.2 / Finding B.2): Flexible Separator Evasion ---
                             if norm_c.is_alphanumeric() {
                                 let s_start = b.stripped.len();
@@ -120,15 +121,19 @@ impl Normalizer {
                     }
                 }
                 b.ascii_to_original.normalized_to_original.push(input.len());
-                b.unicode_to_original.normalized_to_original.push(input.len());
-                b.stripped_to_original.normalized_to_original.push(input.len());
-                
+                b.unicode_to_original
+                    .normalized_to_original
+                    .push(input.len());
+                b.stripped_to_original
+                    .normalized_to_original
+                    .push(input.len());
+
                 let norm_unicode_len = b.normalized_unicode.len();
                 b.original_to_unicode[input.len()] = norm_unicode_len;
                 let norm_ascii_len = b.normalized_ascii.len();
                 b.original_to_ascii[input.len()] = norm_ascii_len;
             } // Mutable borrow is dropped here!
-            
+
             // Execute the inner block with an immutable borrow.
             let b = buf.borrow();
             f(&b)
@@ -138,11 +143,11 @@ impl Normalizer {
     fn is_invisible(c: char) -> bool {
         // Broaden detection to all Unicode Format (Cf) and Control (Cc) characters,
         // as well as other non-spacing characters used for evasion.
-        c.is_control() || 
+        c.is_control() ||
         ('\u{200B}'..='\u{200F}').contains(&c) || // ZWSP, ZWNJ, ZWJ, LRM, RLM
         ('\u{202A}'..='\u{202E}').contains(&c) || // LRE, RLE, PDF, LRO, RLO
         ('\u{2060}'..='\u{206F}').contains(&c) || // Word Joiner, Format characters
-        ('\u{FEFF}' == c)                         // BOM
+        ('\u{FEFF}' == c) // BOM
     }
 }
 
