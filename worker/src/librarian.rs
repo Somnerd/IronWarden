@@ -210,11 +210,11 @@ mod tests {
         let librarian = LocalLibrarian::new(&kb_path).await.unwrap();
 
         librarian
-            .add_document("User A top secret document", "userA")
+            .add_document("Alice top secret document", "userA")
             .await
             .unwrap();
         librarian
-            .add_document("User B top secret document", "userB")
+            .add_document("Bob top secret document", "userB")
             .await
             .unwrap();
 
@@ -224,7 +224,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res_a.len(), 1);
-        assert_eq!(res_a[0], "User A top secret document");
+        assert_eq!(res_a[0], "Alice top secret document");
 
         // Query as user B
         let res_b = librarian
@@ -232,11 +232,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res_b.len(), 1);
-        assert_eq!(res_b[0], "User B top secret document");
+        assert_eq!(res_b[0], "Bob top secret document");
 
         // Cross-user query should return empty
         let res_cross = librarian
-            .retrieve_policy_context("User A", "userB", 10)
+            .retrieve_policy_context("Alice", "userB", 10)
             .await
             .unwrap();
         assert!(res_cross.is_empty(), "Cross-user data leakage detected!");

@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     iw_core::fips::FipsValidator::verify_readiness()?;
 
     // 2. Load Configuration
-    let api_key = secrecy::SecretString::new(global_config.openai_api_key.clone());
+    let api_key = global_config.openai_api_key.clone();
     let base_url = global_config.openai_base_url.clone();
 
     // 3. Security & Rules
