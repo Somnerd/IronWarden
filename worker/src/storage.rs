@@ -13,6 +13,7 @@ pub struct WorkerStorage {
     auditor: AsyncAuditor,
     sb_queue: Option<SearchBoostQueue>,
     librarian: Arc<LocalLibrarian>,
+    #[allow(dead_code)]
     db_path: String,
     conn: Connection,
 }

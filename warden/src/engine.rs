@@ -125,6 +125,7 @@ impl WardenEngine {
         let mut key_bytes = [0u8; 32];
         hk.expand(b"warden-v1-grounding-shield", &mut key_bytes)
             .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
+        #[allow(deprecated)]
         let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
         let cipher = Aes256Gcm::new(key);
         key_bytes.zeroize();
@@ -189,6 +190,7 @@ struct UnifiedMatch {
     end: usize,
     text: String,
     rule_id: String,
+    #[allow(dead_code)]
     is_confirmed: bool,
     action: EnforcementAction,
     category: PiiCategory,
@@ -969,6 +971,7 @@ impl GroundingShield for WardenEngine {
         let mut nonce_bytes = [0u8; 12];
         let mut rng = rand::thread_rng();
         rng.fill_bytes(&mut nonce_bytes);
+        #[allow(deprecated)]
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         // --- SECURITY FIX (V-19): Bind encryption to username via AAD ---
@@ -995,6 +998,7 @@ impl GroundingShield for WardenEngine {
         }
 
         let (nonce_bytes, ciphertext) = blob.split_at(12);
+        #[allow(deprecated)]
         let nonce = Nonce::from_slice(nonce_bytes);
 
         // --- SECURITY FIX (V-19): Bind decryption to username via AAD ---
@@ -1290,9 +1294,11 @@ mod tests {
         // Point sidecar to a dead port to force connection failure
         std::env::set_var("SIDECAR_ENDPOINT", "http://127.0.0.1:9999");
 
-        let config = GlobalConfig::resolve().unwrap();
+        let config = crate::configurator::GlobalConfig::resolve().unwrap();
+        let (warden_config, _) = crate::config::WardenConfig::from_manifest(&config.warden_manifest_path).unwrap();
+        let pepper = secrecy::SecretVec::new(config.warden_pepper.unwrap_or_else(|| vec![0u8; 32]));
         // Since we allow fallback, engine initialization should not panic, but it will use dummy/regex fallback
-        let engine = WardenEngine::new(&config).await.unwrap();
+        let engine = warden_config.build_engine(&pepper).await.unwrap();
 
         // The query itself isn't blocked by Layer 1, but Layer 2 ML is down.
         // It should gracefully degrade and still return a valid ScrubbingReport (fail open/closed appropriately based on rules).
@@ -1313,8 +1319,10 @@ mod tests {
     async fn test_thread_local_normalization_concurrency() {
         std::env::set_var("WARDEN_ENV", "test");
         std::env::set_var("ALLOW_FALLBACK", "true");
-        let config = GlobalConfig::resolve().unwrap();
-        let engine = Arc::new(WardenEngine::new(&config).await.unwrap());
+        let config = crate::configurator::GlobalConfig::resolve().unwrap();
+        let (warden_config, _) = crate::config::WardenConfig::from_manifest(&config.warden_manifest_path).unwrap();
+        let pepper = secrecy::SecretVec::new(config.warden_pepper.unwrap_or_else(|| vec![0u8; 32]));
+        let engine = std::sync::Arc::new(warden_config.build_engine(&pepper).await.unwrap());
 
         let mut handles = vec![];
 

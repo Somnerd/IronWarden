@@ -1,6 +1,4 @@
 use any_ascii::any_ascii_char;
-use once_cell::sync::Lazy;
-use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
 
 pub struct OffsetMap {

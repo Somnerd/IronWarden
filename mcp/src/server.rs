@@ -1,7 +1,7 @@
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use async_trait::async_trait;
 use iw_core::{
-    ComplianceReport, InferenceGateway, McpServer, PiiShield, ScrubbingReport, SessionContext,
+    InferenceGateway, McpServer, PiiShield, SessionContext,
     SovereignError, StorageProvider,
 };
 use serde::Serialize;

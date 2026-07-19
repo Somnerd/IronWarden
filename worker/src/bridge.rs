@@ -308,7 +308,7 @@ mod tests {
     use async_trait::async_trait;
     use axum::body::Body;
     use axum::http::Request;
-    use http_body_util::BodyExt;
+
     use iw_core::{ComplianceReport, ScrubbingReport, TokenMap};
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use std::sync::Arc;

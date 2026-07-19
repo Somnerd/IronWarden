@@ -36,10 +36,12 @@ pub enum DbCommand {
 
 #[derive(Clone)]
 pub struct SearchBoostQueue {
+    #[allow(dead_code)]
     db_path: String,
     pepper: Arc<SecretVec<u8>>,
     pool: r2d2::Pool<SqliteConnectionManager>,
     shield: Option<Arc<dyn iw_core::PiiShield + Send + Sync>>,
+    #[allow(dead_code)]
     grounding_shield: Option<Arc<dyn iw_core::GroundingShield + Send + Sync>>,
     redis_client: Option<redis::Client>,
     tx: flume::Sender<(String, String, Vec<u8>)>,
@@ -519,6 +521,7 @@ use redis::AsyncCommands;
 /// Consolidated Local Session Manager.
 pub struct LocalSessionManager {
     sessions: DashMap<String, Arc<SessionContext>>,
+    #[allow(dead_code)]
     db_path: String,
     pepper: Arc<SecretVec<u8>>,
     pool: r2d2::Pool<SqliteConnectionManager>,
