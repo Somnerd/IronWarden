@@ -1,8 +1,7 @@
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use async_trait::async_trait;
 use iw_core::{
-    InferenceGateway, McpServer, PiiShield, SessionContext,
-    SovereignError, StorageProvider,
+    InferenceGateway, McpServer, PiiShield, SessionContext, SovereignError, StorageProvider,
 };
 use serde::Serialize;
 use std::collections::HashMap;
