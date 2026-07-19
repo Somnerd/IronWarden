@@ -1,6 +1,6 @@
 // This file runs an integration test checking PII sanitization and tokenization for "Alice" (Dictionary) and email patterns (Regex) within a shared SessionContext session.
-use iw_core::{SessionContext, PiiShield};
-use iw_warden::{WardenConfig};
+use iw_core::{PiiShield, SessionContext};
+use iw_warden::WardenConfig;
 use std::fs;
 use tempfile::tempdir;
 
@@ -8,7 +8,7 @@ use tempfile::tempdir;
 async fn main() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("rules.yaml");
-    
+
     let rules_yaml = r#"
 rules:
   - id: "PERSON_1"
@@ -26,11 +26,17 @@ rules:
 
     let session = SessionContext::new();
 
-    let report1 = shield.sanitize_prompt("Alice is here.", Some(&session)).await.unwrap();
+    let report1 = shield
+        .sanitize_prompt("Alice is here.", Some(&session))
+        .await
+        .unwrap();
     println!("Report1: {:?}", report1.sanitized_text);
     println!("Tokens: {:?}", report1.token_map);
 
-    let report2 = shield.sanitize_prompt("Email alice@example.com", Some(&session)).await.unwrap();
+    let report2 = shield
+        .sanitize_prompt("Email alice@example.com", Some(&session))
+        .await
+        .unwrap();
     println!("Report2: {:?}", report2.sanitized_text);
     println!("Tokens: {:?}", report2.token_map);
 }

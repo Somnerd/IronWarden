@@ -1,10 +1,12 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use std::collections::HashMap;
-use regex::Regex;
 use aho_corasick::{AhoCorasick, MatchKind};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use regex::Regex;
+use std::collections::HashMap;
 
 fn regex_restore(response: &str, map: &HashMap<String, String>) -> String {
-    if map.is_empty() { return response.to_string(); }
+    if map.is_empty() {
+        return response.to_string();
+    }
 
     let mut sorted_keys: Vec<&String> = map.keys().collect();
     sorted_keys.sort_by(|a, b| b.len().cmp(&a.len()));
@@ -22,7 +24,9 @@ fn regex_restore(response: &str, map: &HashMap<String, String>) -> String {
 }
 
 fn aho_restore(response: &str, map: &HashMap<String, String>) -> String {
-    if map.is_empty() { return response.to_string(); }
+    if map.is_empty() {
+        return response.to_string();
+    }
 
     let keys: Vec<&String> = map.keys().collect();
     let values: Vec<&String> = map.values().collect();
@@ -61,7 +65,6 @@ fn bench_restoration(c: &mut Criterion) {
 
 criterion_group!(benches, bench_restoration);
 
-
 fn replace_restore(response: &str, map: &HashMap<String, String>) -> String {
     let mut restored = response.to_string();
     let mut sorted_keys: Vec<&String> = map.keys().collect();
@@ -96,11 +99,13 @@ fn bench_restoration2(c: &mut Criterion) {
 
 criterion_group!(benches2, bench_restoration2);
 
-
 fn replace_fast_restore(response: &str, map: &HashMap<String, String>) -> String {
-    if map.is_empty() { return response.to_string(); }
+    if map.is_empty() {
+        return response.to_string();
+    }
 
-    let mut result = String::with_capacity(response.len() + map.values().map(|v| v.len()).sum::<usize>());
+    let mut result =
+        String::with_capacity(response.len() + map.values().map(|v| v.len()).sum::<usize>());
     let mut last_end = 0;
 
     // Find all occurrences of {{TOKEN_...}}

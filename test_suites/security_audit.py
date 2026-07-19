@@ -45,6 +45,12 @@ def verify_redaction(test_name, expected_token):
 if __name__ == "__main__":
     if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db"):
         os.remove("/home/somnerd/Documents/IronWarden/audit.db")
+    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db-shm"):
+        os.remove("/home/somnerd/Documents/IronWarden/audit.db-shm")
+    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db-wal"):
+        os.remove("/home/somnerd/Documents/IronWarden/audit.db-wal")
+    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db.anchor"):
+        os.remove("/home/somnerd/Documents/IronWarden/audit.db.anchor")
 
     run_test_case("Standard", "Hello Alice.")
     time.sleep(1)

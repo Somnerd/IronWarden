@@ -30,7 +30,7 @@ def test_mcp_restore_basic(warden):
     # 1. Sanitize to create session data
     sanitize_params = {
         "username": "bob",
-        "prompt": "Call me at 555-0199" # Matches \d{3}-\d{4}
+        "prompt": "Call me at 555-555-0199" # Matches \d{3}-\d{3}-\d{4}
     }
     sanitize_resp = warden.send_mcp("mcp_sanitize_prompt", sanitize_params)
     assert len(sanitize_resp["result"]["redactions"]) > 0
@@ -42,7 +42,7 @@ def test_mcp_restore_basic(warden):
         "response": f"Acknowledged, {token}."
     }
     restore_resp = warden.send_mcp("mcp_restore_prompt", restore_params)
-    assert "555-0199" in restore_resp["result"]
+    assert "555-555-0199" in restore_resp["result"]
     assert token not in restore_resp["result"]
 
 def test_mcp_session_isolation(warden):

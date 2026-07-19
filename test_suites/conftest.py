@@ -63,27 +63,72 @@ class IronWardenRunner:
             if os.path.exists(libc10):
                 ld_preload = f"{libc10}:{ld_preload}"
 
-        self.env = {
+        # Generate default JWT keys if not provided in overrides
+        if not env_overrides or "JWT_PUBLIC_KEY" not in env_overrides:
+            from cryptography.hazmat.primitives.asymmetric import rsa
+            from cryptography.hazmat.primitives import serialization
+            private_key = rsa.generate_private_key(
+                public_exponent=65537,
+                key_size=2048,
+            )
+            pem_private = private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ).decode('utf-8')
+            pem_public = private_key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ).decode('utf-8')
+        else:
+            pem_private = env_overrides.get("JWT_PRIVATE_KEY", "")
+            pem_public = env_overrides.get("JWT_PUBLIC_KEY", "")
+
+        import socket
+        def get_free_port():
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('', 0))
+                return s.getsockname()[1]
+
+        base_env = {
             **os.environ,
             "WARDEN_MODE": "ephemeral",
             "WARDEN_PEPPER": "a_very_secret_pepper_32_bytes_long",
             "OPENAI_API_KEY": "sk-mock-key",
             "JWT_SECRET": "another_very_secret_key_32_bytes_long",
+            "JWT_PRIVATE_KEY": pem_private,
+            "JWT_PUBLIC_KEY": pem_public,
             "DATABASE_URL": "postgres://somnerd:postgres@localhost:5432/ironwarden",
             "REDIS_URL": "redis://localhost:6379",
             "AUDIT_DB_PATH": os.path.join(project_root, f"test_audit_{unique_id}.db"),
             "LANCEDB_PATH": os.path.join(project_root, f"test_lancedb_{unique_id}"),
-            "WARDEN_CONFIG_PATH": os.path.join(project_root, "config/regions"),
-            "BRIDGE_PORT": "14141",
+            "WARDEN_CONFIG_PATH": os.path.join(project_root, "config/rules"),
             "WARDEN_JWT_AUDIENCE": "test_audience",
             "WARDEN_JWT_ISSUER": "test_issuer",
             "LOG_FORMAT": "text",
             "LD_LIBRARY_PATH": ld_library_path,
             "LD_PRELOAD": ld_preload,
-            **(env_overrides or {})
         }
+        
+        # Override values before resolving defaults
+        merged_env = {**base_env, **(env_overrides or {})}
+        
+        # Use dynamic port if not specified in overrides
+        if "BRIDGE_PORT" not in merged_env:
+            merged_env["BRIDGE_PORT"] = str(get_free_port())
+            
+        self.env = merged_env
         self.process = None
         self.stderr_output = []
+        self.stderr_lock = threading.Lock()
+
+        # Initial clean up of old files
+        if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
+            try:
+                os.remove(self.env["AUDIT_DB_PATH"])
+            except Exception:
+                pass
+
 
     def start(self, env_vars=None, **kwargs):
         # We use self.env from __init__ instead of overwriting with os.environ.copy()
@@ -94,9 +139,43 @@ class IronWardenRunner:
         self.env["WARDEN_MODE"] = "hybrid"
         self.env["REMOTE_AUDIT_ENDPOINT"] = "http://127.0.0.1:9999/mock-audit"
 
-        # Cleanup old files
-        if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
-            os.remove(self.env["AUDIT_DB_PATH"])
+        # Generate temporary manifest mapping rules_dir to WARDEN_CONFIG_PATH for tests
+        if "WARDEN_CONFIG_PATH" in self.env:
+            config_dir = self.env["WARDEN_CONFIG_PATH"]
+            import yaml
+            import tempfile
+            
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            # Read original active_rules if they exist to prevent breaking regional tests
+            original_manifest_path = os.path.join(project_root, "config/manifest.yaml")
+            active_rules = ["rules.yaml"]
+            if os.path.exists(original_manifest_path):
+                try:
+                    with open(original_manifest_path, "r") as f:
+                        orig = yaml.safe_load(f)
+                        if orig and "active_rules" in orig:
+                            active_rules = [
+                                r for r in orig["active_rules"]
+                                if os.path.exists(os.path.join(config_dir, r))
+                            ]
+                            if not active_rules:
+                                active_rules = ["rules.yaml"]
+                except Exception:
+                    pass
+            
+            manifest_content = {
+                "rules_dir": config_dir,
+                "active_rules": active_rules
+            }
+            temp_manifest = tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w")
+            yaml.dump(manifest_content, temp_manifest)
+            temp_manifest.close()
+            self.env["WARDEN_MANIFEST_PATH"] = temp_manifest.name
+            self._temp_manifest_path = temp_manifest.name
+        else:
+            self._temp_manifest_path = None
+
+
 
         self.process = subprocess.Popen(
             [self.bin_path],
@@ -117,21 +196,26 @@ class IronWardenRunner:
         start_time = time.time()
         ignited = False
         while time.time() - start_time < 30:
-            if any("IronWarden Forge ignited" in line for line in self.stderr_output):
+            current_stderr = self.get_stderr_output()
+            if any("IronWarden Forge ignited" in line for line in current_stderr):
                 ignited = True
                 break
             if self.process.poll() is not None:
-                stderr = "\n".join(self.stderr_output)
+                stderr = "\n".join(self.get_stderr_output())
                 raise RuntimeError(f"IronWarden failed to start. Exit code: {self.process.returncode}\nStderr: {stderr}")
             time.sleep(0.1)
 
         if not ignited:
-             stderr = "\n".join(self.stderr_output)
+             stderr = "\n".join(self.get_stderr_output())
              self.stop()
              raise RuntimeError(f"IronWarden timed out starting. Stderr:\n{stderr}")
         
         # Settle delay to ensure background DB tasks are fully committed
         time.sleep(1)
+
+    def get_stderr_output(self):
+        with self.stderr_lock:
+            return list(self.stderr_output)
 
     def _read_stderr(self):
         while not self.stop_event.is_set():
@@ -139,10 +223,11 @@ class IronWardenRunner:
             if not line:
                 break
             line = line.strip()
-            self.stderr_output.append(line)
+            with self.stderr_lock:
+                self.stderr_output.append(line)
             print(f"DEBUG LOG: {line}")
 
-    def stop(self):
+    def stop(self, cleanup=False):
         if self.process:
             self.process.send_signal(signal.SIGINT)
             try:
@@ -151,20 +236,24 @@ class IronWardenRunner:
                 self.process.kill()
             self.stop_event.set()
 
-        # Cleanup temporary resources
-        try:
-            if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
-                os.remove(self.env["AUDIT_DB_PATH"])
-                # Also remove WAL/SHM files
-                for ext in ["-shm", "-wal"]:
-                    if os.path.exists(self.env["AUDIT_DB_PATH"] + ext):
-                        os.remove(self.env["AUDIT_DB_PATH"] + ext)
+        if cleanup:
+            # Cleanup temporary resources
+            try:
+                if hasattr(self, "_temp_manifest_path") and self._temp_manifest_path and os.path.exists(self._temp_manifest_path):
+                    os.remove(self._temp_manifest_path)
 
-            if "LANCEDB_PATH" in self.env and os.path.exists(self.env["LANCEDB_PATH"]):
-                import shutil
-                shutil.rmtree(self.env["LANCEDB_PATH"], ignore_errors=True)
-        except Exception as e:
-            print(f"DEBUG: Cleanup failed: {e}")
+                if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
+                    os.remove(self.env["AUDIT_DB_PATH"])
+                    # Also remove WAL/SHM files
+                    for ext in ["-shm", "-wal", ".anchor"]:
+                        if os.path.exists(self.env["AUDIT_DB_PATH"] + ext):
+                            os.remove(self.env["AUDIT_DB_PATH"] + ext)
+
+                if "LANCEDB_PATH" in self.env and os.path.exists(self.env["LANCEDB_PATH"]):
+                    import shutil
+                    shutil.rmtree(self.env["LANCEDB_PATH"], ignore_errors=True)
+            except Exception as e:
+                print(f"DEBUG: Cleanup failed: {e}")
 
     def send_mcp(self, method, params, request_id=1):
         request = {
@@ -214,7 +303,7 @@ def warden(warden_bin, jwt_keys):
     runner = IronWardenRunner(warden_bin)
     runner.start(env_vars={"JWT_PRIVATE_KEY": jwt_keys["private"], "JWT_PUBLIC_KEY": jwt_keys["public"]})
     yield runner
-    runner.stop()
+    runner.stop(cleanup=True)
 
 @pytest.fixture
 def jwt_factory(warden):
@@ -222,11 +311,13 @@ def jwt_factory(warden):
     def _create_token(username, roles=None):
         if roles is None:
             roles = ["admin"]
-        secret = warden.env["JWT_SECRET"]
+        private_key = warden.env["JWT_PRIVATE_KEY"]
         payload = {
             "sub": username,
             "exp": int(time.time()) + 3600,
-            "roles": roles
+            "roles": roles,
+            "aud": warden.env.get("WARDEN_JWT_AUDIENCE", "test_audience"),
+            "iss": warden.env.get("WARDEN_JWT_ISSUER", "test_issuer"),
         }
-        return jwt.encode(payload, secret, algorithm="HS256")
+        return jwt.encode(payload, private_key, algorithm="RS256")
     return _create_token

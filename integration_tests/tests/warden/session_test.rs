@@ -1,15 +1,15 @@
 // This file tests session token consistency, ensuring that the same redaction tokens are consistently mapped to the same underlying PII entities across multiple sanitization passes using a shared SessionContext.
-use iw_warden::WardenConfig;
 use iw_core::{PiiShield, SessionContext};
-use tempfile::tempdir;
+use iw_warden::WardenConfig;
 use std::fs;
+use tempfile::tempdir;
 
 #[tokio::test]
-    async fn test_session_token_consistency() {
+async fn test_session_token_consistency() {
     let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("rules.yaml");
-    
+
     let rules_yaml = r#"
 rules:
   - id: "id_alice"
@@ -23,33 +23,66 @@ rules:
 
     let config = WardenConfig::from_file(&config_path).unwrap();
     let shield = config.compile_engine(&pepper).unwrap();
-    
+
     // Create a shared session
     let mut session = SessionContext::new();
 
     // 1. First request: Alice and Bob
     let input1 = "Hello Alice and Bob.";
-    let report1 = shield.sanitize_prompt(input1, Some(&mut session)).await.unwrap();
-    
-    let alice_token = report1.token_map.iter().find(|(_, v)| *v == "Alice").unwrap().0.clone();
-    let bob_token = report1.token_map.iter().find(|(_, v)| *v == "Bob").unwrap().0.clone();
-    
+    let report1 = shield
+        .sanitize_prompt(input1, Some(&mut session))
+        .await
+        .unwrap();
+
+    let alice_token = report1
+        .token_map
+        .iter()
+        .find(|(_, v)| *v == "Alice")
+        .unwrap()
+        .0
+        .clone();
+    let bob_token = report1
+        .token_map
+        .iter()
+        .find(|(_, v)| *v == "Bob")
+        .unwrap()
+        .0
+        .clone();
+
     assert_ne!(alice_token, bob_token);
     println!("Initial: Alice -> {}, Bob -> {}", alice_token, bob_token);
 
     // 2. Second request: Only Alice (should have same token)
     let input2 = "Is Alice there?";
-    let report2 = shield.sanitize_prompt(input2, Some(&mut session)).await.unwrap();
-    
-    let alice_token_2 = report2.token_map.iter().find(|(_, v)| *v == "Alice").unwrap().0.clone();
+    let report2 = shield
+        .sanitize_prompt(input2, Some(&mut session))
+        .await
+        .unwrap();
+
+    let alice_token_2 = report2
+        .token_map
+        .iter()
+        .find(|(_, v)| *v == "Alice")
+        .unwrap()
+        .0
+        .clone();
     assert_eq!(alice_token, alice_token_2);
     println!("Repeat: Alice -> {} (CONSISTENT)", alice_token_2);
 
     // 3. Third request: Bob (should have same token)
     let input3 = "Bob left.";
-    let report3 = shield.sanitize_prompt(input3, Some(&mut session)).await.unwrap();
-    
-    let bob_token_3 = report3.token_map.iter().find(|(_, v)| *v == "Bob").unwrap().0.clone();
+    let report3 = shield
+        .sanitize_prompt(input3, Some(&mut session))
+        .await
+        .unwrap();
+
+    let bob_token_3 = report3
+        .token_map
+        .iter()
+        .find(|(_, v)| *v == "Bob")
+        .unwrap()
+        .0
+        .clone();
     assert_eq!(bob_token, bob_token_3);
     println!("Repeat: Bob -> {} (CONSISTENT)", bob_token_3);
 }

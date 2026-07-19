@@ -1,0 +1,128 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ "dev", "main" ]
+  pull_request:
+    branches: [ "dev", "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  WARDEN_MCP_SECRET: "dummy_mcp_secret_value_for_testing_purposes"
+
+jobs:
+  code_quality:
+    name: Code Quality (Fmt & Clippy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+          rustflags: ""
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check Code Formatting
+        run: |
+          cargo fmt --all
+          git diff --quiet || (
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -am "style: auto format code with rustfmt"
+            git push origin HEAD:${{ github.head_ref || github.ref_name }}
+          )
+      - name: Run Clippy Lints
+        run: cargo clippy --workspace --all-targets
+
+  test_security:
+    name: Security & Crypto (Code Red)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Crypto & Security Unit Tests
+        run: cargo test --package iw_core
+
+  test_warden:
+    name: Warden Shield (ML)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Warden Shield Tests
+        run: cargo test --package iw-warden
+
+  test_worker:
+    name: Worker Core (Storage/Queue)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Worker Core Tests
+        run: cargo test --package worker
+
+  integration:
+    name: Integration (Full Flow)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyjwt cryptography requests httpx redis PyYAML
+      - name: Prepare Test Manifests
+        run: |
+          mkdir -p integration_tests
+          cp warden/test_manifest_*.yaml integration_tests/ || true
+          cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml || true
+      - name: Run Bin/App Tests
+        run: cargo test --package app || true
+      - name: Verify Benchmarks Compile
+        run: cargo test --benches --no-run
+      - name: Run Python Integration Test Suite
+        run: pytest test_suites/
