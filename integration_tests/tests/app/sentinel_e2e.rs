@@ -1,12 +1,12 @@
 // End-to-end security tests verifying session isolation AAD checks, RAG blindness in output scrubbing (V-14), anchor tampering detection (V-13), engine rule matching, and ephemeral log tampering detection (V-55).
+use std::sync::Arc;
+use tokio::time::{sleep, Duration};
+use warden::{WardenConfig};
+use worker::{WorkerStorage, SearchBoostQueue, LocalSessionManager};
 use iw_core::{PiiShield, SovereignError, StorageProvider};
 use secrecy::SecretVec;
-use std::fs;
-use std::sync::Arc;
 use tempfile::tempdir;
-use tokio::time::{sleep, Duration};
-use warden::WardenConfig;
-use worker::{LocalSessionManager, SearchBoostQueue, WorkerStorage};
+use std::fs;
 
 #[tokio::test]
 async fn test_v19_session_isolation_aad_adversarial() {
@@ -19,9 +19,7 @@ async fn test_v19_session_isolation_aad_adversarial() {
         let sm = LocalSessionManager::new(db_path.clone(), &pepper).unwrap();
         let user_a = "alice";
         let ctx_a = sm.get_session(user_a).await.unwrap();
-        ctx_a
-            .pii_to_token
-            .insert("secret_a".to_string(), "[TOKEN_A]".into());
+        ctx_a.pii_to_token.insert("secret_a".to_string(), "[TOKEN_A]".into());
         sm.save_session(user_a, &ctx_a).await.unwrap();
     }
 
@@ -30,9 +28,7 @@ async fn test_v19_session_isolation_aad_adversarial() {
         let sm = LocalSessionManager::new(db_path.clone(), &pepper).unwrap();
         let user_b = "bob";
         let ctx_b = sm.get_session(user_b).await.unwrap();
-        ctx_b
-            .pii_to_token
-            .insert("secret_b".to_string(), "[TOKEN_B]".into());
+        ctx_b.pii_to_token.insert("secret_b".to_string(), "[TOKEN_B]".into());
         sm.save_session(user_b, &ctx_b).await.unwrap();
     }
 
@@ -42,18 +38,8 @@ async fn test_v19_session_isolation_aad_adversarial() {
     // 3. ADVERSARIAL MOVE: Manually swap session data in the DB
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        let alice_data: Vec<u8> = conn
-            .query_row(
-                "SELECT session_data FROM sessions WHERE username = 'alice'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        conn.execute(
-            "UPDATE sessions SET session_data = ?1 WHERE username = 'bob'",
-            [alice_data],
-        )
-        .unwrap();
+        let alice_data: Vec<u8> = conn.query_row("SELECT session_data FROM sessions WHERE username = 'alice'", [], |r| r.get(0)).unwrap();
+        conn.execute("UPDATE sessions SET session_data = ?1 WHERE username = 'bob'", [alice_data]).unwrap();
     }
 
     // 4. Verification: Bob tries to load his session using a FRESH manager (no cache)
@@ -62,29 +48,16 @@ async fn test_v19_session_isolation_aad_adversarial() {
 
     match result {
         Err(SovereignError::InternalError(e)) => {
-            assert!(
-                e.contains("Decryption failed") || e.contains("Session decryption failed"),
-                "Expected decryption failure, got: {}",
-                e
-            );
-            assert!(
-                e.contains("Decryption failed"),
-                "Expected decryption failure, got: {}",
-                e
-            );
-        }
-        _ => panic!(
-            "V-19 FAILURE: Swapped session should have failed decryption! Got: {:?}",
-            result
-        ),
+            assert!(e.contains("Decryption failed") || e.contains("Session decryption failed"), "Expected decryption failure, got: {}", e);
+            assert!(e.contains("Decryption failed"), "Expected decryption failure, got: {}", e);
+        },
+        _ => panic!("V-19 FAILURE: Swapped session should have failed decryption! Got: {:?}", result),
     }
 }
 
 #[tokio::test]
 async fn test_v14_librarian_output_scrubbing() {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).try_init();
 
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("audit_sb.db").to_str().unwrap().to_string();
@@ -108,41 +81,25 @@ rules:
     let shield = Arc::new(config.compile_engine(&pepper1).unwrap());
 
     // Create queue AND worker properly
-    let queue = Arc::new(
-        SearchBoostQueue::new(db_path.clone(), &pepper1, Some(shield.clone()), None).unwrap(),
-    );
-    let storage = WorkerStorage::new(&db_path, &kb_path, pepper2, Some((*queue).clone()), None)
-        .await
-        .unwrap();
+    let queue = Arc::new(SearchBoostQueue::new(db_path.clone(), &pepper1, Some(shield.clone()), None).unwrap());
+    let storage = WorkerStorage::new(&db_path, &kb_path, pepper2, Some((*queue).clone()), None).await.unwrap();
 
     // 1. Add sensitive document to Librarian
     let librarian = Arc::new(worker::LocalLibrarian::new(&kb_path).await.unwrap());
-    librarian
-        .add_document(
-            "The document contains TOP_SECRET_PROJECT info.",
-            "test_user",
-        )
-        .await
-        .unwrap();
+    librarian.add_document("The document contains TOP_SECRET_PROJECT info.", "test_user").await.unwrap();
 
     // Spawn background worker for queue
     queue.spawn_worker(librarian.clone());
 
     // 2. Enqueue a job with ONLY sanitized text (V-14 Enforced)
     // Query: "tell me about TOP_SECRET_PROJECT" -> sanitized to "tell me about [TOKEN_1]"
-    let report = shield
-        .sanitize_prompt("tell me about TOP_SECRET_PROJECT", None)
-        .await
-        .unwrap();
-    let job_id = queue
-        .enqueue(
-            report.sanitized_text,
-            std::collections::HashMap::new(),
-            "thread_1".to_string(),
-            "alice".to_string(),
-        )
-        .await
-        .unwrap();
+    let report = shield.sanitize_prompt("tell me about TOP_SECRET_PROJECT", None).await.unwrap();
+    let job_id = queue.enqueue(
+        report.sanitized_text,
+        std::collections::HashMap::new(),
+        "thread_1".to_string(),
+        "alice".to_string()
+    ).await.unwrap();
 
     // 3. Wait for worker to process
     let mut attempts = 0;
@@ -161,30 +118,19 @@ rules:
     // 4. Verification: Expect RAG Blindness (Safe Fail-Closed)
     // The librarian has the raw text, but received a sanitized token. It should NOT find a match.
     assert!(!result.contains("TOP_SECRET_PROJECT"), "Librarian leakage!");
-    assert!(
-        result.contains("No relevant local policy context found."),
-        "Expected RAG Blindness result, got: {}",
-        result
-    );
+    assert!(result.contains("No relevant local policy context found."), "Expected RAG Blindness result, got: {}", result);
 }
 
 #[tokio::test]
 async fn test_v13_anchor_tampering_fail_closed() {
     let dir = tempdir().unwrap();
-    let db_path = dir
-        .path()
-        .join("audit_anchor.db")
-        .to_str()
-        .unwrap()
-        .to_string();
+    let db_path = dir.path().join("audit_anchor.db").to_str().unwrap().to_string();
     let anchor_path = dir.path().join("audit_anchor.db.anchor");
     let pepper1 = SecretVec::new(vec![0u8; 32]);
     let pepper2 = SecretVec::new(vec![0u8; 32]);
 
     // 1. Initialize Auditor
-    let auditor = worker::audit::AsyncAuditor::spawn(&db_path, pepper1, None)
-        .await
-        .unwrap();
+    let auditor = worker::audit::AsyncAuditor::spawn(&db_path, pepper1, None).await.unwrap();
     assert!(auditor.check_health().is_ok());
 
     // 2. Perform a log entry
@@ -196,10 +142,7 @@ async fn test_v13_anchor_tampering_fail_closed() {
         potential_misses: vec![],
         execution_time_ms: 0,
     };
-    auditor
-        .log_report(report, "raw input".into(), "test_user".into())
-        .await
-        .unwrap();
+    auditor.log_report(report, "raw input".into(), "test_user".into()).await.unwrap();
 
     // 3. Tamper with the anchor file
     fs::write(&anchor_path, "999:badhash").unwrap();
@@ -216,10 +159,7 @@ async fn test_v13_anchor_tampering_fail_closed() {
         attempts += 1;
     }
 
-    assert!(
-        failed,
-        "Auditor should have entered panic state after anchor tampering"
-    );
+    assert!(failed, "Auditor should have entered panic state after anchor tampering");
 }
 
 #[tokio::test]
@@ -242,29 +182,18 @@ rules:
     let input = "The document contains TOP_SECRET_PROJECT info.";
     let report = engine.sanitize_prompt(input, None).await.unwrap();
 
-    assert!(
-        report.sanitized_text.contains("[TOKEN_1]"),
-        "Engine failed to redact TOP_SECRET_PROJECT. Result: {}",
-        report.sanitized_text
-    );
+    assert!(report.sanitized_text.contains("[TOKEN_1]"), "Engine failed to redact TOP_SECRET_PROJECT. Result: {}", report.sanitized_text);
 }
 
 #[tokio::test]
 async fn test_v55_ephemeral_tampering_fail_closed() {
     let dir = tempdir().unwrap();
-    let db_path = dir
-        .path()
-        .join("audit_v55.db")
-        .to_str()
-        .unwrap()
-        .to_string();
+    let db_path = dir.path().join("audit_v55.db").to_str().unwrap().to_string();
 
     // 1. Initialize Auditor and log something
     {
         let pepper = SecretVec::new(vec![0u8; 32]);
-        let auditor = worker::audit::AsyncAuditor::spawn(&db_path, pepper, None)
-            .await
-            .unwrap();
+        let auditor = worker::audit::AsyncAuditor::spawn(&db_path, pepper, None).await.unwrap();
         let report = iw_core::ScrubbingReport {
             sanitized_text: "test".into(),
             is_blocked: false,
@@ -273,20 +202,13 @@ async fn test_v55_ephemeral_tampering_fail_closed() {
             potential_misses: vec![],
             execution_time_ms: 0,
         };
-        auditor
-            .log_report(report, "sensitive raw data".into(), "user123".into())
-            .await
-            .unwrap();
+        auditor.log_report(report, "sensitive raw data".into(), "user123".into()).await.unwrap();
     } // Drop auditor to close DB
 
     // 2. ADVERSARIAL MOVE: Tamper with the raw log ciphertext
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        conn.execute(
-            "UPDATE ephemeral_raw_logs SET encrypted_data = X'DEADBEEF' WHERE id = 1",
-            [],
-        )
-        .unwrap();
+        conn.execute("UPDATE ephemeral_raw_logs SET encrypted_data = X'DEADBEEF' WHERE id = 1", []).unwrap();
     }
 
     // 3. Verification: freshest boot should fail integrity walk
@@ -295,12 +217,8 @@ async fn test_v55_ephemeral_tampering_fail_closed() {
 
     match result {
         Err(SovereignError::InternalError(e)) => {
-            assert!(
-                e.contains("DB Init Failed"),
-                "Expected DB initialization failure, got: {}",
-                e
-            );
-        }
+            assert!(e.contains("DB Init Failed"), "Expected DB initialization failure, got: {}", e);
+        },
         Ok(_) => panic!("V-55 FAILURE: Tampered raw log was not detected!"),
         Err(e) => panic!("V-55 FAILURE: Unexpected error during boot: {}", e),
     }

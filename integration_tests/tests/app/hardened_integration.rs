@@ -1,11 +1,11 @@
 // Hardened integration pipeline tests verifying Unicode normalization (homoglyph/zero-width character handling) with offset drift correction, audit persistence, and session tokenization consistency.
-use iw_core::{PiiShield, StorageProvider};
-use std::fs;
 use std::sync::Arc;
-use tempfile::tempdir;
+use warden::{WardenConfig};
+use worker::{WorkerStorage};
+use iw_core::{PiiShield, StorageProvider};
 use tokio::time::{sleep, Duration};
-use warden::WardenConfig;
-use worker::WorkerStorage;
+use tempfile::tempdir;
+use std::fs;
 
 #[tokio::test]
 async fn test_end_to_end_hardened_pipeline() {
@@ -33,17 +33,7 @@ rules:
     let pepper = vec![0u8; 32];
     let lancedb_dir = dir.path().join("lancedb");
     let lancedb_path = lancedb_dir.to_str().unwrap();
-    let storage = Arc::new(
-        WorkerStorage::new(
-            &db_path,
-            &lancedb_path,
-            secrecy::SecretVec::new(pepper),
-            None,
-            None,
-        )
-        .await
-        .unwrap(),
-    );
+    let storage = Arc::new(WorkerStorage::new(&db_path, &lancedb_path, secrecy::SecretVec::new(pepper), None, None).await.unwrap());
 
     // 3. Attack Vector: "Greeting from A[ZERO_WIDTH]lice (Greek Alpha)."
     // Raw length: 30 bytes
@@ -62,19 +52,14 @@ rules:
     assert_eq!(redaction.length, 9); // Greek Α (2) + ZWSP (3) + lice (4) = 9 bytes
 
     // 5. Audit Logging
-    storage
-        .log_audit_event(&report, raw_input, "test_user")
-        .await
-        .unwrap();
+    storage.log_audit_event(&report, raw_input, "test_user").await.unwrap();
 
     // Give async task time to flush
     sleep(Duration::from_millis(500)).await;
 
     // 6. Verify Persistence & Integrity
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    let mut stmt = conn
-        .prepare("SELECT redactions_json, integrity_hash FROM audit_reports")
-        .unwrap();
+    let mut stmt = conn.prepare("SELECT redactions_json, integrity_hash FROM audit_reports").unwrap();
     let mut rows = stmt.query([]).unwrap();
 
     if let Some(row) = rows.next().unwrap() {
@@ -89,9 +74,7 @@ rules:
     }
 
     // 7. Verify Encrypted Queue
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM ephemeral_raw_logs", [], |r| r.get(0))
-        .unwrap();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM ephemeral_raw_logs", [], |r| r.get(0)).unwrap();
     assert_eq!(count, 1);
     println!("✅ Encrypted Ephemeral Log count: {}", count);
 }
@@ -109,31 +92,19 @@ async fn test_stateful_tokenization_session_consistency() {
     let session = iw_core::SessionContext::new();
 
     // First call
-    let report1 = shield
-        .sanitize_prompt("Hello Alice.", Some(&session))
-        .await
-        .unwrap();
+    let report1 = shield.sanitize_prompt("Hello Alice.", Some(&session)).await.unwrap();
     let token1 = report1.redactions[0].placeholder.clone();
 
     // Second call with same session
-    let report2 = shield
-        .sanitize_prompt("Alice is here.", Some(&session))
-        .await
-        .unwrap();
+    let report2 = shield.sanitize_prompt("Alice is here.", Some(&session)).await.unwrap();
     let token2 = report2.redactions[0].placeholder.clone();
 
-    assert_eq!(
-        token1, token2,
-        "Tokens must be consistent within the same session"
-    );
+    assert_eq!(token1, token2, "Tokens must be consistent within the same session");
     assert!(report2.sanitized_text.contains(&token1));
 
     // Third call with NEW session
     let new_session = iw_core::SessionContext::new();
-    let report3 = shield
-        .sanitize_prompt("Alice again.", Some(&new_session))
-        .await
-        .unwrap();
+    let report3 = shield.sanitize_prompt("Alice again.", Some(&new_session)).await.unwrap();
     let token3 = report3.redactions[0].placeholder.clone();
 
     // Note: Since it's a new session, it starts from TOKEN_1

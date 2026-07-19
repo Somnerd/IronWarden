@@ -3,11 +3,11 @@ use rusqlite::Connection;
 use serde_json::Value;
 use std::collections::HashMap;
 
-use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use iw_core::{KDF_SALT_GENESIS, KDF_SALT_INTEGRITY, Redaction};
-use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
+use hkdf::Hkdf;
+use secrecy::{SecretString, ExposeSecret};
+use iw_core::{Redaction, KDF_SALT_INTEGRITY, KDF_SALT_GENESIS};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -45,9 +45,7 @@ fn main() {
             }
         }
         Commands::Verify { db } => {
-            let pepper_env = std::env::var("WARDEN_PEPPER").expect(
-                "WARDEN_PEPPER environment variable is missing. This is required for verification.",
-            );
+            let pepper_env = std::env::var("WARDEN_PEPPER").expect("WARDEN_PEPPER environment variable is missing. This is required for verification.");
             let secret_pepper = SecretString::from(pepper_env);
             if let Err(e) = verify_integrity(db, &secret_pepper) {
                 eprintln!("Error verifying integrity: {}", e);
@@ -114,12 +112,14 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
 
     let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret().as_bytes());
     let mut hmac_key_bytes = [0u8; 32];
-    hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes)
-        .map_err(|_e| rusqlite::Error::InvalidQuery)?;
+    hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes).map_err(|_e| {
+        rusqlite::Error::InvalidQuery
+    })?;
 
     let mut genesis_hash = [0u8; 32];
-    hk.expand(KDF_SALT_GENESIS, &mut genesis_hash)
-        .map_err(|_e| rusqlite::Error::InvalidQuery)?;
+    hk.expand(KDF_SALT_GENESIS, &mut genesis_hash).map_err(|_e| {
+        rusqlite::Error::InvalidQuery
+    })?;
 
     // We verify by joining audit_reports and ephemeral_raw_logs where they match by ID
     // Note: Due to 30-day log purging, older records cannot be cryptographically verified.
@@ -143,17 +143,7 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
         let ciphertext: Option<Vec<u8>> = row.get(7).ok().flatten();
         let username: String = row.get(8)?;
 
-        Ok((
-            id,
-            timestamp,
-            is_blocked,
-            redactions_json,
-            integrity_hash_hex,
-            payload_hash_hex,
-            nonce,
-            ciphertext,
-            username,
-        ))
+        Ok((id, timestamp, is_blocked, redactions_json, integrity_hash_hex, payload_hash_hex, nonce, ciphertext, username))
     })?;
 
     let mut last_hash: Vec<u8> = genesis_hash.to_vec();
@@ -166,26 +156,14 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
     println!("=============================================\n");
 
     for row_res in iter {
-        let (
-            id,
-            timestamp,
-            is_blocked,
-            redactions_json,
-            integrity_hash_hex,
-            payload_hash_hex,
-            nonce_opt,
-            ciphertext_opt,
-            username,
-        ) = row_res?;
+        let (id, timestamp, is_blocked, redactions_json, integrity_hash_hex, payload_hash_hex, nonce_opt, ciphertext_opt, username) = row_res?;
         let stored_hash = hex::decode(&integrity_hash_hex).unwrap_or_default();
         let payload_hash = hex::decode(&payload_hash_hex).unwrap_or_default();
 
-        let redactions_vec: Vec<Redaction> =
-            serde_json::from_str(&redactions_json).unwrap_or_default();
+        let redactions_vec: Vec<Redaction> = serde_json::from_str(&redactions_json).unwrap_or_default();
         let redactions_bin = bincode::serialize(&redactions_vec).unwrap_or_default();
 
-        let mut mac = HmacSha256::new_from_slice(&hmac_key_bytes)
-            .map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let mut mac = HmacSha256::new_from_slice(&hmac_key_bytes).map_err(|_| rusqlite::Error::InvalidQuery)?;
         mac.update(&last_hash);
         mac.update(timestamp.as_bytes());
         mac.update(username.as_bytes()); // Bind username to integrity chain
@@ -225,19 +203,13 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
     }
 
     println!("✅ Verified Intact Logs: {}", verified_count);
-    println!(
-        "📦 Verified Archived Logs: {} (Ephemeral data purged)",
-        archived_count
-    );
+    println!("📦 Verified Archived Logs: {} (Ephemeral data purged)", archived_count);
 
     if tampered_count == 0 {
         println!("\n✨ STATUS: CHAIN INTACT ✨");
         println!("=============================================\n");
     } else {
-        println!(
-            "\n🚨 STATUS: CHAIN CORRUPTED ({} records tampered) 🚨",
-            tampered_count
-        );
+        println!("\n🚨 STATUS: CHAIN CORRUPTED ({} records tampered) 🚨", tampered_count);
         println!("=============================================\n");
         std::process::exit(1);
     }

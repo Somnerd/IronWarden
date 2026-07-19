@@ -49,6 +49,3 @@ __pycache__/
 worker/audit_stress_test.db*
 venv/
 test_suites/__pycache__/
-test_env/
-test_audit*
-

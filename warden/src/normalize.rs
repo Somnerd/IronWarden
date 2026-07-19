@@ -1,6 +1,7 @@
-use any_ascii::any_ascii_char;
-
 use unicode_normalization::UnicodeNormalization;
+use regex::Regex;
+use once_cell::sync::Lazy;
+use any_ascii::any_ascii_char;
 
 pub struct OffsetMap {
     pub normalized_to_original: Vec<usize>,
@@ -63,9 +64,7 @@ impl Normalizer {
     /// Optimized zero-allocation normalization using thread-local pools.
     /// The buffer is cleared, populated, and then immutably borrowed for the closure.
     pub fn with_normalized<F, R>(input: &str, f: F) -> R
-    where
-        F: FnOnce(&NormalizationResult) -> R,
-    {
+    where F: FnOnce(&NormalizationResult) -> R {
         NORM_BUFFER.with(|buf| {
             {
                 let mut b = buf.borrow_mut();
@@ -121,12 +120,8 @@ impl Normalizer {
                     }
                 }
                 b.ascii_to_original.normalized_to_original.push(input.len());
-                b.unicode_to_original
-                    .normalized_to_original
-                    .push(input.len());
-                b.stripped_to_original
-                    .normalized_to_original
-                    .push(input.len());
+                b.unicode_to_original.normalized_to_original.push(input.len());
+                b.stripped_to_original.normalized_to_original.push(input.len());
 
                 let norm_unicode_len = b.normalized_unicode.len();
                 b.original_to_unicode[input.len()] = norm_unicode_len;
@@ -147,7 +142,7 @@ impl Normalizer {
         ('\u{200B}'..='\u{200F}').contains(&c) || // ZWSP, ZWNJ, ZWJ, LRM, RLM
         ('\u{202A}'..='\u{202E}').contains(&c) || // LRE, RLE, PDF, LRO, RLO
         ('\u{2060}'..='\u{206F}').contains(&c) || // Word Joiner, Format characters
-        ('\u{FEFF}' == c) // BOM
+        ('\u{FEFF}' == c)                         // BOM
     }
 }
 

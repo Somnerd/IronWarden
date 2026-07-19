@@ -1,16 +1,15 @@
-pub mod constants;
-pub mod crypto;
 pub mod error;
-pub mod fips;
 pub mod traits;
+pub mod constants;
+pub mod fips;
+pub mod crypto;
 
 pub use constants::*;
 
-pub use crypto::AadCipher;
 pub use error::SovereignError;
 pub use traits::{
-    ComplianceReport, EnforcementAction, GroundingShield, InferenceGateway, McpServer, PiiCategory,
-    PiiShield, PotentialMiss, Redaction, ScrubbingReport, SessionContext, SessionState,
-    StorageProvider, TokenMap, VisionShield,
+    InferenceGateway, McpServer, PiiShield, VisionShield, StorageProvider, TokenMap,
+    ScrubbingReport, Redaction, EnforcementAction, PotentialMiss, SessionContext, SessionState,
+    PiiCategory, ComplianceReport, GroundingShield
 };
-pub mod executor;
+pub use crypto::AadCipher;

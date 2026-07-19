@@ -1,6 +1,6 @@
 // Integration tests verifying SearchBoostQueue initialization behavior under High Availability (HA) detection, confirming it starts correctly both with and without the `REDIS_URL` environment variable.
-use secrecy::SecretVec;
 use worker::searchboost::SearchBoostQueue;
+use secrecy::SecretVec;
 
 #[tokio::test]
 async fn test_ha_logic_detection() {
@@ -16,7 +16,6 @@ async fn test_ha_logic_detection() {
     let _ = std::fs::remove_file("test_ha.db");
     let _ = std::fs::remove_file("test_ha.db-shm");
     let _ = std::fs::remove_file("test_ha.db-wal");
-    let _ = std::fs::remove_file("test_ha.db.anchor");
 }
 
 #[tokio::test]
@@ -30,5 +29,4 @@ async fn test_ha_logic_disabled_without_env() {
     let _ = std::fs::remove_file("test_no_ha.db");
     let _ = std::fs::remove_file("test_no_ha.db-shm");
     let _ = std::fs::remove_file("test_no_ha.db-wal");
-    let _ = std::fs::remove_file("test_no_ha.db.anchor");
 }

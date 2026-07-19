@@ -33,39 +33,36 @@
 * [x] **WP-94: Audit Streaming**: Implementation of Remote Audit Streaming.
 * [x] **WP-95: Multi-Modal**: Multi-Modal Vision Shield Foundation (VisionWarden).
 * [x] **WP-82: Logistics**: Advanced Sector Expansion: Shipping & Logistics PII Rulesets.
-* [x] **WP-85: Retrieval**: [Feature] Retrieval Upgrade: Migrate Librarian database to LanceDB.
 
 ---
 
-## ✅ Phase 3: Stabilization & Audit (V1.3 Launch Readiness)
+## 🏗️ Phase 3: Stabilization & Audit (Code Red)
 
-*Goal: Finalize core stabilization, resolve pre-launch issues, and ready codebase for V1.3 Shadow Launch.*
+*Goal: Finalize documentation and pass 3rd-party security audit.*
 
-* [x] **WP-46: Documentation**: Centralized project documentation cleanup and standardization.
-* [x] **WP-53: QA Strategy**: Establish standard integration test workspace standard (`integration_tests`).
-* [x] **WP-54: Identity**: Define and document V-series security invariants (GEMINI.md).
-* [x] **WP-58: Architecture**: Document the dual-buffer normalizer and memory-wiping SecretString layout.
-* [x] **WP-64: Audit Findings**: Resolve Tesseract production-mode fail-closed safety gate.
-* [x] **WP-93: Verification**: Implement comprehensive 49-test workspace regression suite passing on CI/CD.
-* [x] **WP-97: [V-14 Violation]**: Fix RAW unsanitized query leak in `bridge.rs`.
-* [x] **WP-98: [V-19 Fragility]**: Centralize AAD-bound encryption logic in `iw-core`.
-* [x] **WP-99: [SQLite Silo]**: Implement unified connection pooling via `r2d2` SQLite manager.
-* [x] **WP-100: [Boilerplate]**: Standardize `spawn_blocking` via non-blocking `BlockingExecutor`.
-* [x] **WP-101: [Config/Errors]**: Implement unified `GlobalConfig` prioritizer with strict exit-on-failure.
-* [x] **WP-102: [JWT]**: Refactor JWT verifier into reusable `iw-core::crypto` component.
-* [x] **Phase 2 Optimization (Issue #60)**: Wrap ONNX session in Mutex for compiler-guaranteed thread safety.
-* [x] **Phase 3 Optimization (Issue #61)**: Implement lock-free FIFO command-driven SQLite batch writer and graceful shutdown flush.
-* [x] **Phase 4 Optimization (Issue #62)**: Eliminate heap allocations in heuristic scanning via thread-local normalization buffers.
+* [/] **WP-46: Documentation**: Initial Documentation Ingestion. (In Progress)
+* [/] **WP-53: QA Strategy**: [Wiki] V1.1 QA Test Strategy & Plan. (In Progress)
+* [/] **WP-54: Identity**: [Wiki] Project Overview & Identity. (In Progress)
+* [/] **WP-58: Architecture**: [Wiki] Architecture & Design. (In Progress)
+* [/] **WP-64: Audit Findings**: [Wiki] Security Audit Findings. (In Progress)
+* [/] **WP-55: Pen-Test**: [Task] Final Hardening: Third-party penetration test. (In Progress)
+* [/] **WP-86: Master Audit**: [Security] Third-Party Penetration Test & Cryptographic Audit (V1.0 Readiness). (In Progress)
+* [ ] **WP-93: Verification**: [QA] Regression Stress Test for Phase 3 Stability Gaps (V1.3 Verification). (New)
+* [x] **WP-97: [V-14 Violation]**: Fix RAW unsanitized query leak in `bridge.rs`. (Verified)
+* [x] **WP-98: [V-19 Fragility]**: Centralize AAD-bound encryption logic in `iw-core`. (Verified)
+* [ ] **WP-99: [SQLite Silo]**: Implement unified connection pooling (SqlitePool). (High)
+* [ ] **WP-100: [Boilerplate]**: Standardize `spawn_blocking` via `BlockingExecutor`. (Medium)
+* [ ] **WP-101: [Config/Errors]**: Unify YAML configuration loading and standardize error mapping. (Medium)
+* [ ] **WP-102: [JWT]**: Refactor JWT verification into a reusable component. (Medium)
 
 ---
 
-## 🏗️ Phase 4: Scaling & Enterprise Roadmap (Post-Launch Merit)
+## 🚀 Phase 4: Scaling & Enterprise Readiness
 
-*Goal: Prepare for high-availability multi-tenant deployments and cloud-native operator models.*
+*Goal: Prepare for high-availability and multi-tenant deployments.*
 
-* [ ] **WP-92: Tiered Models**: [Architecture] Define Tiered Deployment Models (Sovereign standalone vs. Enterprise clustered). (Merited: High value for sales layout).
-* [ ] **WP-96: K8s Operator**: [Scaling] Native Kubernetes Operator for auto-scaling stateless bridge nodes. (Merited: Required for large-scale hybrid cloud deployments).
-* [ ] **WP-103: Chaos Engineering**: [QA] Implement system chaos testing simulating SQLite disk drops and power interruptions to verify WAL journal recovery. (Merited: Medium).
+* [ ] **WP-92: Tiered Models**: [Architecture] Define Tiered Deployment Models (Sovereign vs. Enterprise). (New)
+* [ ] **WP-96: K8s Operator**: [Scaling] Native Kubernetes Operator for Auto-Scaling. (On Hold)
 
 ---
 
@@ -74,14 +71,15 @@
 *Goal: Broaden the PII detection capabilities.*
 
 * [ ] **WP-67: Evasion Defense**: [V-11] PII Pattern Evasion via Flexible Separators. (On Hold)
+* [ ] **WP-85: Retrieval**: [Feature] Retrieval Upgrade: Migrate Librarian to LanceDB. (On Hold)
 
 ---
 
 ### 💡 Current Status
 
-* **Status**: **V1.3-RC1 (RELEASE CANDIDATE 1) - SHADOW LAUNCH READY**.
+* **Status**: **CODE RED / AUDIT READY**.
 * **Blocker**: **WP-86** (3rd Party Audit).
-* **Next Major Milestone**: Initiate V1.3 Shadow Launch on production traffic mirror.
+* **Next Major Milestone**: V1.3 Certification.
 
 ### ❌ Rejected/Archived
 * **WP-74**: Model Distillation & Quantization (ONNX) - *Suspended for security reliability.*

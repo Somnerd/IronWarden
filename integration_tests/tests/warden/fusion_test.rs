@@ -1,9 +1,9 @@
 // This file tests the fusion integrity of name heuristics and regex rules (e.g., Greek name components fused into a single token and AFM mapped) during prompt sanitization.
-use iw_core::PiiShield;
 use iw_warden::WardenConfig;
+use iw_core::PiiShield;
 
 #[tokio::test]
-async fn test_papadopoulos_fusion_integrity() {
+    async fn test_papadopoulos_fusion_integrity() {
     let yaml = r#"
 rules:
   - id: "gr_afm"

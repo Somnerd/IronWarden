@@ -1,9 +1,9 @@
 // This file tests detection of Greek PII (specifically AFM identification numbers) using a custom regex pattern against Greek language prompts.
-use iw_core::PiiShield;
 use iw_warden::WardenConfig;
+use iw_core::PiiShield;
 
 #[tokio::test]
-async fn test_greek_pii_detection() {
+    async fn test_greek_pii_detection() {
     let yaml = r#"
 rules:
   - id: "gr_afm_literal"
@@ -22,12 +22,6 @@ rules:
     println!("Sanitized: {}", report.sanitized_text);
 
     // If it works, it should have a redaction for ΑΦΜ 123456789
-    assert!(
-        !report.redactions.is_empty(),
-        "Expected at least one redaction for Greek AFM"
-    );
-    assert!(report
-        .redactions
-        .iter()
-        .any(|r| r.rule_id == "gr_afm_literal"));
+    assert!(!report.redactions.is_empty(), "Expected at least one redaction for Greek AFM");
+    assert!(report.redactions.iter().any(|r| r.rule_id == "gr_afm_literal"));
 }

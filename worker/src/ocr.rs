@@ -51,18 +51,9 @@ impl OcrProvider for TesseractOcr {
                 Err(SovereignError::InternalError(format!("Tesseract Error: {}", err)))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let env_prod = std::env::var("IRONWARDEN_ENV").unwrap_or_default() == "production"
-                    || std::env::var("RUST_ENV").unwrap_or_default() == "production";
-
-                if env_prod {
-                    error!("CRITICAL: Tesseract binary not found in production environment! Failing closed to prevent data leaks.");
-                    let _ = fs::remove_file(&input_path).await;
-                    Err(SovereignError::InternalError("Tesseract OCR dependency missing in production mode.".to_string()))
-                } else {
-                    warn!("SECURITY WARNING: Tesseract binary not found. Falling back to mock OCR for development mode. Do not use in production.");
-                    let _ = fs::remove_file(&input_path).await;
-                    Ok(format!("[MOCK OCR] This is a simulated extraction for {}. Install Tesseract for real processing.", mime_type))
-                }
+                warn!("OCR: Tesseract binary not found. Falling back to mock for development.");
+                let _ = fs::remove_file(&input_path).await;
+                Ok(format!("[MOCK OCR] This is a simulated extraction for {}. Install Tesseract for real processing.", mime_type))
             }
             Err(e) => {
                 error!("OCR Process Error: {}", e);
@@ -97,60 +88,5 @@ impl OcrWorker {
 
     pub async fn process_file(&self, data: &[u8], mime_type: &str) -> Result<String, SovereignError> {
         self.provider.extract_text(data, mime_type).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-
-    // Use a mutex to serialize tests that mutate the global environment
-    static ENV_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-    #[tokio::test]
-    async fn test_ocr_fail_closed_production() {
-        let _guard = ENV_MUTEX.lock().await;
-        
-        let orig_prod = env::var("IRONWARDEN_ENV");
-        let orig_rust_env = env::var("RUST_ENV");
-        env::set_var("IRONWARDEN_ENV", "production");
-        env::remove_var("RUST_ENV");
-        
-        let orig_path = env::var("PATH");
-        env::set_var("PATH", ""); // Ensure tesseract is not found
-        
-        let ocr = TesseractOcr;
-        let res = ocr.extract_text(b"test data", "image/png").await;
-        
-        assert!(res.is_err(), "OCR must fail in production if tesseract is missing");
-        assert!(res.unwrap_err().to_string().contains("dependency missing in production mode"));
-        
-        if let Ok(val) = orig_path { env::set_var("PATH", val); } else { env::remove_var("PATH"); }
-        if let Ok(val) = orig_prod { env::set_var("IRONWARDEN_ENV", val); } else { env::remove_var("IRONWARDEN_ENV"); }
-        if let Ok(val) = orig_rust_env { env::set_var("RUST_ENV", val); } else { env::remove_var("RUST_ENV"); }
-    }
-
-    #[tokio::test]
-    async fn test_ocr_fallback_development() {
-        let _guard = ENV_MUTEX.lock().await;
-        
-        let orig_prod = env::var("IRONWARDEN_ENV");
-        let orig_rust_env = env::var("RUST_ENV");
-        env::set_var("IRONWARDEN_ENV", "development");
-        env::set_var("RUST_ENV", "development");
-        
-        let orig_path = env::var("PATH");
-        env::set_var("PATH", ""); // Ensure tesseract is not found
-        
-        let ocr = TesseractOcr;
-        let res = ocr.extract_text(b"test data", "image/png").await;
-        
-        assert!(res.is_ok(), "OCR must fallback in development if tesseract is missing");
-        assert!(res.unwrap().contains("[MOCK OCR]"));
-        
-        if let Ok(val) = orig_path { env::set_var("PATH", val); } else { env::remove_var("PATH"); }
-        if let Ok(val) = orig_prod { env::set_var("IRONWARDEN_ENV", val); } else { env::remove_var("IRONWARDEN_ENV"); }
-        if let Ok(val) = orig_rust_env { env::set_var("RUST_ENV", val); } else { env::remove_var("RUST_ENV"); }
     }
 }

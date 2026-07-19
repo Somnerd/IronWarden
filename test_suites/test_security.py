@@ -27,7 +27,7 @@ def test_security_homoglyph_bypass(warden):
     # Normalizer should convert Greek Alpha to Latin A, and then AC should catch it.
     assert homoglyph_input not in result["sanitized_text"]
     assert "[TOKEN_1]" in result["sanitized_text"]
-    assert "client_names" in result["redactions"][0]["rule_id"]
+    assert result["redactions"][0]["rule_id"] == "client_names"
 
 def test_security_invisible_char_bypass(warden):
     """

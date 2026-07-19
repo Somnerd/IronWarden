@@ -1,13 +1,12 @@
 // Stress and concurrency tests for the bridge router verifying high-concurrency request handling, role-based authorization (JWT verification), and security policy blocking behavior.
-use axum::http::StatusCode;
-use iw_core::crypto::Claims;
-use iw_warden::WardenConfig;
-use jsonwebtoken::{encode, EncodingKey, Header};
-use secrecy::SecretVec;
-use std::fs;
 use std::sync::Arc;
+use iw_warden::{WardenConfig};
+use worker::{WorkerStorage, BridgeState, create_bridge_router, bridge::Claims};
+use axum::{http::StatusCode};
 use tempfile::tempdir;
-use worker::{create_bridge_router, BridgeState, WorkerStorage};
+use std::fs;
+use jsonwebtoken::{encode, Header, EncodingKey};
+use secrecy::{SecretVec};
 
 #[tokio::test]
 async fn test_adversarial_bridge_stress_and_blocking() {
@@ -72,17 +71,7 @@ cwIDAQAB
 
     let engine = Arc::new(config.compile_engine(&pepper).unwrap());
 
-    let storage = Arc::new(
-        WorkerStorage::new(
-            &db_path,
-            dir.path().to_str().unwrap(),
-            storage_pepper,
-            None,
-            None,
-        )
-        .await
-        .unwrap(),
-    );
+    let storage = Arc::new(WorkerStorage::new(&db_path, dir.path().to_str().unwrap(), storage_pepper, None, None).await.unwrap());
     let session_manager = worker::LocalSessionManager::new(db_path.clone(), &pepper).unwrap();
 
     // Create a user session
@@ -92,15 +81,7 @@ cwIDAQAB
         ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
         shield: engine.clone(),
         grounding_shield: engine.clone(),
-        queue: Arc::new(
-            worker::SearchBoostQueue::new(
-                db_path.clone(),
-                &pepper,
-                Some(engine.clone()),
-                Some(engine.clone()),
-            )
-            .unwrap(),
-        ),
+        queue: Arc::new(worker::SearchBoostQueue::new(db_path.clone(), &pepper, Some(engine.clone()), Some(engine.clone())).unwrap()),
         storage: storage.clone(),
         session_manager: session_manager.clone(),
         jwt_public_key,
@@ -113,12 +94,7 @@ cwIDAQAB
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
-        axum::serve(
-            listener,
-            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await
-        .unwrap();
+        axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     });
 
     // Generate JWT (RS256) with valid role
@@ -127,12 +103,7 @@ cwIDAQAB
         exp: 10000000000, // far future
         roles: vec!["admin".to_string()],
     };
-    let token = encode(
-        &Header::new(jsonwebtoken::Algorithm::RS256),
-        &claims,
-        &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap(),
-    )
-    .unwrap();
+    let token = encode(&Header::new(jsonwebtoken::Algorithm::RS256), &claims, &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap()).unwrap();
 
     // Generate JWT (RS256) with no roles
     let claims_no_roles = Claims {
@@ -140,12 +111,7 @@ cwIDAQAB
         exp: 10000000000, // far future
         roles: vec![],
     };
-    let token_no_roles = encode(
-        &Header::new(jsonwebtoken::Algorithm::RS256),
-        &claims_no_roles,
-        &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap(),
-    )
-    .unwrap();
+    let token_no_roles = encode(&Header::new(jsonwebtoken::Algorithm::RS256), &claims_no_roles, &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap()).unwrap();
 
     std::env::set_var("WARDEN_JWT_AUDIENCE", "test_aud");
     std::env::set_var("WARDEN_JWT_ISSUER", "test_iss");
@@ -158,18 +124,13 @@ cwIDAQAB
         "query": "Hello Bob",
         "thread_id": "test_thread"
     });
-    let res = client
-        .post(&url)
+    let res = client.post(&url)
         .header("Authorization", format!("Bearer {}", token_no_roles))
         .json(&payload)
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        res.status(),
-        StatusCode::FORBIDDEN,
-        "Unprivileged token should be rejected with 403 Forbidden"
-    );
+    assert_eq!(res.status(), StatusCode::FORBIDDEN, "Unprivileged token should be rejected with 403 Forbidden");
 
     let num_requests = 100; // Small sample for CI, but enough to test concurrency
     let mut handlers = Vec::new();
@@ -185,8 +146,7 @@ cwIDAQAB
                 "thread_id": "test_thread"
             });
 
-            let res = client
-                .post(&url)
+            let res = client.post(&url)
                 .header("Authorization", format!("Bearer {}", token))
                 .json(&payload)
                 .send()
@@ -215,10 +175,7 @@ cwIDAQAB
         }
     }
 
-    println!(
-        "Results: {} Blocked, {} Success, {} Rate Limited",
-        blocked_count, success_count, rate_limited_count
-    );
+    println!("Results: {} Blocked, {} Success, {} Rate Limited", blocked_count, success_count, rate_limited_count);
 
     // Half the requests contained "Alice" and should be blocked (unless rate limited)
     // The other half "Bob" should be successful (unless rate limited)

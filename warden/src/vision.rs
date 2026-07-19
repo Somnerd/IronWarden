@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use iw_core::{ScrubbingReport, SessionContext, SovereignError, VisionShield};
+use iw_core::{VisionShield, ScrubbingReport, SovereignError, SessionContext};
 use tracing::warn;
 
 /// VisionWarden: A multi-modal PII scrubbing layer for screenshots and images.
@@ -13,10 +13,7 @@ impl VisionShield for VisionWarden {
         image_data: &[u8],
         _session: Option<&SessionContext>,
     ) -> Result<(Vec<u8>, ScrubbingReport), SovereignError> {
-        warn!(
-            "VisionWarden: Multi-modal scrubbing triggered. Image size: {} bytes.",
-            image_data.len()
-        );
+        warn!("VisionWarden: Multi-modal scrubbing triggered. Image size: {} bytes.", image_data.len());
 
         // This is where we would call a VLM (e.g. GPT-4o, LLaVA, or a local specialized model)
         // to detect text/entities in the image and apply redaction masks.

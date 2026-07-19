@@ -10,11 +10,8 @@ import time
 import redis
 from typing import List
 
-import os
-
 # Configuration
-BRIDGE_PORT = os.environ.get("BRIDGE_PORT", "14141")
-BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
+BRIDGE_URL = "http://localhost:14141"
 REDIS_URL = "redis://localhost:6379"
 TARGET_RPS = 50  # Above the 25 RPS limit
 TEST_QUERY = "Hello, my credit card is 4111-2222-3333-4444 and my email is test@example.com"

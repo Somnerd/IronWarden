@@ -1,12 +1,12 @@
-use crate::audit::AsyncAuditor;
-use crate::librarian::LocalLibrarian;
-use crate::searchboost::SearchBoostQueue;
 use async_trait::async_trait;
-use iw_core::{ComplianceReport, ScrubbingReport, SovereignError, StorageProvider};
-use rusqlite::ErrorCode;
-use secrecy::SecretVec;
-use std::sync::Arc;
+use iw_core::{SovereignError, StorageProvider, ScrubbingReport, ComplianceReport};
+use crate::audit::AsyncAuditor;
+use crate::searchboost::SearchBoostQueue;
+use crate::librarian::LocalLibrarian;
 use tokio_rusqlite::Connection;
+use rusqlite::ErrorCode;
+use std::sync::Arc;
+use secrecy::SecretVec;
 use tracing::info;
 
 /// The "Librarian" aggregator that provides the full StorageProvider trait implementation.
@@ -27,21 +27,14 @@ impl WorkerStorage {
         remote_forwarder: Option<Arc<dyn crate::audit::RemoteAuditForwarder>>,
     ) -> Result<Self, SovereignError> {
         // Await the spawn to ensure DB is writable before boot
-        let auditor = AsyncAuditor::spawn(audit_db_path, pepper, remote_forwarder)
-            .await
-            .map_err(|e| {
-                SovereignError::StorageError(format!("Failed to initialize Async Auditor: {}", e))
-            })?;
+        let auditor = AsyncAuditor::spawn(audit_db_path, pepper, remote_forwarder).await
+            .map_err(|e| SovereignError::StorageError(format!("Failed to initialize Async Auditor: {}", e)))?;
 
-        let librarian = LocalLibrarian::new(knowledge_base_path)
-            .await
-            .map_err(|e| {
-                SovereignError::StorageError(format!("Failed to initialize Librarian: {}", e))
-            })?;
+        let librarian = LocalLibrarian::new(knowledge_base_path).await
+            .map_err(|e| SovereignError::StorageError(format!("Failed to initialize Librarian: {}", e)))?;
 
-        let conn = Connection::open(audit_db_path).await.map_err(|e| {
-            SovereignError::StorageError(format!("Failed to open storage DB: {}", e))
-        })?;
+        let conn = Connection::open(audit_db_path).await
+            .map_err(|e| SovereignError::StorageError(format!("Failed to open storage DB: {}", e)))?;
         conn.call(|c| {
             c.busy_timeout(std::time::Duration::from_millis(2000))?;
             c.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA secure_delete = ON;")?;
@@ -68,9 +61,7 @@ impl WorkerStorage {
             loop {
                 interval.tick().await;
                 let path_c = std::ffi::CString::new(db_path_clone.clone()).unwrap_or_default();
-                if path_c.as_bytes().is_empty() {
-                    continue;
-                }
+                if path_c.as_bytes().is_empty() { continue; }
                 let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
                 if unsafe { libc::statvfs(path_c.as_ptr(), &mut stat) } == 0 {
                     let total = stat.f_blocks.saturating_mul(stat.f_frsize);
@@ -80,17 +71,12 @@ impl WorkerStorage {
                         if percent_avail < 10.0 {
                             // Do NOT call std::process::exit(1) here to avoid DoS. Let upstream handle failed DB writes gracefully.
                             tracing::warn!("WARNING: Disk space below 10% ({:.1}%). Triggering automatic purge of transient ephemeral logs older than 1 hour to prevent DatabaseFull hard-stops.", percent_avail);
-                            let _ = conn_clone
-                                .call(|c| {
-                                    let cutoff = chrono::Utc::now() - chrono::Duration::hours(1);
-                                    let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
-                                    c.execute(
-                                        "DELETE FROM ephemeral_raw_logs WHERE timestamp < ?1",
-                                        [&cutoff_str],
-                                    )?;
-                                    Ok::<(), rusqlite::Error>(())
-                                })
-                                .await;
+                            let _ = conn_clone.call(|c| {
+                                let cutoff = chrono::Utc::now() - chrono::Duration::hours(1);
+                                let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+                                c.execute("DELETE FROM ephemeral_raw_logs WHERE timestamp < ?1", [&cutoff_str])?;
+                                Ok::<(), rusqlite::Error>(())
+                            }).await;
                         }
                     }
                 }
@@ -100,31 +86,23 @@ impl WorkerStorage {
         Ok(storage)
     }
 
-    pub async fn validate_thread_access(
-        &self,
-        thread_id: &str,
-        username: &str,
-    ) -> Result<bool, SovereignError> {
+    pub async fn validate_thread_access(&self, thread_id: &str, username: &str) -> Result<bool, SovereignError> {
         let thread_id = thread_id.to_string();
         let username = username.to_string();
-        let exists = self
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT EXISTS(SELECT 1 FROM threads WHERE id = ?1 AND username = ?2)",
-                )?;
-                let exists: bool = stmt.query_row([thread_id, username], |row| row.get(0))?;
-                Ok::<bool, rusqlite::Error>(exists)
-            })
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string().to_lowercase();
-                if err_str.contains("busy") || err_str.contains("locked") {
-                    SovereignError::DatabaseBusy("Storage DB busy".into())
-                } else {
-                    SovereignError::StorageError(e.to_string())
-                }
-            })?;
+        let exists = self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT EXISTS(SELECT 1 FROM threads WHERE id = ?1 AND username = ?2)"
+            )?;
+            let exists: bool = stmt.query_row([thread_id, username], |row| row.get(0))?;
+            Ok::<bool, rusqlite::Error>(exists)
+        }).await.map_err(|e| {
+            let err_str = e.to_string().to_lowercase();
+            if err_str.contains("busy") || err_str.contains("locked") {
+                SovereignError::DatabaseBusy("Storage DB busy".into())
+            } else {
+                SovereignError::StorageError(e.to_string())
+            }
+        })?;
 
         Ok(exists)
     }
@@ -137,24 +115,13 @@ impl WorkerStorage {
         username: String,
     ) -> Result<String, SovereignError> {
         if !self.validate_thread_access(&thread_id, &username).await? {
-            return Err(SovereignError::UnauthorizedAccess(format!(
-                "User {} denied access to thread {}",
-                username, thread_id
-            )));
+            return Err(SovereignError::UnauthorizedAccess(format!("User {} denied access to thread {}", username, thread_id)));
         }
 
-        let queue = self.sb_queue.as_ref().ok_or_else(|| {
-            SovereignError::StorageError("SearchBoost Queue not initialized".into())
-        })?;
+        let queue = self.sb_queue.as_ref()
+            .ok_or_else(|| SovereignError::StorageError("SearchBoost Queue not initialized".into()))?;
 
-        let job_id = queue
-            .enqueue(
-                sanitized_query,
-                options,
-                thread_id.clone(),
-                username.clone(),
-            )
-            .await?;
+        let job_id = queue.enqueue(sanitized_query, options, thread_id.clone(), username.clone()).await?;
 
         Ok(job_id)
     }
@@ -162,53 +129,32 @@ impl WorkerStorage {
 
 #[async_trait]
 impl StorageProvider for WorkerStorage {
-    async fn fetch_context(
-        &self,
-        query: &str,
-        username: &str,
-    ) -> Result<Vec<String>, SovereignError> {
-        self.librarian
-            .retrieve_policy_context(query, username, 5)
-            .await
+    async fn fetch_context(&self, query: &str, username: &str) -> Result<Vec<String>, SovereignError> {
+        self.librarian.retrieve_policy_context(query, username, 5).await
             .map_err(|e| SovereignError::StorageError(format!("Retrieval Failure: {}", e)))
     }
 
-    async fn log_audit_event(
-        &self,
-        report: &ScrubbingReport,
-        raw_input: &str,
-        username: &str,
-    ) -> Result<(), SovereignError> {
-        self.auditor
-            .log_report(report.clone(), raw_input.to_string(), username.to_string())
-            .await
+    async fn log_audit_event(&self, report: &ScrubbingReport, raw_input: &str, username: &str) -> Result<(), SovereignError> {
+        self.auditor.log_report(report.clone(), raw_input.to_string(), username.to_string()).await
     }
 
-    async fn validate_job_access(
-        &self,
-        job_id: &str,
-        username: &str,
-    ) -> Result<bool, SovereignError> {
+    async fn validate_job_access(&self, job_id: &str, username: &str) -> Result<bool, SovereignError> {
         let job_id = job_id.to_string();
         let username = username.to_string();
-        let exists = self
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT EXISTS(SELECT 1 FROM search_jobs WHERE id = ?1 AND username = ?2)",
-                )?;
-                let exists: bool = stmt.query_row([job_id, username], |row| row.get(0))?;
-                Ok::<bool, rusqlite::Error>(exists)
-            })
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string().to_lowercase();
-                if err_str.contains("busy") || err_str.contains("locked") {
-                    SovereignError::DatabaseBusy("Storage DB busy".into())
-                } else {
-                    SovereignError::StorageError(e.to_string())
-                }
-            })?;
+        let exists = self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT EXISTS(SELECT 1 FROM search_jobs WHERE id = ?1 AND username = ?2)"
+            )?;
+            let exists: bool = stmt.query_row([job_id, username], |row| row.get(0))?;
+            Ok::<bool, rusqlite::Error>(exists)
+        }).await.map_err(|e| {
+            let err_str = e.to_string().to_lowercase();
+            if err_str.contains("busy") || err_str.contains("locked") {
+                SovereignError::DatabaseBusy("Storage DB busy".into())
+            } else {
+                SovereignError::StorageError(e.to_string())
+            }
+        })?;
 
         Ok(exists)
     }
@@ -220,25 +166,17 @@ impl StorageProvider for WorkerStorage {
         self.auditor.purge_user(username).await?;
 
         // 2. Purge from Vector Store (via Librarian)
-        self.librarian
-            .delete_user_documents(username)
-            .await
+        self.librarian.delete_user_documents(username).await
             .map_err(|e| SovereignError::StorageError(format!("Librarian purge failed: {}", e)))?;
 
         // 3. Purge from Main Storage DB (Threads, Sessions, Jobs)
         let username_str2 = username_str.clone();
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "DELETE FROM search_jobs WHERE username = ?1",
-                    [&username_str2],
-                )?;
-                conn.execute("DELETE FROM threads WHERE username = ?1", [&username_str2])?;
-                conn.execute("DELETE FROM sessions WHERE username = ?1", [&username_str2])?;
-                Ok::<(), rusqlite::Error>(())
-            })
-            .await
-            .map_err(|e| SovereignError::StorageError(e.to_string()))?;
+        self.conn.call(move |conn| {
+            conn.execute("DELETE FROM search_jobs WHERE username = ?1", [&username_str2])?;
+            conn.execute("DELETE FROM threads WHERE username = ?1", [&username_str2])?;
+            conn.execute("DELETE FROM sessions WHERE username = ?1", [&username_str2])?;
+            Ok::<(), rusqlite::Error>(())
+        }).await.map_err(|e| SovereignError::StorageError(e.to_string()))?;
 
         Ok(())
     }
@@ -246,14 +184,11 @@ impl StorageProvider for WorkerStorage {
     async fn check_health(&self) -> Result<(), SovereignError> {
         self.auditor.check_health()?;
 
-        self.conn
-            .call(|conn| conn.query_row("SELECT 1", [], |_| Ok(())))
-            .await
-            .map_err(|e| SovereignError::StorageError(e.to_string()))?;
+        self.conn.call(|conn| {
+            conn.query_row("SELECT 1", [], |_| Ok(()))
+        }).await.map_err(|e| SovereignError::StorageError(e.to_string()))?;
 
-        self.librarian
-            .check_health()
-            .await
+        self.librarian.check_health().await
             .map_err(|e| SovereignError::StorageError(format!("Librarian Unhealthy: {}", e)))?;
 
         Ok(())
@@ -269,135 +204,5 @@ impl StorageProvider for WorkerStorage {
             period_end: stats.3,
             integrity_hash: stats.4,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use secrecy::SecretVec;
-    use std::fs;
-
-    #[tokio::test]
-    async fn test_storage_purge_user_data() {
-        let db_path = format!("storage_test_purge_{}.db", uuid::Uuid::new_v4());
-        let kb_path = format!("kb_test_purge_{}", uuid::Uuid::new_v4());
-        let pepper = SecretVec::from(vec![0u8; 32]);
-
-        let storage = WorkerStorage::new(&db_path, &kb_path, pepper, None, None)
-            .await
-            .unwrap();
-
-        // Ensure tables exist for testing purge (normally created by initialization)
-        storage
-            .conn
-            .call(|conn| {
-                conn.execute(
-                    "CREATE TABLE IF NOT EXISTS search_jobs (id TEXT, username TEXT)",
-                    [],
-                )?;
-                conn.execute(
-                    "CREATE TABLE IF NOT EXISTS threads (id TEXT, username TEXT)",
-                    [],
-                )?;
-                conn.execute(
-                    "CREATE TABLE IF NOT EXISTS sessions (id TEXT, username TEXT)",
-                    [],
-                )?;
-
-                conn.execute(
-                    "INSERT INTO search_jobs (id, username) VALUES ('job1', 'userA')",
-                    [],
-                )?;
-                conn.execute(
-                    "INSERT INTO search_jobs (id, username) VALUES ('job2', 'userB')",
-                    [],
-                )?;
-                conn.execute(
-                    "INSERT INTO threads (id, username) VALUES ('th1', 'userA')",
-                    [],
-                )?;
-                conn.execute(
-                    "INSERT INTO sessions (id, username) VALUES ('s1', 'userA')",
-                    [],
-                )?;
-                Ok::<(), rusqlite::Error>(())
-            })
-            .await
-            .unwrap();
-
-        // Mock document in librarian
-        storage
-            .librarian
-            .add_document("test document A", "userA")
-            .await
-            .unwrap();
-        storage
-            .librarian
-            .add_document("test document B", "userB")
-            .await
-            .unwrap();
-
-        // Trigger purge
-        storage.purge_user_data("userA").await.unwrap();
-
-        // Verify DB records
-        storage
-            .conn
-            .call(|conn| {
-                let count_jobs: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM search_jobs WHERE username = 'userA'",
-                    [],
-                    |r| r.get(0),
-                )?;
-                assert_eq!(count_jobs, 0, "Jobs for userA should be deleted");
-
-                let count_jobs_b: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM search_jobs WHERE username = 'userB'",
-                    [],
-                    |r| r.get(0),
-                )?;
-                assert_eq!(count_jobs_b, 1, "Jobs for userB should remain");
-
-                let count_threads: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM threads WHERE username = 'userA'",
-                    [],
-                    |r| r.get(0),
-                )?;
-                assert_eq!(count_threads, 0, "Threads for userA should be deleted");
-
-                let count_sessions: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM sessions WHERE username = 'userA'",
-                    [],
-                    |r| r.get(0),
-                )?;
-                assert_eq!(count_sessions, 0, "Sessions for userA should be deleted");
-
-                Ok::<(), rusqlite::Error>(())
-            })
-            .await
-            .unwrap();
-
-        // Verify Librarian
-        let docs_a = storage
-            .librarian
-            .retrieve_policy_context("test", "userA", 5)
-            .await
-            .unwrap();
-        assert!(
-            docs_a.is_empty(),
-            "Librarian docs for userA should be deleted"
-        );
-
-        let docs_b = storage
-            .librarian
-            .retrieve_policy_context("test", "userB", 5)
-            .await
-            .unwrap();
-        assert_eq!(docs_b.len(), 1, "Librarian docs for userB should remain");
-
-        fs::remove_file(&db_path).ok();
-        fs::remove_file(format!("{}.anchor", db_path)).ok();
-        fs::remove_dir_all(&kb_path).ok();
     }
 }

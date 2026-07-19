@@ -1,9 +1,9 @@
 // This file tests global identity fusion, verifying that complex names containing connectors (such as Spanish names like "Juan Pablo Garcia de la Cruz") are correctly fused into a single token during prompt sanitization.
-use iw_core::PiiShield;
 use iw_warden::WardenConfig;
+use iw_core::PiiShield;
 
 #[tokio::test]
-async fn test_global_identity_fusion() {
+    async fn test_global_identity_fusion() {
     let yaml = r#"
 ai_enabled: true
 ai_confidence_threshold: 0.85

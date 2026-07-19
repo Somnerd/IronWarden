@@ -1,9 +1,9 @@
 // Concurrency and stress tests for the worker storage audit logging backend verifying that multiple parallel audit events are written successfully via MPSC channels without record loss.
-use iw_core::{ScrubbingReport, StorageProvider, TokenMap};
 use std::sync::Arc;
-use tempfile::tempdir;
-use tokio::time::{sleep, Duration};
 use worker::WorkerStorage;
+use iw_core::{ScrubbingReport, TokenMap, StorageProvider};
+use tokio::time::{sleep, Duration};
+use tempfile::tempdir;
 
 #[tokio::test]
 async fn test_auditor_concurrency_stress() {
@@ -11,17 +11,7 @@ async fn test_auditor_concurrency_stress() {
     let db_path = dir.path().join("stress.db").to_str().unwrap().to_string();
     let lancedb_path = dir.path().join("lancedb").to_str().unwrap().to_string();
     let pepper = vec![0u8; 32];
-    let storage = Arc::new(
-        WorkerStorage::new(
-            &db_path,
-            &lancedb_path,
-            secrecy::SecretVec::new(pepper),
-            None,
-            None,
-        )
-        .await
-        .unwrap(),
-    );
+    let storage = Arc::new(WorkerStorage::new(&db_path, &lancedb_path, secrecy::SecretVec::new(pepper), None, None).await.unwrap());
 
     let num_requests = 100; // Stressing the MPSC channel
     let mut handles = vec![];
@@ -39,10 +29,7 @@ async fn test_auditor_concurrency_stress() {
                 potential_misses: vec![],
                 execution_time_ms: 1,
             };
-            storage_clone
-                .log_audit_event(&report, "Raw sensitive info", "user_1")
-                .await
-                .unwrap();
+            storage_clone.log_audit_event(&report, "Raw sensitive info", "user_1").await.unwrap();
         });
         handles.push(handle);
     }
@@ -56,13 +43,8 @@ async fn test_auditor_concurrency_stress() {
 
     // Verify all records exist in DB
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM audit_reports", [], |r| r.get(0))
-        .unwrap();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM audit_reports", [], |r| r.get(0)).unwrap();
 
-    println!(
-        "✅ Stress Test Complete. Logged {}/{} events.",
-        count, num_requests
-    );
+    println!("✅ Stress Test Complete. Logged {}/{} events.", count, num_requests);
     assert_eq!(count, num_requests as i64);
 }

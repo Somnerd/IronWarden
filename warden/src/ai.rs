@@ -1,14 +1,18 @@
+use tracing::{info, error, warn};
 use ort::session::Session;
 use ort::value::Tensor;
-use std::path::Path;
-use std::sync::Mutex;
 use tokenizers::Tokenizer;
-use tracing::{error, info, warn};
+use std::path::Path;
+use std::cell::UnsafeCell;
 
 /// NER label set for DistilBERT-NER (CoNLL-2003 standard).
 /// Index 0 = O (outside), then B-/I- pairs for PER, ORG, LOC, MISC.
 const NER_LABELS: &[&str] = &[
-    "O", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC", "B-MISC", "I-MISC",
+    "O",
+    "B-PER", "I-PER",
+    "B-ORG", "I-ORG",
+    "B-LOC", "I-LOC",
+    "B-MISC", "I-MISC",
 ];
 
 pub struct Entity {
@@ -23,10 +27,17 @@ pub enum NerBackend {
 }
 
 pub struct OnnxNer {
-    session: Mutex<Session>,
+    // UnsafeCell because ort::Session::run() requires &mut self.
+    // Safety: HybridNerPool guarantees exclusive access via its bounded channel —
+    // only one thread holds a given OnnxNer at a time.
+    session: UnsafeCell<Session>,
     tokenizer: Tokenizer,
     threshold: f64,
 }
+
+// SAFETY: OnnxNer is only accessed by one thread at a time via HybridNerPool.
+unsafe impl Send for OnnxNer {}
+unsafe impl Sync for OnnxNer {}
 
 impl OnnxNer {
     pub fn new(model_path: &Path, tokenizer_path: &Path, threshold: f64) -> Result<Self, String> {
@@ -43,7 +54,7 @@ impl OnnxNer {
             .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
 
         Ok(Self {
-            session: Mutex::new(session),
+            session: UnsafeCell::new(session),
             tokenizer,
             threshold,
         })
@@ -86,7 +97,9 @@ impl OnnxNer {
         };
 
         // Run ONNX inference via named inputs.
-        let mut session = self.session.lock().unwrap();
+        // SAFETY: We use UnsafeCell because Session::run() requires &mut self.
+        // HybridNerPool's bounded channel guarantees exclusive ownership.
+        let session = unsafe { &mut *self.session.get() };
         let outputs = match session.run(ort::inputs! {
             "input_ids" => input_ids_tensor,
             "attention_mask" => attention_mask_tensor
@@ -94,10 +107,7 @@ impl OnnxNer {
             Ok(o) => o,
             Err(e) => {
                 // --- SECURITY FIX (Finding 3): OOM returns an error instead of abort() ---
-                error!(
-                    "ONNX inference failed (possible OOM): {}. Failing closed.",
-                    e
-                );
+                error!("ONNX inference failed (possible OOM): {}. Failing closed.", e);
                 return Vec::new();
             }
         };
@@ -198,7 +208,6 @@ impl OnnxNer {
 
 pub struct HybridNer {
     backend: NerBackend,
-    #[allow(dead_code)]
     threshold: f64,
 }
 
@@ -218,10 +227,7 @@ impl HybridNer {
                     });
                 }
                 Err(e) => {
-                    error!(
-                        "ONNX Initialization Failed: {}. Falling back to Heuristic-Only mode.",
-                        e
-                    );
+                    error!("ONNX Initialization Failed: {}. Falling back to Heuristic-Only mode.", e);
                 }
             }
         } else {
@@ -256,11 +262,9 @@ impl HybridNer {
         match &self.backend {
             NerBackend::Onnx(onnx) => {
                 let entities = onnx.predict(&miss.text);
-                entities.into_iter().max_by(|a, b| {
-                    a.score
-                        .partial_cmp(&b.score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
+                entities
+                    .into_iter()
+                    .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
             }
             NerBackend::None => None,
         }
@@ -293,10 +297,18 @@ impl HybridNerPool {
 
     pub fn get(&self) -> Option<HybridNer> {
         // --- SECURITY FIX (Section 4): Decoupled AI Circuit Breaker ---
+        // Uses tokio::time::timeout on the receiver side rather than blocking a worker thread.
         // Falls back to Aho-Corasick immediately on 25ms timeout.
-        self.receiver
-            .recv_timeout(std::time::Duration::from_millis(25))
-            .ok()
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.block_on(async {
+                match tokio::time::timeout(std::time::Duration::from_millis(25), self.receiver.recv_async()).await {
+                    Ok(Ok(ner)) => Some(ner),
+                    _ => None, // Timeout or Channel Closed -> Fallback to deterministic engine
+                }
+            })
+        } else {
+            self.receiver.recv_timeout(std::time::Duration::from_millis(25)).ok()
+        }
     }
 
     pub fn release(&self, instance: HybridNer) {

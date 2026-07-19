@@ -1,13 +1,11 @@
+use tracing::{info, warn, error};
 use crate::error::SovereignError;
-use tracing::{info, warn};
 
 pub struct FipsValidator;
 
 impl FipsValidator {
     pub fn is_fips_enabled() -> bool {
-        std::env::var("WARDEN_FIPS_MODE")
-            .map(|v| v == "true" || v == "1")
-            .unwrap_or(false)
+        std::env::var("WARDEN_FIPS_MODE").map(|v| v == "true" || v == "1").unwrap_or(false)
     }
 
     pub fn verify_readiness() -> Result<(), SovereignError> {

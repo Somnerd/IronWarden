@@ -1,3 +1,0 @@
-rules_dir: "../config/rules"
-active_rules:
-  - rules_shipping.yaml
