@@ -345,7 +345,8 @@ impl SearchBoostQueue {
                 result: encrypted_result.clone(),
             });
 
-            self.results.insert(id.clone(), (username.clone(), encrypted_result));
+            self.results
+                .insert(id.clone(), (username.clone(), encrypted_result));
 
             info!(job_id = %id, "SearchBoost job completed and encrypted.");
         }
@@ -447,23 +448,24 @@ impl SearchBoostQueue {
         // --- HA FIX (WP 90): Check Redis first for result ---
         if redis_data.is_none() {
             if let Some(ref client) = self.redis_client {
-            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
-                let redis_key = format!("iw:sb:job:{}", job_id);
-                if let Ok(data) = con.hgetall::<_, HashMap<String, Vec<u8>>>(&redis_key).await {
-                    if data
-                        .get("status")
-                        .map(|s| s == b"complete")
-                        .unwrap_or(false)
-                    {
-                        let username =
-                            String::from_utf8(data.get("username").cloned().unwrap_or_default())
-                                .unwrap_or_default();
-                        let result_data = data.get("result").cloned().unwrap_or_default();
-                        redis_data = Some((username, result_data));
+                if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+                    let redis_key = format!("iw:sb:job:{}", job_id);
+                    if let Ok(data) = con.hgetall::<_, HashMap<String, Vec<u8>>>(&redis_key).await {
+                        if data
+                            .get("status")
+                            .map(|s| s == b"complete")
+                            .unwrap_or(false)
+                        {
+                            let username = String::from_utf8(
+                                data.get("username").cloned().unwrap_or_default(),
+                            )
+                            .unwrap_or_default();
+                            let result_data = data.get("result").cloned().unwrap_or_default();
+                            redis_data = Some((username, result_data));
+                        }
                     }
                 }
             }
-        }
         }
 
         let result_data = if let Some(d) = redis_data {

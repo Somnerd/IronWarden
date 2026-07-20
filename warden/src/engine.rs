@@ -419,7 +419,8 @@ impl PiiShield for WardenEngine {
                                 break;
                             }
                         } else {
-                            search_start = mat.start() + normalized[mat.start()..].chars().next().unwrap().len_utf8();
+                            search_start = mat.start()
+                                + normalized[mat.start()..].chars().next().unwrap().len_utf8();
                         }
                     } else {
                         break;

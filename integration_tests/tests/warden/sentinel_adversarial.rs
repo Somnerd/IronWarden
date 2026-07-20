@@ -146,13 +146,16 @@ rules:
     let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
     let pepper = SecretVec::new(vec![0u8; 32]);
     let engine = config.compile_engine(&pepper).unwrap();
-    
+
     // In ABABA:
     // Regex 1 (ABA) matches at 0..3 (ABA)
     // Regex 2 (BAB) matches at 1..4 (BAB)
     // Overlapping regex logic should ensure BOTH are found and the most severe action (Block) wins.
     let prompt = "This is ABABA test.";
     let report = engine.sanitize_prompt(prompt, None).unwrap();
-    
-    assert!(report.is_blocked, "V-12 Failure: Redact rule masked the Block rule due to overlap failure!");
+
+    assert!(
+        report.is_blocked,
+        "V-12 Failure: Redact rule masked the Block rule due to overlap failure!"
+    );
 }

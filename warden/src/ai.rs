@@ -322,7 +322,7 @@ mod tests {
         // Note: In an environment without ONNX models, this will fall back to NerBackend::None,
         // which still tests the concurrency logic of the pool itself (channel send/recv).
         let pool = Arc::new(HybridNerPool::new(0.85, 2).unwrap());
-        
+
         let mut handles = vec![];
         for i in 0..10 {
             let pool_clone = pool.clone();
@@ -348,9 +348,12 @@ mod tests {
                 success_count += 1;
             }
         }
-        
-        // Since we are running concurrently, some might timeout (25ms) if the CI is slow, 
+
+        // Since we are running concurrently, some might timeout (25ms) if the CI is slow,
         // but we expect at least SOME successes, and crucially: NO deadlocks or panics.
-        assert!(success_count > 0, "Expected at least one successful pool acquisition");
+        assert!(
+            success_count > 0,
+            "Expected at least one successful pool acquisition"
+        );
     }
 }
