@@ -1,5 +1,5 @@
 // End-to-end security tests verifying session isolation AAD checks, RAG blindness in output scrubbing (V-14), anchor tampering detection (V-13), engine rule matching, and ephemeral log tampering detection (V-55).
-use iw_core::{PiiShield, SovereignError, StorageProvider};
+use iw_core::{PiiShield, SovereignError};
 use secrecy::SecretVec;
 use std::fs;
 use std::sync::Arc;

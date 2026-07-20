@@ -152,7 +152,7 @@ rules:
     // Regex 2 (BAB) matches at 1..4 (BAB)
     // Overlapping regex logic should ensure BOTH are found and the most severe action (Block) wins.
     let prompt = "This is ABABA test.";
-    let report = engine.sanitize_prompt(prompt, None).unwrap();
+    let report = engine.sanitize_prompt(prompt, None).await.unwrap();
 
     assert!(
         report.is_blocked,
