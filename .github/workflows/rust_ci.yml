@@ -11,8 +11,8 @@ env:
   WARDEN_MCP_SECRET: "dummy_mcp_secret_value_for_testing_purposes"
 
 jobs:
-  code_quality:
-    name: Code Quality (Fmt & Clippy)
+  lint:
+    name: Lint & Format
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -42,8 +42,8 @@ jobs:
       - name: Run Clippy Lints
         run: cargo clippy --workspace --all-targets
 
-  test_security:
-    name: Security & Crypto (Code Red)
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -56,46 +56,13 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run Crypto & Security Unit Tests
-        run: cargo test --package iw_core
+      - name: Run Unit Tests
+        run: cargo test --workspace --lib --bins
 
-  test_warden:
-    name: Warden Shield (ML)
+  integration-tests:
+    name: Integration Tests
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      - name: Set up Rust Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          rustflags: ""
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run Warden Shield Tests
-        run: cargo test --package iw-warden
-
-  test_worker:
-    name: Worker Core (Storage/Queue)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      - name: Set up Rust Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          rustflags: ""
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run Worker Core Tests
-        run: cargo test --package worker
-
-  integration:
-    name: Integration (Full Flow)
-    runs-on: ubuntu-latest
+    needs: lint
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -120,9 +87,24 @@ jobs:
           mkdir -p integration_tests
           cp warden/test_manifest_*.yaml integration_tests/ || true
           cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml || true
-      - name: Run Bin/App Tests
-        run: cargo test --package app || true
-      - name: Verify Benchmarks Compile
-        run: cargo test --benches --no-run
+      - name: Run Rust Integration Tests
+        run: cargo test -p iw-integration-tests || true
       - name: Run Python Integration Test Suite
         run: pytest test_suites/
+
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Benchmarks
+        run: cargo bench --workspace

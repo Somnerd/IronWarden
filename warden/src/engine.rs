@@ -503,7 +503,10 @@ impl PiiShield for WardenEngine {
                 let should_force_promote = shadow.category == PiiCategory::IndividualName;
 
                 if let Some(pool) = &self.ai {
-                    if let Some(ai_instance) = pool.get().await {
+                    let ai_instance_opt = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(pool.get())
+                    });
+                    if let Some(ai_instance) = ai_instance_opt {
                         if let Some(ai_entity) =
                             ai_instance.validate_miss(&miss, normalized, session)
                         {

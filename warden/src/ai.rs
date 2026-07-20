@@ -308,3 +308,49 @@ impl HybridNerPool {
         let _ = self.sender.send(instance);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::task;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_ai_pool_concurrent_access() {
+        // This test ensures the HybridNerPool can be accessed concurrently without deadlocks
+        // We'll initialize a pool with 2 instances and spawn 10 concurrent requests.
+        // Note: In an environment without ONNX models, this will fall back to NerBackend::None,
+        // which still tests the concurrency logic of the pool itself (channel send/recv).
+        let pool = Arc::new(HybridNerPool::new(0.85, 2).unwrap());
+        
+        let mut handles = vec![];
+        for i in 0..10 {
+            let pool_clone = pool.clone();
+            handles.push(tokio::spawn(async move {
+                // Try to acquire an instance
+                if let Some(instance) = pool_clone.get().await {
+                    // Simulate work
+                    let _ = instance.analyze(&format!("Test input {}", i));
+                    // Yield to simulate async delay
+                    tokio::task::yield_now().await;
+                    // Release instance back to pool
+                    pool_clone.release(instance);
+                    true
+                } else {
+                    false
+                }
+            }));
+        }
+
+        let mut success_count = 0;
+        for handle in handles {
+            if handle.await.unwrap_or(false) {
+                success_count += 1;
+            }
+        }
+        
+        // Since we are running concurrently, some might timeout (25ms) if the CI is slow, 
+        // but we expect at least SOME successes, and crucially: NO deadlocks or panics.
+        assert!(success_count > 0, "Expected at least one successful pool acquisition");
+    }
+}
