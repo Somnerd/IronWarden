@@ -1,6 +1,6 @@
 [package]
 name = "iw_core"
-version = "0.1.30-alpha"
+version = "0.1.31-alpha"
 edition = "2021"
 
 [dependencies]
@@ -11,7 +11,7 @@ dashmap = "6.0"
 secrecy = "0.8.0"
 moka = { version = "0.12", features = ["sync"] }
 tracing = "0.1"
-aes-gcm = "0.10"
+aes-gcm = "0.10.3"
 hkdf = "0.12"
 sha2 = "0.10"
 rand = "0.8"

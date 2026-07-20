@@ -36,12 +36,8 @@ impl StdioMcpServer {
             .unwrap_or_else(|_| "anonymous".to_string());
 
         // Enforce the secret presence at boot time
-        let mcp_secret = if std::env::var("WARDEN_ENV").unwrap_or_default() == "test" {
-            std::env::var("WARDEN_MCP_SECRET").unwrap_or_else(|_| "test-secret".to_string())
-        } else {
-            std::env::var("WARDEN_MCP_SECRET")
-                .expect("FATAL: WARDEN_MCP_SECRET environment variable is missing")
-        };
+        let mcp_secret = std::env::var("WARDEN_MCP_SECRET")
+            .expect("FATAL: WARDEN_MCP_SECRET environment variable is missing");
 
         info!(host_user = %host_user, "StdioMcpServer initialized with trusted host identity.");
 
@@ -164,7 +160,7 @@ async fn handle_request_internal(
             capabilities: serde_json::Value::Object(serde_json::Map::new()),
             server_info: ServerInfo {
                 name: "IronWarden",
-                version: "0.1.30-alpha",
+                version: "0.1.31-alpha",
             },
         };
         let resp = JsonRpcResponse::success(id, result);
@@ -197,11 +193,7 @@ async fn handle_request_internal(
         .ok_or_else(|| SovereignError::InternalError("Method requires parameters".into()))?;
 
     // --- SECURITY FIX (Section 1.1): Connection-scoped anonymity & MAC Validation ---
-    // The tests fail because the MAC validation block runs.
-    // Instead of forcing all tests to implement MAC logic or inject test env variables,
-    // let's temporarily skip MAC validation if the environment is set to test.
-    let is_test_env =
-        std::env::var("WARDEN_ENV").unwrap_or_default() == "test" || mcp_secret == "test_secret";
+    let is_test_env = false;
 
     let username = if let Some(u) = params.get("username").and_then(|u| u.as_str()) {
         u.to_string()
@@ -366,9 +358,7 @@ async fn handle_request_internal(
     // METHOD: Kill-Switch (WP #94)
     if req.method == "mcp_halt_system" {
         // Only the trusted host identity can trigger a full system halt
-        if username != host_user
-            && std::env::var("WARDEN_ENV").unwrap_or_else(|_| "".to_string()) != "test"
-        {
+        if username != host_user {
             return Err(SovereignError::UnauthorizedAccess(
                 "Only the primary host administrator can trigger a system halt.".into(),
             ));
@@ -532,6 +522,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use iw_core::{ComplianceReport, ScrubbingReport, TokenMap};
+    use serde_json::json;
     use serde_json::json;
     use std::time::Duration;
 
