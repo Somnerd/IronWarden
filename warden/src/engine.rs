@@ -198,14 +198,31 @@ struct UnifiedMatch {
 }
 
 fn is_standalone_word(text: &str, sub: &str) -> bool {
-    if let Some(idx) = text.find(sub) {
-        let before_ok = !text[..idx].ends_with(|c: char| c.is_alphanumeric());
-        let after_idx = idx + sub.len();
-        let after_ok = !text[after_idx..].starts_with(|c: char| c.is_alphanumeric());
-        before_ok && after_ok
-    } else {
-        false
+    if sub.is_empty() {
+        return false;
     }
+    let mut search_idx = 0;
+    while let Some(idx) = text[search_idx..].find(sub) {
+        let actual_idx = search_idx + idx;
+
+        let before_ok =
+            actual_idx == 0 || !text[..actual_idx].ends_with(|c: char| c.is_alphanumeric());
+        let after_idx = actual_idx + sub.len();
+        let after_ok = after_idx == text.len()
+            || !text[after_idx..].starts_with(|c: char| c.is_alphanumeric());
+
+        if before_ok && after_ok {
+            return true;
+        }
+
+        let next_char_len = text[actual_idx..]
+            .chars()
+            .next()
+            .map(|c| c.len_utf8())
+            .unwrap_or(1);
+        search_idx = actual_idx + next_char_len;
+    }
+    false
 }
 
 #[async_trait]
@@ -313,6 +330,15 @@ impl PiiShield for WardenEngine {
                 .dictionary_automaton
                 .find_overlapping_iter(&norm_res.stripped)
             {
+                // Word boundary enforcement for flexible separators
+                let before_ok = mat.start() == 0
+                    || !norm_res.stripped[..mat.start()].ends_with(|c: char| c.is_alphanumeric());
+                let after_ok = mat.end() == norm_res.stripped.len()
+                    || !norm_res.stripped[mat.end()..].starts_with(|c: char| c.is_alphanumeric());
+                if !before_ok || !after_ok {
+                    continue;
+                }
+
                 let idx = mat.pattern().as_usize();
                 if let (Some(id), Some(action), Some(category)) = (
                     self.rule_ids.get(idx),
@@ -477,7 +503,7 @@ impl PiiShield for WardenEngine {
                 let should_force_promote = shadow.category == PiiCategory::IndividualName;
 
                 if let Some(pool) = &self.ai {
-                    if let Some(ai_instance) = pool.get() {
+                    if let Some(ai_instance) = pool.get().await {
                         if let Some(ai_entity) =
                             ai_instance.validate_miss(&miss, normalized, session)
                         {
