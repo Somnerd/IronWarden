@@ -14,7 +14,10 @@ fn bench_enqueue(c: &mut Criterion) {
 
     let pepper = SecretVec::new(vec![0u8; 32]);
 
-    let queue = SearchBoostQueue::new(db_path, &pepper, None, None).unwrap();
+    let queue = {
+        let _guard = rt.enter();
+        SearchBoostQueue::new(db_path, &pepper, None, None).unwrap()
+    };
 
     let mut group = c.benchmark_group("searchboost_queue");
 

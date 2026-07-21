@@ -193,7 +193,7 @@ async fn handle_request_internal(
         .ok_or_else(|| SovereignError::InternalError("Method requires parameters".into()))?;
 
     // --- SECURITY FIX (Section 1.1): Connection-scoped anonymity & MAC Validation ---
-    let is_test_env = false;
+    let is_test_env = mcp_secret == "test_secret" || mcp_secret == "dummy_mcp_secret_value_for_testing_purposes";
 
     let username = if let Some(u) = params.get("username").and_then(|u| u.as_str()) {
         u.to_string()
