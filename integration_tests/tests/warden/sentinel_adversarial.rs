@@ -128,8 +128,8 @@ heuristics:
     );
 }
 
-#[test]
-fn test_v12_overlap_masking_prevention() {
+#[tokio::test]
+async fn test_v12_overlap_masking_prevention() {
     let yaml = r#"
 rules:
   - id: "redact_ab"
