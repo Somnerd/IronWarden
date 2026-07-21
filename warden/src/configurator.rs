@@ -176,7 +176,6 @@ impl GlobalConfig {
 
         // Strict mode validations
         if !config.allow_fallback {
-
             // Check manifest path existence
             let manifest_path = Path::new(&config.warden_manifest_path);
             if !manifest_path.exists() {
