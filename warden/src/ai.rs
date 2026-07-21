@@ -86,7 +86,7 @@ impl OnnxNer {
         };
 
         // Run ONNX inference via named inputs.
-        let mut session = self.session.lock().unwrap();
+        let mut session = self.session.lock().unwrap_or_else(|e| e.into_inner());
         let outputs = match session.run(ort::inputs! {
             "input_ids" => input_ids_tensor,
             "attention_mask" => attention_mask_tensor

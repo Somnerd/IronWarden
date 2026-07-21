@@ -71,25 +71,32 @@ async fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
                 SovereignError::InternalError("Failed to serialize Guardrail payload".into())
             })?;
 
-            if tokio::time::timeout(
+            tokio::time::timeout(
                 std::time::Duration::from_millis(100),
                 stream.write_all(payload.as_bytes()),
             )
             .await
-            .is_ok()
-            {
-                let mut buf = [0u8; 1024];
-                if let Ok(Ok(n)) = tokio::time::timeout(
-                    std::time::Duration::from_millis(100),
-                    stream.read(&mut buf),
-                )
-                .await
-                {
-                    let response = String::from_utf8_lossy(&buf[..n]);
-                    if response.contains("BLOCKED") {
-                        return Ok(true);
-                    }
-                }
+            .map_err(|_| {
+                SovereignError::InternalError("ML Guardrail Sidecar write timed out".into())
+            })?
+            .map_err(|_| {
+                SovereignError::InternalError("ML Guardrail Sidecar write failed".into())
+            })?;
+
+            let mut buf = [0u8; 1024];
+            let n =
+                tokio::time::timeout(std::time::Duration::from_millis(100), stream.read(&mut buf))
+                    .await
+                    .map_err(|_| {
+                        SovereignError::InternalError("ML Guardrail Sidecar read timed out".into())
+                    })?
+                    .map_err(|_| {
+                        SovereignError::InternalError("ML Guardrail Sidecar read failed".into())
+                    })?;
+
+            let response = String::from_utf8_lossy(&buf[..n]);
+            if response.contains("BLOCKED") {
+                return Ok(true);
             }
             Ok(false)
         }

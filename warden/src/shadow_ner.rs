@@ -9,7 +9,7 @@ static GLOBAL_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static GREEK_SUFFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(ης|ου|ος|α|ου)\b").unwrap()
+    Regex::new(r"\b[A-Z\u0386\u0388-\u038A\u038C\u038E\u038F\u0391-\u03A9][\u03B1-\u03C9\u03AC-\u03CE]+(ης|ου|ος|α)\b").unwrap()
 });
 
 pub struct ShadowNer {
