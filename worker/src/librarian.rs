@@ -19,17 +19,21 @@ pub struct LocalLibrarian {
 
 impl LocalLibrarian {
     pub async fn new(path: &str) -> Result<Self> {
-        // --- SECURITY FIX (V-28): Path Traversal Protection ---
-        if path.contains("..") {
-            return Err(anyhow::anyhow!(
-                "Librarian: Potential Path Traversal attempt: {}",
-                path
-            ));
-        }
-
         let base_path = Path::new(path);
         if !base_path.exists() {
             fs::create_dir_all(base_path).context("Failed to create knowledge base directory")?;
+        }
+
+        // --- SECURITY FIX (V-28): Path Traversal Protection ---
+        let canonical_path = fs::canonicalize(base_path)?;
+        if Path::new(path).is_relative() {
+            let current_dir = fs::canonicalize(std::env::current_dir()?)?;
+            if !canonical_path.starts_with(&current_dir) {
+                return Err(anyhow::anyhow!(
+                    "Librarian: Potential Path Traversal attempt: {}",
+                    path
+                ));
+            }
         }
 
         let uri = format!("data/lancedb/{}", path.replace('/', "_"));
