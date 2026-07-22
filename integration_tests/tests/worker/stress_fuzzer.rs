@@ -10,7 +10,7 @@ use worker::audit::AsyncAuditor;
 #[tokio::test]
 async fn test_time_travel_purge_and_hmac_integrity() {
     let db_path = "audit_stress_test.db";
-    let pepper = b"test-pepper-12345678901234567890".to_vec(); // 32 bytes
+    let pepper = b"this-is-a-valid-32-byte-test-pepper-string!".to_vec(); // >32 bytes
 
     let _ = std::fs::remove_file(db_path);
     let _ = std::fs::remove_file(format!("{}.anchor", db_path));
@@ -99,7 +99,7 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     assert!(build_status.success());
 
     let output = Command::new("cargo")
-        .env("WARDEN_PEPPER", "test-pepper-12345678901234567890")
+        .env("WARDEN_PEPPER", "this-is-a-valid-32-byte-test-pepper-string!")
         .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
         .output()
         .expect("Failed to run verify");
@@ -129,7 +129,7 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     }
 
     let output_tampered = Command::new("cargo")
-        .env("WARDEN_PEPPER", "test-pepper-12345678901234567890")
+        .env("WARDEN_PEPPER", "this-is-a-valid-32-byte-test-pepper-string!")
         .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
         .output()
         .expect("Failed to run verify");

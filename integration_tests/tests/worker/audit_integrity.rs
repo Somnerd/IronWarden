@@ -86,7 +86,7 @@ async fn test_audit_db_creation() {
 async fn test_hmac_chain_integrity() {
     let tmp_file = NamedTempFile::new().unwrap();
     let db_path = tmp_file.path().to_str().unwrap();
-    let pepper = b"a_very_secret_pepper_32_bytes_long".to_vec();
+    let pepper = b"this-is-a-valid-32-byte-test-pepper-string!".to_vec();
     let (_, hmac_key, genesis_hash) = derive_keys(&pepper);
 
     let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None)
@@ -142,7 +142,7 @@ async fn test_hmac_chain_integrity() {
 async fn test_encryption_roundtrip() {
     let tmp_file = NamedTempFile::new().unwrap();
     let db_path = tmp_file.path().to_str().unwrap();
-    let pepper = b"a_very_secret_pepper_32_bytes_long".to_vec();
+    let pepper = b"this-is-a-valid-32-byte-test-pepper-string!".to_vec();
     let (_, _, genesis_hash) = derive_keys(&pepper);
 
     let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None)
@@ -197,7 +197,7 @@ async fn test_encryption_roundtrip() {
 async fn test_database_busy_fail_closed() {
     let tmp_file = NamedTempFile::new().unwrap();
     let db_path = tmp_file.path().to_str().unwrap();
-    let pepper = b"a_very_secret_pepper_32_bytes_long".to_vec();
+    let pepper = b"this-is-a-valid-32-byte-test-pepper-string!".to_vec();
 
     let auditor = AsyncAuditor::spawn(db_path, SecretVec::new(pepper.clone()), None)
         .await
@@ -238,7 +238,7 @@ async fn test_database_busy_fail_closed() {
 async fn test_hmac_chain_breakage() {
     let tmp_file = NamedTempFile::new().unwrap();
     let db_path = tmp_file.path().to_str().unwrap();
-    let pepper = b"a_very_secret_pepper_32_bytes_long".to_vec();
+    let pepper = b"this-is-a-valid-32-byte-test-pepper-string!".to_vec();
 
     // Spawn first auditor and write a log
     {

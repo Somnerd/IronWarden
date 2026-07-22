@@ -93,7 +93,7 @@ class IronWardenRunner:
         base_env = {
             **os.environ,
             "WARDEN_MODE": "ephemeral",
-            "WARDEN_PEPPER": "a_very_secret_pepper_32_bytes_long",
+            "WARDEN_PEPPER": "this-is-a-valid-32-byte-test-pepper-string!",
             "OPENAI_API_KEY": "sk-mock-key",
             "JWT_SECRET": "another_very_secret_key_32_bytes_long",
             "JWT_PRIVATE_KEY": pem_private,
