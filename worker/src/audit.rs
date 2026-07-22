@@ -26,6 +26,7 @@ pub enum AuditMessage {
     ),
     Purge,
     Shutdown,
+    SiemAck(i64),
 }
 
 /// Trait for off-box audit log streaming.
@@ -141,6 +142,7 @@ impl AsyncAuditor {
 
         let healthy_thread = is_healthy.clone();
         let path_thread = path.clone();
+        let tx_for_thread = tx.clone();
         std::thread::spawn(move || {
             info!("Warden Audit Worker (Dedicated Writer Thread) ignited.");
 
@@ -233,25 +235,8 @@ impl AsyncAuditor {
 
                                     let current_hash = mac.finalize().into_bytes().to_vec();
 
-                                    // --- HA / IMMUTABILITY FIX (WP 92): Real-time Remote Forwarding ---
-                                    if let Some(ref forwarder) = remote_forwarder {
-                                        let forward_forwarder = forwarder.clone();
-                                        let forward_ciphertext = ciphertext.to_vec();
-                                        let forward_nonce = nonce_bytes.to_vec();
-                                        let forward_hash = current_hash.clone();
-                                        let forward_report = report.clone();
-                                        let forward_username = username.clone();
-
-                                        let _ = tokio::runtime::Handle::current().spawn(async move {
-                                            if let Err(e) = forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await {
-                                                error!("Remote Audit Forwarding Failed: {}. Audit remains local-only.", e);
-                                            } else {
-                                                info!("Audit record successfully streamed to remote endpoint.");
-                                            }
-                                        });
-                                    }
-
                                     let mut write_success = false;
+                                    let has_forwarder = remote_forwarder.is_some();
                                     let map_err = |e: rusqlite::Error| {
                                         if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy)
                                         {
@@ -267,7 +252,9 @@ impl AsyncAuditor {
                                     };
 
                                     let _ = c.execute("BEGIN IMMEDIATE TRANSACTION", []);
-                                    let res = c.execute("INSERT INTO ephemeral_raw_logs (username, encrypted_data, nonce) VALUES (?1, ?2, ?3)", (&username, &ciphertext.to_vec(), &nonce_bytes.to_vec()));
+                                    let siem_acked = !has_forwarder;
+                                    let res = c.execute("INSERT INTO ephemeral_raw_logs (username, encrypted_data, nonce, siem_acked) VALUES (?1, ?2, ?3, ?4)", (&username, &ciphertext.to_vec(), &nonce_bytes.to_vec(), &siem_acked));
+                                    let log_id = c.last_insert_rowid();
                                     if let Err(e) = res {
                                         let _ = c.execute("ROLLBACK", []);
                                         result = Err(map_err(e));
@@ -285,7 +272,7 @@ impl AsyncAuditor {
                                                 let _ = c.execute("ROLLBACK", []);
                                                 result = Err(map_err(e));
                                             } else {
-                                                last_hash = current_hash;
+                                                last_hash = current_hash.clone();
                                                 last_id += 1;
                                                 if let Err(e) = Self::update_anchor(
                                                     &path_thread,
@@ -303,6 +290,27 @@ impl AsyncAuditor {
                                                     write_success = true;
                                                 }
                                             }
+                                        }
+                                    }
+
+                                    if write_success {
+                                        if let Some(ref forwarder) = remote_forwarder {
+                                            let forward_forwarder = forwarder.clone();
+                                            let forward_ciphertext = ciphertext.to_vec();
+                                            let forward_nonce = nonce_bytes.to_vec();
+                                            let forward_hash = current_hash.clone();
+                                            let forward_report = report.clone();
+                                            let forward_username = username.clone();
+                                            let ack_tx = tx_for_thread.clone();
+                                            
+                                            let _ = tokio::runtime::Handle::current().spawn(async move {
+                                                if let Err(e) = forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await {
+                                                    error!("Remote Audit Forwarding Failed: {}. Audit remains local-only.", e);
+                                                } else {
+                                                    info!("Audit record successfully streamed to remote endpoint.");
+                                                    let _ = ack_tx.send(AuditMessage::SiemAck(log_id)).await;
+                                                }
+                                            });
                                         }
                                     }
 
@@ -356,7 +364,7 @@ impl AsyncAuditor {
                             let cutoff_logs_str =
                                 cutoff_logs.format("%Y-%m-%d %H:%M:%S").to_string();
                             let _ = c.execute(
-                                "DELETE FROM ephemeral_raw_logs WHERE timestamp < ?1",
+                                "DELETE FROM ephemeral_raw_logs WHERE timestamp < ?1 AND siem_acked = TRUE",
                                 [&cutoff_logs_str],
                             );
 
@@ -369,6 +377,15 @@ impl AsyncAuditor {
                             );
 
                             info!("Auditor: Cleanup task completed (Logs > 30d, Sessions > 24h).");
+                        }
+                    }
+                    AuditMessage::SiemAck(id) => {
+                        if let Some(ref c) = conn {
+                            let _ = c.execute(
+                                "UPDATE ephemeral_raw_logs SET siem_acked = TRUE WHERE id = ?1",
+                                [id],
+                            );
+                            info!("Auditor: SIEM ACK received for log {}.", id);
                         }
                     }
                     AuditMessage::Shutdown => {
@@ -499,7 +516,7 @@ impl AsyncAuditor {
         )?;
 
         conn.execute("CREATE TABLE IF NOT EXISTS audit_reports (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', is_blocked BOOLEAN, redactions_json TEXT, payload_hash TEXT, integrity_hash TEXT)", [])?;
-        conn.execute("CREATE TABLE IF NOT EXISTS ephemeral_raw_logs (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', encrypted_data BLOB, nonce BLOB)", [])?;
+        conn.execute("CREATE TABLE IF NOT EXISTS ephemeral_raw_logs (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', encrypted_data BLOB, nonce BLOB, siem_acked BOOLEAN DEFAULT FALSE)", [])?;
 
         // Ensure username column exists in case of upgrade from older versions
         let _ = conn.execute(
@@ -508,6 +525,10 @@ impl AsyncAuditor {
         );
         let _ = conn.execute(
             "ALTER TABLE ephemeral_raw_logs ADD COLUMN username TEXT DEFAULT 'unknown'",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE ephemeral_raw_logs ADD COLUMN siem_acked BOOLEAN DEFAULT FALSE",
             [],
         );
 
