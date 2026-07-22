@@ -156,7 +156,29 @@ impl WardenEngine {
         let mut regex_ids = Vec::new();
         let mut regex_actions = Vec::new();
         let mut regex_categories = Vec::new();
-        for (id, pat, action, category) in patterns_rules {
+
+        let mut all_patterns = patterns_rules;
+        // --- CORE GREEK PII PATTERNS NATIVELY EMBEDDED (P0) ---
+        all_patterns.push((
+            "NATIVE_GR_AMKA".to_string(),
+            r"\b(?:0[1-9]|[12]\d|3[01])(?:0[1-9]|1[0-2])\d{2}\d{5}\b".to_string(),
+            EnforcementAction::Redact,
+            PiiCategory::IdentificationNumber,
+        ));
+        all_patterns.push((
+            "NATIVE_GR_ID".to_string(),
+            r"\b[Α-ΩA-Z]{2}[- ]?\d{6}\b".to_string(),
+            EnforcementAction::Redact,
+            PiiCategory::IdentificationNumber,
+        ));
+        all_patterns.push((
+            "NATIVE_GR_PHONE".to_string(),
+            r"\b(?:(?:\+30|0030)[\s\-]?)?(?:2\d{9}|69\d{8})\b".to_string(),
+            EnforcementAction::Redact,
+            PiiCategory::ContactInfo,
+        ));
+
+        for (id, pat, action, category) in all_patterns {
             let re = Regex::new(&pat).map_err(|e| {
                 SovereignError::ConfigError(format!(
                     "Failed to compile regex pattern {}: {}",
@@ -1404,5 +1426,63 @@ mod tests {
 
         std::env::remove_var("WARDEN_ENV");
         std::env::remove_var("ALLOW_FALLBACK");
+    }
+
+    #[tokio::test]
+    async fn test_native_greek_pii_overlap() {
+        let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
+        let engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85, &pepper).unwrap();
+
+        // AMKA is 11 digits. If there's an overlapping rule (like a dictionary match or a smaller regex),
+        // we must ensure the AMKA match wins due to overlap integrity (leftmost-longest).
+        // Let's create an engine with a custom dictionary rule that overlaps with AMKA.
+        let dict_rules = vec![(
+            "FAKE_DICT".to_string(),
+            "020288".to_string(), // Part of AMKA
+            EnforcementAction::Redact,
+            PiiCategory::Other,
+        )];
+        let engine = WardenEngine::new(dict_rules, vec![], vec![], None, 0.85, &pepper).unwrap();
+
+        // 02028822334 is a valid AMKA format (02 02 88 22334)
+        let prompt = "My AMKA is 02028822334 and phone is 6941234567 and ID is ΑΒ 123456.";
+        let report = engine.sanitize_prompt(prompt, None).await.unwrap();
+
+        // We should have 3 redactions: AMKA, Phone, ID. The FAKE_DICT should be merged into AMKA.
+        assert_eq!(
+            report.redactions.len(),
+            3,
+            "Should have 3 distinct redactions"
+        );
+
+        let mut found_amka = false;
+        let mut found_phone = false;
+        let mut found_id = false;
+
+        for r in &report.redactions {
+            match r.rule_id.as_str() {
+                "NATIVE_GR_AMKA" => found_amka = true,
+                "NATIVE_GR_PHONE" => found_phone = true,
+                "NATIVE_GR_ID" => found_id = true,
+                _ => {}
+            }
+        }
+
+        assert!(found_amka, "AMKA must be redacted (and FAKE_DICT merged)");
+        assert!(found_phone, "Phone must be redacted");
+        assert!(found_id, "Greek ID must be redacted");
+
+        assert!(
+            !report.sanitized_text.contains("02028822334"),
+            "AMKA must not be in text"
+        );
+        assert!(
+            !report.sanitized_text.contains("6941234567"),
+            "Phone must not be in text"
+        );
+        assert!(
+            !report.sanitized_text.contains("ΑΒ 123456"),
+            "ID must not be in text"
+        );
     }
 }
