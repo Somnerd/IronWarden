@@ -414,7 +414,8 @@ impl AsyncAuditor {
                     let mut stat: libc::statvfs = std::mem::zeroed();
                     // We check the DB file itself to ensure we get the correct mount point
                     // in case the DB is mounted as a file volume rather than a directory.
-                    let path_cstr = std::ffi::CString::new(path_monitor.clone()).unwrap_or_default();
+                    let path_cstr =
+                        std::ffi::CString::new(path_monitor.clone()).unwrap_or_default();
                     if libc::statvfs(path_cstr.as_ptr(), &mut stat) == 0 {
                         let free_space = (stat.f_bavail as u64) * (stat.f_frsize as u64);
                         if free_space < 50_000_000 {
