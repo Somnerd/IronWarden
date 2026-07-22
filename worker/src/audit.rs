@@ -302,7 +302,7 @@ impl AsyncAuditor {
                                             let forward_report = report.clone();
                                             let forward_username = username.clone();
                                             let ack_tx = tx_for_thread.clone();
-                                            
+
                                             let _ = tokio::runtime::Handle::current().spawn(async move {
                                                 if let Err(e) = forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await {
                                                     error!("Remote Audit Forwarding Failed: {}. Audit remains local-only.", e);
