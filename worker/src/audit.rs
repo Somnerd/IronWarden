@@ -412,13 +412,9 @@ impl AsyncAuditor {
                 // --- DISK CAPACITY CHECK ---
                 unsafe {
                     let mut stat: libc::statvfs = std::mem::zeroed();
-                    // We check the parent directory of the DB path, or the current dir as fallback
-                    let db_parent = std::path::Path::new(&path_monitor)
-                        .parent()
-                        .unwrap_or(std::path::Path::new("."));
-                    let path_str = db_parent.to_string_lossy().into_owned();
-                    let path_to_use = if path_str.is_empty() { "." } else { &path_str };
-                    let path_cstr = std::ffi::CString::new(path_to_use).unwrap_or_default();
+                    // We check the DB file itself to ensure we get the correct mount point
+                    // in case the DB is mounted as a file volume rather than a directory.
+                    let path_cstr = std::ffi::CString::new(path_monitor.clone()).unwrap_or_default();
                     if libc::statvfs(path_cstr.as_ptr(), &mut stat) == 0 {
                         let free_space = (stat.f_bavail as u64) * (stat.f_frsize as u64);
                         if free_space < 50_000_000 {
