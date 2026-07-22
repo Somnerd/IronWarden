@@ -1,7 +1,7 @@
 rules:
   - id: "medical_record_number"
     type: "Regex"
-    pattern: '(?i)\b(?:MRN|MR)[- ]?\d{4,10}\b'
+    pattern: '(?i)\b(?:MRN|MR)[.\-\s]*\d{4,10}\b'
     category: "IdentificationNumber"
     action: Redact
 
@@ -19,7 +19,7 @@ rules:
 
   - id: "prescription_number"
     type: "Regex"
-    pattern: '(?i)\b(?:RX|Rx|Prescription)[- ]?\d{5,12}\b'
+    pattern: '(?i)\b(?:RX|Rx|Prescription)[.\-\s]*\d{5,12}\b'
     category: "IdentificationNumber"
     action: Redact
 

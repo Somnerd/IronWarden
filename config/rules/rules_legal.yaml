@@ -21,7 +21,7 @@ rules:
 
   - id: "attorney_bar_number"
     type: "Regex"
-    pattern: '(?i)\b(?:BAR|Bar Number:?)\s?\d{5,8}\b'
+    pattern: '(?i)\b(?:BAR|Bar Number:?)[.\-\s]*\d{5,8}\b'
     category: "IdentificationNumber"
     action: Redact
 
