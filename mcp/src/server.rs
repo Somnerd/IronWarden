@@ -349,12 +349,29 @@ async fn handle_request_internal(
             .map_err(|e| SovereignError::InternalError(e.to_string()));
     }
 
-    // METHOD: OCR Ingestion (WP #91) - TEMPORARILY DISABLED DUE TO BROKEN UPSTREAM
-    /*
+    // METHOD: OCR Ingestion (WP #91)
     if req.method == "mcp_ocr_ingest" {
-        // ...
+        let data_hex = params
+            .get("data")
+            .and_then(|d| d.as_str())
+            .ok_or_else(|| SovereignError::InternalError("mcp_ocr_ingest requires a hex-encoded 'data' parameter".into()))?;
+
+        let mime_type = params
+            .get("mime_type")
+            .and_then(|m| m.as_str())
+            .unwrap_or("image/png");
+
+        let decoded_data = hex::decode(data_hex)
+            .map_err(|e| SovereignError::InternalError(format!("Failed to decode hex data: {}", e)))?;
+
+        let provider = Box::new(worker::ocr::TesseractOcr);
+        let worker_instance = worker::ocr::OcrWorker::new(provider);
+        let text = worker_instance.process_file(&decoded_data, mime_type).await?;
+
+        let resp = JsonRpcResponse::success(id, serde_json::json!({ "extracted_text": text }));
+        return serde_json::to_string(&resp)
+            .map_err(|e| SovereignError::InternalError(e.to_string()));
     }
-    */
 
     // METHOD: Kill-Switch (WP #94)
     if req.method == "mcp_halt_system" {
