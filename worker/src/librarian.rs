@@ -78,10 +78,9 @@ impl LocalLibrarian {
         // --- SECURITY FIX (Section 1.1 / Finding A.4): User-Level Partitioning ---
         // In a real production system with LanceDB, we would use:
         // .search(query).filter(format!("username = '{}'", username)).limit(limit)
-        // For this implementation, we apply the filter manually on the stream.
         let mut stream = table
             .query()
-            .limit(1000) // Fetch a larger batch to filter manually
+            .only_if(format!("username = '{}'", username.replace("'", "''"))).limit(limit)
             .execute()
             .await?;
 
@@ -92,21 +91,10 @@ impl LocalLibrarian {
                 .as_any()
                 .downcast_ref::<StringArray>()
                 .context("Failed to downcast text column")?;
-            let user_col = batch
-                .column(1)
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .context("Failed to downcast username column")?;
-
             for i in 0..batch.num_rows() {
                 if results.len() >= limit {
                     break;
                 }
-
-                let row_user = user_col.value(i);
-                if row_user != username {
-                    continue;
-                } // Access Control: Skip other users' data
 
                 let text = text_col.value(i);
                 let text_lower = text.to_lowercase();
