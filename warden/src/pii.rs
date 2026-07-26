@@ -17,7 +17,7 @@ impl AhoCorasickShield {
     /// Creates a new AhoCorasickShield with a provided dynamic dictionary of terms and a predefined SSN pattern.
     pub fn new(dictionary: Vec<String>) -> Result<Self, SovereignError> {
         // --- SECURITY FIX (V-11): Robust SSN Pattern ---
-        let ssn_regex = Regex::new(r"\d{3}[- ]?\d{2}[- ]?\d{4}").map_err(|e| {
+        let ssn_regex = Regex::new(r"\d{3}[.\-\s]*\d{2}[.\-\s]*\d{4}").map_err(|e| {
             SovereignError::ConfigError(format!("Failed to build SSN regex: {}", e))
         })?;
         let automaton = AhoCorasickBuilder::new()

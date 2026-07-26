@@ -1,6 +1,6 @@
 rules:
   - id: "us_ssn"
-    pattern: '\d{3}[.\- ]?\d{2}[.\- ]?\d{4}'
+    pattern: '\d{3}[.\-\s]*\d{2}[.\-\s]*\d{4}'
     type: "Regex"
     category: "IdentificationNumber"
   
@@ -25,7 +25,7 @@ rules:
     category: "InternalAsset"
 
   - id: "credit_card"
-    pattern: '\d{4}[.\- ]?\d{4}[.\- ]?\d{4}[.\- ]?\d{4}'
+    pattern: '\d{4}[.\-\s]*\d{4}[.\-\s]*\d{4}[.\-\s]*\d{4}'
     type: "Regex"
     category: "FinancialData"
 
@@ -35,7 +35,7 @@ rules:
     category: "ContactInfo"
 
   - id: "phone_number"
-    pattern: '\b\d{3}[.\- ]?\d{3}[.\- ]?\d{4}\b'
+    pattern: '\b\d{3}[.\-\s]*\d{3}[.\-\s]*\d{4}\b'
     type: "Regex"
     category: "ContactInfo"
 

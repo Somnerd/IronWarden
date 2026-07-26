@@ -1,12 +1,12 @@
 rules:
   - id: "us_ssn"
-    pattern: '\b\d{3}[- ]?\d{2}[- ]?\d{4}\b'
+    pattern: '\b\d{3}[.\-\s]*\d{2}[.\-\s]*\d{4}\b'
     type: "Regex"
   - id: "euro_iban"
     pattern: '\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b'
     type: "Regex"
   - id: "credit_card"
-    pattern: '\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b'
+    pattern: '\b\d{4}[.\-\s]*\d{4}[.\-\s]*\d{4}[.\-\s]*\d{4}\b'
     type: "Regex"
   - id: "email_address"
     pattern: '\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
@@ -30,7 +30,7 @@ heuristics:
   - label: "POTENTIAL_UUID"
     pattern: '\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'
   - label: "POTENTIAL_ID"
-    pattern: '\b\d{3}[- ]?\d{2}[- ]?\d{4}\b|\b[A-Z0-9]{8,20}\b'
+    pattern: '\b\d{3}[.\-\s]*\d{2}[.\-\s]*\d{4}\b|\b[A-Z0-9]{8,20}\b'
 
 ai_enabled: true
 ai_confidence_threshold: 0.85
