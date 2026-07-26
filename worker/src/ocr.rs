@@ -96,6 +96,87 @@ impl OcrWorker {
     }
 
     pub async fn process_file(&self, data: &[u8], mime_type: &str) -> Result<String, SovereignError> {
+        if mime_type == "application/pdf" {
+            info!("OCR: Attempting native PDF extraction...");
+            let data_clone = data.to_vec();
+            let res = tokio::task::spawn_blocking(move || {
+                pdf_extract::extract_text_from_mem(&data_clone)
+            }).await.map_err(|e| SovereignError::InternalError(format!("Tokio spawn_blocking error: {}", e)))?;
+            
+            match res {
+                Ok(text) if !text.trim().is_empty() => {
+                    info!("OCR: Successfully extracted text natively from PDF.");
+                    return Ok(text);
+                }
+                Ok(_) => {
+                    info!("OCR: Native PDF extraction yielded empty text. Falling back to OCR.");
+                }
+                Err(e) => {
+                    warn!("OCR: Native PDF extraction failed: {}. Falling back to OCR.", e);
+                }
+            }
+        } else if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || mime_type == "application/msword" {
+            info!("OCR: Attempting native DOCX extraction...");
+            let data_clone = data.to_vec();
+            let res = tokio::task::spawn_blocking(move || {
+                let cursor = std::io::Cursor::new(data_clone);
+                let mut zip = match zip::ZipArchive::new(cursor) {
+                    Ok(z) => z,
+                    Err(_) => return String::new(),
+                };
+                
+                let mut doc = match zip.by_name("word/document.xml") {
+                    Ok(d) => d,
+                    Err(_) => return String::new(),
+                };
+                
+                use std::io::Read;
+                let mut xml_data = Vec::new();
+                if doc.read_to_end(&mut xml_data).is_err() {
+                    return String::new();
+                }
+                
+                let mut reader = quick_xml::Reader::from_reader(xml_data.as_slice());
+                let mut text = String::new();
+                let mut in_text = false;
+                let mut buf = Vec::new();
+                
+                loop {
+                    match reader.read_event_into(&mut buf) {
+                        Ok(quick_xml::events::Event::Start(ref e)) => {
+                            if e.name().as_ref() == b"w:t" {
+                                in_text = true;
+                            }
+                        }
+                        Ok(quick_xml::events::Event::End(ref e)) => {
+                            if e.name().as_ref() == b"w:t" {
+                                in_text = false;
+                                text.push(' ');
+                            }
+                        }
+                        Ok(quick_xml::events::Event::Text(e)) => {
+                            if in_text {
+                                if let Ok(s) = e.unescape() {
+                                    text.push_str(&s);
+                                }
+                            }
+                        }
+                        Ok(quick_xml::events::Event::Eof) => break,
+                        Err(_) => break,
+                        _ => {}
+                    }
+                    buf.clear();
+                }
+                text
+            }).await.map_err(|e| SovereignError::InternalError(format!("Tokio spawn_blocking error: {}", e)))?;
+            
+            if !res.trim().is_empty() {
+                info!("OCR: Successfully extracted text natively from DOCX.");
+                return Ok(res);
+            }
+            info!("OCR: Native DOCX extraction yielded empty text. Falling back to OCR.");
+        }
+
         self.provider.extract_text(data, mime_type).await
     }
 }
