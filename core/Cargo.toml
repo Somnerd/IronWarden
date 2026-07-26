@@ -19,6 +19,9 @@ zeroize = { version = "1.8", features = ["zeroize_derive"] }
 aead = "0.5"
 tokio = { version = "1.0", features = ["rt", "macros", "rt-multi-thread"] }
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
+serde_json = "1.0.151"
+base64 = "0.22.1"
+openssl = "0.10.81"
 
 
 [dev-dependencies]
