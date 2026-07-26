@@ -32,6 +32,8 @@ warn()     { echo -e "  ${YELLOW}⚠ $1${RESET}"; }
 
 # ── Environment (mirrors CI env block) ───────────────────────────────────────
 export CARGO_TERM_COLOR=always
+export CARGO_PROFILE_TEST_DEBUG=0    # Disable DWARF debug symbols for test binaries (5x faster link time)
+export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-4} # Parallel compilation across 4 cores instead of single-thread
 export WARDEN_MCP_SECRET="dummy_mcp_secret_value_for_testing_purposes"
 ORT_VERSION="1.21.0"   # Last ORT version with macOS x86_64 prebuilt binaries
 ORT_DYLIB_PATH="${ORT_DYLIB_PATH:-$HOME/.ort/lib/libonnxruntime.dylib}"
@@ -169,9 +171,9 @@ fi
 # =============================================================================
 if $RUN_WORKER; then
   job_header "Worker Core (Storage/Queue)"
-  step "cargo test --package worker (CARGO_BUILD_JOBS=1 to prevent OOM)"
+  step "cargo test --package worker"
   # Run in a subshell and capture exit code to avoid old bash's _job artifact on SIGKILL
-  (CARGO_BUILD_JOBS=1 cargo test --package worker)
+  (cargo test --package worker)
   _worker_exit=$?
   if [ $_worker_exit -eq 0 ]; then
     pass_job "Worker Core"
