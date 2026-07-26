@@ -73,8 +73,8 @@ impl WorkerStorage {
                 }
                 let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
                 if unsafe { libc::statvfs(path_c.as_ptr(), &mut stat) } == 0 {
-                    let total = stat.f_blocks.saturating_mul(stat.f_frsize);
-                    let avail = stat.f_bavail.saturating_mul(stat.f_frsize);
+                    let total = (stat.f_blocks as u64).saturating_mul(stat.f_frsize as u64);
+                    let avail = (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64);
                     if total > 0 {
                         let percent_avail = (avail as f64 / total as f64) * 100.0;
                         if percent_avail < 10.0 {

@@ -29,8 +29,15 @@ def test_fault_audit_db_readonly(warden_bin):
     
     runner = IronWardenRunner(warden_bin, env_overrides={"AUDIT_DB_PATH": db_path})
     try:
-        runner.start()
-        # Give it time for the async init to fail
+        try:
+            runner.start()
+        except RuntimeError as e:
+            # System correctly failed-closed by aborting process startup on read-only Audit DB
+            print(f"✔ Fail-Closed verified: {e}")
+            assert "IronWarden failed to start" in str(e) or "Exit code: 1" in str(e)
+            return
+        
+        # Give it time for the async init to fail if process didn't exit immediately
         time.sleep(3)
         
         # PROBE: Attempt a sanitization request

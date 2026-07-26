@@ -28,7 +28,8 @@ Thumbs.db
 # Database and Test Cache Data
 **/data/
 
-# SQLite Temporary Anchors
+# SQLite Temporary Files
+*.db
 *.anchor
 
 # Tantivy Index Files and Locks
