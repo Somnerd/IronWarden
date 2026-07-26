@@ -266,7 +266,10 @@ mod tests {
             let old_dir = env::current_dir().unwrap();
             env::set_current_dir(env::temp_dir()).unwrap();
 
-            env::set_var("WARDEN_PEPPER", "this-is-a-valid-32-byte-test-pepper-string!");
+            env::set_var(
+                "WARDEN_PEPPER",
+                "this-is-a-valid-32-byte-test-pepper-string!",
+            );
 
             let res = GlobalConfig::resolve();
             assert!(

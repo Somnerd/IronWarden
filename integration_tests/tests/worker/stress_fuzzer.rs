@@ -99,7 +99,10 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     assert!(build_status.success());
 
     let output = Command::new("cargo")
-        .env("WARDEN_PEPPER", "this-is-a-valid-32-byte-test-pepper-string!")
+        .env(
+            "WARDEN_PEPPER",
+            "this-is-a-valid-32-byte-test-pepper-string!",
+        )
         .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
         .output()
         .expect("Failed to run verify");
@@ -129,7 +132,10 @@ async fn test_time_travel_purge_and_hmac_integrity() {
     }
 
     let output_tampered = Command::new("cargo")
-        .env("WARDEN_PEPPER", "this-is-a-valid-32-byte-test-pepper-string!")
+        .env(
+            "WARDEN_PEPPER",
+            "this-is-a-valid-32-byte-test-pepper-string!",
+        )
         .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
         .output()
         .expect("Failed to run verify");
