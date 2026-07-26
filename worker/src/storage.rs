@@ -85,7 +85,7 @@ impl WorkerStorage {
                                     let cutoff = chrono::Utc::now() - chrono::Duration::hours(1);
                                     let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
                                     c.execute(
-                                        "DELETE FROM ephemeral_raw_logs WHERE timestamp < ?1",
+                                        "DELETE FROM ephemeral_raw_logs WHERE timestamp < ?1 AND siem_acked = TRUE",
                                         [&cutoff_str],
                                     )?;
                                     Ok::<(), rusqlite::Error>(())
