@@ -166,17 +166,16 @@ impl GlobalConfig {
             config.warden_jwt_issuer = Some(v);
         }
 
+        let pepper_len = config.warden_pepper.as_ref().map(|p| p.len()).unwrap_or(0);
+        if pepper_len < 32 {
+            return Err(SovereignError::ConfigError(
+                "Security violation: WARDEN_PEPPER must be configured and be at least 32 bytes."
+                    .into(),
+            ));
+        }
+
         // Strict mode validations
         if !config.allow_fallback {
-            // Check pepper
-            let pepper_len = config.warden_pepper.as_ref().map(|p| p.len()).unwrap_or(0);
-            if pepper_len < 32 {
-                return Err(SovereignError::ConfigError(
-                    "Strict mode violation: WARDEN_PEPPER must be configured and be at least 32 bytes."
-                        .into(),
-                ));
-            }
-
             // Check manifest path existence
             let manifest_path = Path::new(&config.warden_manifest_path);
             if !manifest_path.exists() {
@@ -266,6 +265,8 @@ mod tests {
             // Or if it does, this test might fail. Assuming we run from workspace root:
             let old_dir = env::current_dir().unwrap();
             env::set_current_dir(env::temp_dir()).unwrap();
+
+            env::set_var("WARDEN_PEPPER", "this-is-a-valid-32-byte-test-pepper-string!");
 
             let res = GlobalConfig::resolve();
             assert!(
@@ -358,6 +359,7 @@ mod tests {
 
             env::set_var("ALLOW_FALLBACK", "true");
             env::set_var("OPENAI_API_KEY", "sk-proj-test-secret-key-12345");
+            env::set_var("WARDEN_PEPPER", "12345678901234567890123456789012");
 
             let config = GlobalConfig::resolve().unwrap();
 

@@ -14,7 +14,7 @@ def run_test_case(name, prompt):
     request = {"jsonrpc": "2.0", "id": "1", "method": "process", "params": {"prompt": prompt}}
     env = os.environ.copy()
     env["OPENAI_API_KEY"] = "sk-mock"
-    env["WARDEN_PEPPER"] = "a_very_secret_pepper_32_bytes_long"
+    env["WARDEN_PEPPER"] = "this-is-a-valid-32-byte-test-pepper-string!"
 
     process = subprocess.Popen(
         ["/home/somnerd/Documents/IronWarden/target/debug/app"],
