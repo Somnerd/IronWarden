@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 use iw_core::SovereignError;
-use tracing::{info, error, warn};
-use tokio::process::Command;
-use std::path::Path;
 use tokio::fs;
+use tokio::process::Command;
+use tracing::{error, info, warn};
 
 #[async_trait]
 pub trait OcrProvider: Send + Sync {
@@ -17,15 +16,16 @@ pub struct TesseractOcr;
 impl OcrProvider for TesseractOcr {
     async fn extract_text(&self, data: &[u8], mime_type: &str) -> Result<String, SovereignError> {
         info!("OCR: Processing {} via Tesseract engine...", mime_type);
-        
+
         let temp_dir = std::env::temp_dir();
         let input_uuid = uuid::Uuid::new_v4().to_string();
         let input_path = temp_dir.join(format!("ocr_in_{}", input_uuid));
         let output_base = temp_dir.join(format!("ocr_out_{}", input_uuid));
         let output_path = temp_dir.join(format!("ocr_out_{}.txt", input_uuid));
 
-        fs::write(&input_path, data).await
-            .map_err(|e| SovereignError::InternalError(format!("Failed to write OCR temp file: {}", e)))?;
+        fs::write(&input_path, data).await.map_err(|e| {
+            SovereignError::InternalError(format!("Failed to write OCR temp file: {}", e))
+        })?;
 
         // Tesseract command: tesseract [input] [output_base] -l eng+grc
         let mut cmd = Command::new("tesseract");
@@ -35,20 +35,24 @@ impl OcrProvider for TesseractOcr {
 
         match cmd.output().await {
             Ok(output) if output.status.success() => {
-                let text = fs::read_to_string(&output_path).await
-                    .map_err(|e| SovereignError::InternalError(format!("Failed to read OCR output: {}", e)))?;
-                
+                let text = fs::read_to_string(&output_path).await.map_err(|e| {
+                    SovereignError::InternalError(format!("Failed to read OCR output: {}", e))
+                })?;
+
                 // Cleanup
                 let _ = fs::remove_file(&input_path).await;
                 let _ = fs::remove_file(&output_path).await;
-                
+
                 Ok(text)
             }
             Ok(output) => {
                 let err = String::from_utf8_lossy(&output.stderr);
                 error!("Tesseract execution failed: {}", err);
                 let _ = fs::remove_file(&input_path).await;
-                Err(SovereignError::InternalError(format!("Tesseract Error: {}", err)))
+                Err(SovereignError::InternalError(format!(
+                    "Tesseract Error: {}",
+                    err
+                )))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let env_prod = std::env::var("IRONWARDEN_ENV").unwrap_or_default() == "production"
@@ -57,7 +61,9 @@ impl OcrProvider for TesseractOcr {
                 if env_prod {
                     error!("CRITICAL: Tesseract binary not found in production environment! Failing closed to prevent data leaks.");
                     let _ = fs::remove_file(&input_path).await;
-                    Err(SovereignError::InternalError("Tesseract OCR dependency missing in production mode.".to_string()))
+                    Err(SovereignError::InternalError(
+                        "Tesseract OCR dependency missing in production mode.".to_string(),
+                    ))
                 } else {
                     warn!("SECURITY WARNING: Tesseract binary not found. Falling back to mock OCR for development mode. Do not use in production.");
                     let _ = fs::remove_file(&input_path).await;
@@ -67,7 +73,10 @@ impl OcrProvider for TesseractOcr {
             Err(e) => {
                 error!("OCR Process Error: {}", e);
                 let _ = fs::remove_file(&input_path).await;
-                Err(SovereignError::InternalError(format!("OCR Process Error: {}", e)))
+                Err(SovereignError::InternalError(format!(
+                    "OCR Process Error: {}",
+                    e
+                )))
             }
         }
     }
@@ -95,7 +104,106 @@ impl OcrWorker {
         Self { provider }
     }
 
-    pub async fn process_file(&self, data: &[u8], mime_type: &str) -> Result<String, SovereignError> {
+    pub async fn process_file(
+        &self,
+        data: &[u8],
+        mime_type: &str,
+    ) -> Result<String, SovereignError> {
+        if mime_type == "application/pdf" {
+            info!("OCR: Attempting native PDF extraction...");
+            let data_clone = data.to_vec();
+            let res = tokio::task::spawn_blocking(move || {
+                pdf_extract::extract_text_from_mem(&data_clone)
+            })
+            .await
+            .map_err(|e| {
+                SovereignError::InternalError(format!("Tokio spawn_blocking error: {}", e))
+            })?;
+
+            match res {
+                Ok(text) if !text.trim().is_empty() => {
+                    info!("OCR: Successfully extracted text natively from PDF.");
+                    return Ok(text);
+                }
+                Ok(_) => {
+                    info!("OCR: Native PDF extraction yielded empty text. Falling back to OCR.");
+                }
+                Err(e) => {
+                    warn!(
+                        "OCR: Native PDF extraction failed: {}. Falling back to OCR.",
+                        e
+                    );
+                }
+            }
+        } else if mime_type
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            || mime_type == "application/msword"
+        {
+            info!("OCR: Attempting native DOCX extraction...");
+            let data_clone = data.to_vec();
+            let res = tokio::task::spawn_blocking(move || {
+                let cursor = std::io::Cursor::new(data_clone);
+                let mut zip = match zip::ZipArchive::new(cursor) {
+                    Ok(z) => z,
+                    Err(_) => return String::new(),
+                };
+
+                let mut doc = match zip.by_name("word/document.xml") {
+                    Ok(d) => d,
+                    Err(_) => return String::new(),
+                };
+
+                use std::io::Read;
+                let mut xml_data = Vec::new();
+                if doc.read_to_end(&mut xml_data).is_err() {
+                    return String::new();
+                }
+
+                let mut reader = quick_xml::Reader::from_reader(xml_data.as_slice());
+                let mut text = String::new();
+                let mut in_text = false;
+                let mut buf = Vec::new();
+
+                loop {
+                    match reader.read_event_into(&mut buf) {
+                        Ok(quick_xml::events::Event::Start(ref e)) => {
+                            if e.name().as_ref() == b"w:t" {
+                                in_text = true;
+                            }
+                        }
+                        Ok(quick_xml::events::Event::End(ref e)) => {
+                            if e.name().as_ref() == b"w:t" {
+                                in_text = false;
+                                text.push(' ');
+                            }
+                        }
+                        Ok(quick_xml::events::Event::Text(e)) => {
+                            if in_text {
+                                if let Ok(s) = std::str::from_utf8(e.as_ref()) {
+                                    text.push_str(s);
+                                }
+                            }
+                        }
+                        Ok(quick_xml::events::Event::Eof) => break,
+                        Err(_) => break,
+                        _ => {}
+                    }
+                    buf.clear();
+                }
+                text
+            })
+            .await
+            .map_err(|e| {
+                SovereignError::InternalError(format!("Tokio spawn_blocking error: {}", e))
+            })?;
+
+            if !res.trim().is_empty() {
+                info!("OCR: Successfully extracted text natively from DOCX.");
+                return Ok(res);
+            }
+            info!("OCR: Native DOCX extraction yielded empty text. Falling back to OCR.");
+        }
+
         self.provider.extract_text(data, mime_type).await
     }
 }
@@ -111,46 +219,79 @@ mod tests {
     #[tokio::test]
     async fn test_ocr_fail_closed_production() {
         let _guard = ENV_MUTEX.lock().await;
-        
+
         let orig_prod = env::var("IRONWARDEN_ENV");
         let orig_rust_env = env::var("RUST_ENV");
         env::set_var("IRONWARDEN_ENV", "production");
         env::remove_var("RUST_ENV");
-        
+
         let orig_path = env::var("PATH");
         env::set_var("PATH", ""); // Ensure tesseract is not found
-        
+
         let ocr = TesseractOcr;
         let res = ocr.extract_text(b"test data", "image/png").await;
-        
-        assert!(res.is_err(), "OCR must fail in production if tesseract is missing");
-        assert!(res.unwrap_err().to_string().contains("dependency missing in production mode"));
-        
-        if let Ok(val) = orig_path { env::set_var("PATH", val); } else { env::remove_var("PATH"); }
-        if let Ok(val) = orig_prod { env::set_var("IRONWARDEN_ENV", val); } else { env::remove_var("IRONWARDEN_ENV"); }
-        if let Ok(val) = orig_rust_env { env::set_var("RUST_ENV", val); } else { env::remove_var("RUST_ENV"); }
+
+        assert!(
+            res.is_err(),
+            "OCR must fail in production if tesseract is missing"
+        );
+        assert!(res
+            .unwrap_err()
+            .to_string()
+            .contains("dependency missing in production mode"));
+
+        if let Ok(val) = orig_path {
+            env::set_var("PATH", val);
+        } else {
+            env::remove_var("PATH");
+        }
+        if let Ok(val) = orig_prod {
+            env::set_var("IRONWARDEN_ENV", val);
+        } else {
+            env::remove_var("IRONWARDEN_ENV");
+        }
+        if let Ok(val) = orig_rust_env {
+            env::set_var("RUST_ENV", val);
+        } else {
+            env::remove_var("RUST_ENV");
+        }
     }
 
     #[tokio::test]
     async fn test_ocr_fallback_development() {
         let _guard = ENV_MUTEX.lock().await;
-        
+
         let orig_prod = env::var("IRONWARDEN_ENV");
         let orig_rust_env = env::var("RUST_ENV");
         env::set_var("IRONWARDEN_ENV", "development");
         env::set_var("RUST_ENV", "development");
-        
+
         let orig_path = env::var("PATH");
         env::set_var("PATH", ""); // Ensure tesseract is not found
-        
+
         let ocr = TesseractOcr;
         let res = ocr.extract_text(b"test data", "image/png").await;
-        
-        assert!(res.is_ok(), "OCR must fallback in development if tesseract is missing");
+
+        assert!(
+            res.is_ok(),
+            "OCR must fallback in development if tesseract is missing"
+        );
         assert!(res.unwrap().contains("[MOCK OCR]"));
-        
-        if let Ok(val) = orig_path { env::set_var("PATH", val); } else { env::remove_var("PATH"); }
-        if let Ok(val) = orig_prod { env::set_var("IRONWARDEN_ENV", val); } else { env::remove_var("IRONWARDEN_ENV"); }
-        if let Ok(val) = orig_rust_env { env::set_var("RUST_ENV", val); } else { env::remove_var("RUST_ENV"); }
+
+        if let Ok(val) = orig_path {
+            env::set_var("PATH", val);
+        } else {
+            env::remove_var("PATH");
+        }
+        if let Ok(val) = orig_prod {
+            env::set_var("IRONWARDEN_ENV", val);
+        } else {
+            env::remove_var("IRONWARDEN_ENV");
+        }
+        if let Ok(val) = orig_rust_env {
+            env::set_var("RUST_ENV", val);
+        } else {
+            env::remove_var("RUST_ENV");
+        }
     }
 }

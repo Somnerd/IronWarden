@@ -24,6 +24,10 @@ impl JwtVerifier {
         audience: &str,
         issuer: &str,
     ) -> Result<Claims, SovereignError> {
+        if crate::fips::FipsValidator::is_fips_enabled() {
+            return Self::verify_fips(token, public_key_pem, audience, issuer);
+        }
+
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_audience(&[audience]);
         validation.set_issuer(&[issuer]);
@@ -46,6 +50,115 @@ impl JwtVerifier {
                 ))
             }
         }
+    }
+
+    fn verify_fips(
+        token: &str,
+        public_key_pem: &[u8],
+        audience: &str,
+        issuer: &str,
+    ) -> Result<Claims, SovereignError> {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use openssl::{hash::MessageDigest, pkey::PKey, sign::Verifier};
+
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(SovereignError::UnauthorizedAccess(
+                "Invalid Token Format".into(),
+            ));
+        }
+
+        let header_bytes = URL_SAFE_NO_PAD
+            .decode(parts[0])
+            .map_err(|_| SovereignError::UnauthorizedAccess("Invalid Header Format".into()))?;
+
+        let header: serde_json::Value = serde_json::from_slice(&header_bytes)
+            .map_err(|_| SovereignError::UnauthorizedAccess("Invalid Header JSON".into()))?;
+
+        if header.get("alg").and_then(|v| v.as_str()) != Some("RS256") {
+            tracing::error!("FIPS JWT Failure: Unsupported algorithm");
+            return Err(SovereignError::UnauthorizedAccess(
+                "Invalid or Expired Token".into(),
+            ));
+        }
+
+        let pkey = PKey::public_key_from_pem(public_key_pem).map_err(|e| {
+            tracing::error!("FIPS JWT Failure: Invalid PEM - {}", e);
+            SovereignError::InternalError("Invalid RSA Public Key Configuration".into())
+        })?;
+
+        let mut verifier = Verifier::new(MessageDigest::sha256(), &pkey).map_err(|e| {
+            tracing::error!("FIPS JWT Failure: Verifier init failed - {}", e);
+            SovereignError::InternalError("Failed to initialize verifier".into())
+        })?;
+
+        let msg = format!("{}.{}", parts[0], parts[1]);
+        verifier.update(msg.as_bytes()).map_err(|e| {
+            tracing::error!("FIPS JWT Failure: Verifier update failed - {}", e);
+            SovereignError::InternalError("Failed to update verifier".into())
+        })?;
+
+        let sig = URL_SAFE_NO_PAD
+            .decode(parts[2])
+            .map_err(|_| SovereignError::UnauthorizedAccess("Invalid Signature Format".into()))?;
+
+        if !verifier.verify(&sig).unwrap_or(false) {
+            tracing::error!("FIPS JWT Validation Failure: Signature mismatch");
+            return Err(SovereignError::UnauthorizedAccess(
+                "Invalid or Expired Token".into(),
+            ));
+        }
+
+        let claims_bytes = URL_SAFE_NO_PAD
+            .decode(parts[1])
+            .map_err(|_| SovereignError::UnauthorizedAccess("Invalid Claims Format".into()))?;
+
+        let claims_value: serde_json::Value = serde_json::from_slice(&claims_bytes)
+            .map_err(|_| SovereignError::UnauthorizedAccess("Invalid Claims JSON".into()))?;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as usize;
+
+        // Provide leeway for token expiration (60 seconds) similar to jsonwebtoken default
+        if let Some(exp) = claims_value.get("exp").and_then(|v| v.as_u64()) {
+            if (exp as usize) + 60 < now {
+                tracing::error!("FIPS JWT Validation Failure: Token expired");
+                return Err(SovereignError::UnauthorizedAccess(
+                    "Invalid or Expired Token".into(),
+                ));
+            }
+        } else {
+            tracing::error!("FIPS JWT Validation Failure: Missing exp claim");
+            return Err(SovereignError::UnauthorizedAccess(
+                "Invalid or Expired Token".into(),
+            ));
+        }
+
+        let aud_valid = match claims_value.get("aud") {
+            Some(serde_json::Value::String(s)) => s == audience,
+            Some(serde_json::Value::Array(arr)) => arr.iter().any(|v| v.as_str() == Some(audience)),
+            _ => false,
+        };
+        if !aud_valid {
+            tracing::error!("FIPS JWT Validation Failure: Audience mismatch");
+            return Err(SovereignError::UnauthorizedAccess(
+                "Invalid or Expired Token".into(),
+            ));
+        }
+
+        if claims_value.get("iss").and_then(|v| v.as_str()) != Some(issuer) {
+            tracing::error!("FIPS JWT Validation Failure: Issuer mismatch");
+            return Err(SovereignError::UnauthorizedAccess(
+                "Invalid or Expired Token".into(),
+            ));
+        }
+
+        let claims: Claims = serde_json::from_slice(&claims_bytes)
+            .map_err(|_| SovereignError::UnauthorizedAccess("Invalid Claims Data".into()))?;
+
+        Ok(claims)
     }
 }
 

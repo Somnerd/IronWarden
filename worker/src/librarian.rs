@@ -19,17 +19,21 @@ pub struct LocalLibrarian {
 
 impl LocalLibrarian {
     pub async fn new(path: &str) -> Result<Self> {
-        // --- SECURITY FIX (V-28): Path Traversal Protection ---
-        if path.contains("..") {
-            return Err(anyhow::anyhow!(
-                "Librarian: Potential Path Traversal attempt: {}",
-                path
-            ));
-        }
-
         let base_path = Path::new(path);
         if !base_path.exists() {
             fs::create_dir_all(base_path).context("Failed to create knowledge base directory")?;
+        }
+
+        // --- SECURITY FIX (V-28): Path Traversal Protection ---
+        let canonical_path = fs::canonicalize(base_path)?;
+        if Path::new(path).is_relative() {
+            let current_dir = fs::canonicalize(std::env::current_dir()?)?;
+            if !canonical_path.starts_with(&current_dir) {
+                return Err(anyhow::anyhow!(
+                    "Librarian: Potential Path Traversal attempt: {}",
+                    path
+                ));
+            }
         }
 
         let uri = format!("data/lancedb/{}", path.replace('/', "_"));
@@ -76,12 +80,11 @@ impl LocalLibrarian {
         let mut results = Vec::new();
 
         // --- SECURITY FIX (Section 1.1 / Finding A.4): User-Level Partitioning ---
-        // In a real production system with LanceDB, we would use:
-        // .search(query).filter(format!("username = '{}'", username)).limit(limit)
-        // For this implementation, we apply the filter manually on the stream.
+        // Push the user filter down to LanceDB to prevent memory exhaustion / DoS
+        let sanitized_username = username.replace("'", "''");
         let mut stream = table
             .query()
-            .limit(1000) // Fetch a larger batch to filter manually
+            .only_if(format!("username = '{}'", sanitized_username))
             .execute()
             .await?;
 
@@ -92,21 +95,11 @@ impl LocalLibrarian {
                 .as_any()
                 .downcast_ref::<StringArray>()
                 .context("Failed to downcast text column")?;
-            let user_col = batch
-                .column(1)
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .context("Failed to downcast username column")?;
 
             for i in 0..batch.num_rows() {
                 if results.len() >= limit {
                     break;
                 }
-
-                let row_user = user_col.value(i);
-                if row_user != username {
-                    continue;
-                } // Access Control: Skip other users' data
 
                 let text = text_col.value(i);
                 let text_lower = text.to_lowercase();
