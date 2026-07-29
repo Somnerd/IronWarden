@@ -8,7 +8,7 @@ use secrecy::{ExposeSecret, SecretVec};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use zeroize::Zeroize;
 
 type HmacSha256 = Hmac<Sha256>;
