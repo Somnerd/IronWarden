@@ -1,6 +1,6 @@
 [package]
 name = "iw-integration-tests"
-version = "0.1.45-alpha"
+version = "0.1.52-alpha"
 edition = "2021"
 publish = false
 
