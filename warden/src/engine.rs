@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 use crate::normalize::Normalizer;
 use crate::shadow_ner::ShadowNer;
 use aes_gcm::{
