@@ -1,9 +1,71 @@
-# 🏰 IronWarden V0.1.52-alpha
-### Sovereign AI Privacy Firewall & Security Gateway
+# 🏰 IronWarden v1.0.0-rc.1
+### Universal AI Privacy Firewall & Security Gateway
 
-IronWarden is a high-performance, single-binary security appliance designed to protect sensitive professional data (Legal, Medical, Financial) from leaking into external Large Language Models (LLMs). 
+IronWarden is a high-performance, single-binary **AI security proxy**. Point any OpenAI or Anthropic SDK client at it and get automatic PII redaction, cryptographic audit logging, and rate limiting — with **zero code changes** in your application.
 
-It operates as a **Privacy Proxy** that intercepts, redacts, and audits every AI transaction with "Telco-Grade" reliability and 100% data sovereignty.
+---
+
+## 🚀 Universal Proxy Quickstart
+
+> **EU AI Act compliant out of the box.** IronWarden acts as a transparent firewall between your app and any LLM provider.
+
+### OpenAI SDK (Python)
+
+```python
+# Before: direct OpenAI call
+from openai import OpenAI
+client = OpenAI(api_key="sk-...")
+
+# After: route through IronWarden — zero other changes
+client = OpenAI(
+    api_key="sk-...",
+    base_url="http://localhost:14141/v1",
+    default_headers={"Authorization": "Bearer <your-ironwarden-jwt>"}
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "My email is john@example.com — summarize my account."}]
+)
+# ✅ PII scrubbed before reaching OpenAI
+# ✅ HMAC audit log written, fail-closed
+# ✅ PII restored in the response you receive
+print(response.choices[0].message.content)
+```
+
+### Anthropic SDK (Python)
+
+```python
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="sk-ant-...",
+    base_url="http://localhost:14141",
+    default_headers={
+        "Authorization": "Bearer <your-ironwarden-jwt>",
+        "X-IronWarden-Upstream-Key": "sk-ant-..."
+    }
+)
+
+message = client.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "My AMKA is 12345678901. Is this data protected?"}]
+)
+# ✅ AMKA redacted before Claude sees it
+```
+
+### Dynamic Upstream Routing
+
+| Header | Effect |
+|--------|--------|
+| `X-IronWarden-Target-URL` | Override upstream per-request (Ollama, vLLM, custom endpoint) |
+| `X-IronWarden-Upstream-Key` | Per-request API key for upstream |
+
+**Model-name auto-routing** (no config needed):
+- `claude-*` → Anthropic API
+- `llama*`, `mistral*`, `phi*`, `gemma*`, `qwen*` → Ollama (`localhost:11434`)
+- Everything else → OpenAI API
 
 ---
 
@@ -36,12 +98,13 @@ Ground your AI prompts in local knowledge without the complexity of external dat
 *   **Latency:** ~45ms - 60ms end-to-end (Synchronous AI protection).
 *   **Security:** 100% On-Premise. No data ever leaves your network unredacted.
 *   **Persistence:** Unified SQLite ledger for Zero-Ops deployment.
+*   **Protocols:** OpenAI `/v1/chat/completions`, `/v1/completions`, `/v1/models` + Anthropic `/v1/messages` (streaming & non-streaming).
 
 ---
 
 ## 💻 System Requirements
 
-**Tesseract OCR** is a mandatory host-level dependency for document and image parsing. 
+**Tesseract OCR** is a mandatory host-level dependency for document and image parsing.
 
 Without Tesseract installed, document OCR falls back to a mock mode which is unsafe for production. In production environments, missing this dependency will cause parsing to fail-closed.
 
@@ -65,9 +128,9 @@ Installation instructions for major platforms:
 ---
 
 ## 🏛️ Product Boundary
-IronWarden is the **Shield**. It focuses on **Security, Redaction, and Auditing**. 
+IronWarden is the **Shield**. It focuses on **Security, Redaction, and Auditing**.
 For advanced semantic search, multi-format PDF ingestion, and high-dimensional vector retrieval, use the **SearchBoost** extension.
 
 ---
-**Status:** Certified Market-Ready V0.1.52-alpha.
+**Status:** v1.0.0-rc.1 — Universal AI Gateway Proxy.
 **License:** AGPLv3 / Commercial.
