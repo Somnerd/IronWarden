@@ -162,3 +162,145 @@ pub fn merge_token_map(combined: &mut TokenMap, addition: &TokenMap) {
         combined.insert(k.clone(), v.clone());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderMap, HeaderName, HeaderValue};
+    use std::collections::HashMap;
+
+    fn empty_headers() -> HeaderMap {
+        HeaderMap::new()
+    }
+
+    fn headers_with(key: &str, val: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(
+            HeaderName::from_bytes(key.as_bytes()).unwrap(),
+            HeaderValue::from_str(val).unwrap(),
+        );
+        h
+    }
+
+    #[test]
+    fn test_routing_header_override_takes_priority() {
+        let h = headers_with("X-IronWarden-Target-URL", "http://custom-override.example.com");
+        assert_eq!(resolve_upstream_url(&h, "claude-3"), "http://custom-override.example.com");
+    }
+
+    #[test]
+    fn test_routing_claude_routes_to_anthropic() {
+        std::env::remove_var("ANTHROPIC_BASE_URL");
+        let h = empty_headers();
+        let url = resolve_upstream_url(&h, "claude-3-5-sonnet-20241022");
+        assert!(url.contains("anthropic.com"));
+    }
+
+    #[test]
+    fn test_routing_llama_routes_to_ollama() {
+        std::env::remove_var("OLLAMA_BASE_URL");
+        let h = empty_headers();
+        let url = resolve_upstream_url(&h, "llama3");
+        assert!(url.contains("11434"));
+    }
+
+    #[test]
+    fn test_routing_mistral_routes_to_ollama() {
+        std::env::remove_var("OLLAMA_BASE_URL");
+        let h = empty_headers();
+        let url = resolve_upstream_url(&h, "mistral-7b");
+        assert!(url.contains("11434"));
+    }
+
+    #[test]
+    fn test_routing_phi_routes_to_ollama() {
+        std::env::remove_var("OLLAMA_BASE_URL");
+        let h = empty_headers();
+        let url = resolve_upstream_url(&h, "phi-3");
+        assert!(url.contains("11434"));
+    }
+
+    #[test]
+    fn test_routing_gemma_routes_to_ollama() {
+        std::env::remove_var("OLLAMA_BASE_URL");
+        let h = empty_headers();
+        let url = resolve_upstream_url(&h, "gemma2");
+        assert!(url.contains("11434"));
+    }
+
+    #[test]
+    fn test_routing_qwen_routes_to_ollama() {
+        std::env::remove_var("OLLAMA_BASE_URL");
+        let h = empty_headers();
+        let url = resolve_upstream_url(&h, "qwen2.5");
+        assert!(url.contains("11434"));
+    }
+
+    #[test]
+    fn test_routing_gpt_routes_to_openai_default() {
+        std::env::remove_var("OPENAI_BASE_URL");
+        let h = empty_headers();
+        let url = resolve_upstream_url(&h, "gpt-4o");
+        assert!(url.contains("openai.com"));
+    }
+
+    #[test]
+    fn test_routing_unknown_model_routes_to_openai() {
+        std::env::remove_var("OPENAI_BASE_URL");
+        let h = empty_headers();
+        let url = resolve_upstream_url(&h, "some-unknown-model");
+        assert!(url.contains("openai.com"));
+    }
+
+    #[test]
+    fn test_upstream_key_header_takes_priority() {
+        let h = headers_with("X-IronWarden-Upstream-Key", "sk-from-header");
+        assert_eq!(resolve_upstream_key(&h), "sk-from-header");
+    }
+
+    #[test]
+    fn test_upstream_key_ollama_fallback() {
+        std::env::remove_var("OPENAI_API_KEY");
+        let h = empty_headers();
+        assert_eq!(resolve_upstream_key(&h), "ollama");
+    }
+
+    #[test]
+    fn test_merge_token_map_basic() {
+        let mut combined = HashMap::new();
+        combined.insert("a".to_string(), "1".to_string());
+        let mut addition = HashMap::new();
+        addition.insert("b".to_string(), "2".to_string());
+        
+        merge_token_map(&mut combined, &addition);
+        
+        assert_eq!(combined.get("a").unwrap(), "1");
+        assert_eq!(combined.get("b").unwrap(), "2");
+        assert_eq!(combined.len(), 2);
+    }
+
+    #[test]
+    fn test_merge_token_map_overwrites_same_key() {
+        let mut combined = HashMap::new();
+        combined.insert("a".to_string(), "1".to_string());
+        let mut addition = HashMap::new();
+        addition.insert("a".to_string(), "2".to_string());
+        
+        merge_token_map(&mut combined, &addition);
+        
+        assert_eq!(combined.get("a").unwrap(), "2");
+        assert_eq!(combined.len(), 1);
+    }
+
+    #[test]
+    fn test_merge_token_map_empty_addition() {
+        let mut combined = HashMap::new();
+        combined.insert("a".to_string(), "1".to_string());
+        let addition = HashMap::new();
+        
+        merge_token_map(&mut combined, &addition);
+        
+        assert_eq!(combined.get("a").unwrap(), "1");
+        assert_eq!(combined.len(), 1);
+    }
+}
