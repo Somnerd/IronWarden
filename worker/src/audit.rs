@@ -94,7 +94,8 @@ impl RemoteAuditForwarder for HttpAuditForwarder {
             username,
         };
 
-        self.client
+        let res = self
+            .client
             .post(&self.endpoint)
             .header(
                 "Authorization",
@@ -106,6 +107,13 @@ impl RemoteAuditForwarder for HttpAuditForwarder {
             .map_err(|e| {
                 SovereignError::InternalError(format!("Remote Audit Streaming Failed: {}", e))
             })?;
+
+        if !res.status().is_success() {
+            return Err(SovereignError::InternalError(format!(
+                "Remote Audit Endpoint returned error status: {}",
+                res.status()
+            )));
+        }
 
         Ok(())
     }
@@ -146,9 +154,9 @@ impl AsyncAuditor {
         std::thread::spawn(move || {
             info!("Warden Audit Worker (Dedicated Writer Thread) ignited.");
 
-            let mut conn: Option<Connection>;
+            let conn: Option<Connection>;
             let mut last_hash: Vec<u8> = vec![0u8; 32];
-            let mut last_id: i64 = 0;
+            let mut last_id: i64;
 
             match Self::init_db(&path_thread, &genesis_hash, &hmac_key_bytes) {
                 Ok((c, hash, id)) => {

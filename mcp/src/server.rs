@@ -175,6 +175,7 @@ async fn handle_request_internal(
         "mcp_get_compliance_report",
         "mcp_halt_system",
         "mcp_orchestrate",
+        "mcp_ocr_ingest",
     ];
 
     if !valid_methods.contains(&req.method.as_str()) {
@@ -193,8 +194,10 @@ async fn handle_request_internal(
         .ok_or_else(|| SovereignError::InternalError("Method requires parameters".into()))?;
 
     // --- SECURITY FIX (Section 1.1): Connection-scoped anonymity & MAC Validation ---
-    let is_test_env =
-        mcp_secret == "test_secret" || mcp_secret == "dummy_mcp_secret_value_for_testing_purposes";
+    let is_test_env = cfg!(test)
+        || std::env::var("WARDEN_ENV")
+            .map(|v| v == "test")
+            .unwrap_or(false);
 
     let username = if let Some(u) = params.get("username").and_then(|u| u.as_str()) {
         u.to_string()
@@ -225,7 +228,6 @@ async fn handle_request_internal(
                 )
             })?;
 
-        // TTL Validation
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -238,7 +240,12 @@ async fn handle_request_internal(
         }
 
         // Build business parameters by removing _auth
-        let mut business_params_map = params.as_object().unwrap().clone();
+        let params_obj = params.as_object().ok_or_else(|| {
+            SovereignError::InternalError(
+                "Invalid JSON request parameters: expected an object".into(),
+            )
+        })?;
+        let mut business_params_map = params_obj.clone();
         business_params_map.remove("_auth");
 
         let business_params_string = if business_params_map.is_empty() {

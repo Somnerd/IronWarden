@@ -4,6 +4,7 @@ use arrow_schema::{DataType, Field, Schema};
 use futures::StreamExt;
 use lancedb::query::{ExecutableQuery, QueryBase};
 use lancedb::{connect, Connection};
+use sha2::Digest;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -36,7 +37,10 @@ impl LocalLibrarian {
             }
         }
 
-        let uri = format!("data/lancedb/{}", path.replace('/', "_"));
+        let mut hasher = sha2::Sha256::new();
+        sha2::Digest::update(&mut hasher, path.as_bytes());
+        let hash = hex::encode(sha2::Digest::finalize(hasher));
+        let uri = format!("data/lancedb/{}_{}", path.replace('/', "_"), &hash[..16]);
         let db = connect(&uri)
             .execute()
             .await
