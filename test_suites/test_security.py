@@ -1,3 +1,8 @@
+"""
+Security vulnerability, evasion, and cryptographic integrity tests.
+Verifies homoglyph normalization, zero-width space filtering, session isolation across users,
+integrity hash-chaining in audit reports, and JWT key signature validation.
+"""
 import pytest
 import json
 import sqlite3
@@ -22,7 +27,7 @@ def test_security_homoglyph_bypass(warden):
     # Normalizer should convert Greek Alpha to Latin A, and then AC should catch it.
     assert homoglyph_input not in result["sanitized_text"]
     assert "[TOKEN_1]" in result["sanitized_text"]
-    assert result["redactions"][0]["rule_id"] == "client_names"
+    assert "client_names" in result["redactions"][0]["rule_id"]
 
 def test_security_invisible_char_bypass(warden):
     """

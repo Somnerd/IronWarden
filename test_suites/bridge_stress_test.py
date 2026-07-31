@@ -1,3 +1,8 @@
+"""
+Load and rate-limiting stress test for the IronWarden Bridge /enqueue HTTP endpoint.
+Sends burst traffic to verify rate-limiting responses (429) and checks Redis to ensure
+enqueued job data only contains redacted placeholders instead of raw sensitive PII.
+"""
 import asyncio
 import httpx
 import json
@@ -5,8 +10,11 @@ import time
 import redis
 from typing import List
 
+import os
+
 # Configuration
-BRIDGE_URL = "http://localhost:14141"
+BRIDGE_PORT = os.environ.get("BRIDGE_PORT", "14141")
+BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 REDIS_URL = "redis://localhost:6379"
 TARGET_RPS = 50  # Above the 25 RPS limit
 TEST_QUERY = "Hello, my credit card is 4111-2222-3333-4444 and my email is test@example.com"

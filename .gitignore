@@ -28,7 +28,8 @@ Thumbs.db
 # Database and Test Cache Data
 **/data/
 
-# SQLite Temporary Anchors
+# SQLite Temporary Files
+*.db
 *.anchor
 
 # Tantivy Index Files and Locks
@@ -49,3 +50,5 @@ __pycache__/
 worker/audit_stress_test.db*
 venv/
 test_suites/__pycache__/
+test_env/
+test_audit*
