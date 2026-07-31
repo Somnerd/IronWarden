@@ -358,3 +358,58 @@ def warden_factory(warden_bin, jwt_keys):
             runner.stop(cleanup=True)
         except Exception:
             pass
+
+
+# ── Proxy-specific fixtures ───────────────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def proxy_warden(warden_bin, jwt_keys, mock_upstream):
+    """
+    Module-scoped IronWarden instance for proxy integration tests.
+    Exposes runner.env so tests can access AUDIT_DB_PATH, JWT_PRIVATE_KEY, etc.
+    Pointed at mock_upstream via OPENAI_BASE_URL and ANTHROPIC_BASE_URL.
+    """
+    overrides = {
+        "JWT_PRIVATE_KEY": jwt_keys["private"],
+        "JWT_PUBLIC_KEY": jwt_keys["public"],
+        "OPENAI_BASE_URL": f"{mock_upstream.base_url()}/v1/chat/completions",
+        "ANTHROPIC_BASE_URL": f"{mock_upstream.base_url()}/v1/messages",
+    }
+    runner = IronWardenRunner(warden_bin, env_overrides=overrides)
+    runner.start()
+    yield runner
+    runner.stop(cleanup=True)
+
+
+@pytest.fixture(scope="module")
+def proxy_url(proxy_warden):
+    """Base URL of the proxy_warden instance."""
+    port = proxy_warden.env["BRIDGE_PORT"]
+    return f"http://127.0.0.1:{port}"
+
+
+@pytest.fixture(scope="module")
+def blocked_warden(warden_bin, jwt_keys, mock_upstream):
+    """
+    Module-scoped IronWarden instance configured with the block-test rules file.
+    The rules_block_test.yaml adds an explicit Block action on the sentinel
+    keyword 'IRONWARDEN_BLOCK_THIS', used by hard-block security tests to
+    guarantee that a policy-blocked prompt never reaches the upstream.
+    """
+    import os
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    block_rules_dir = os.path.join(project_root, "config", "rules")
+
+    overrides = {
+        "JWT_PRIVATE_KEY": jwt_keys["private"],
+        "JWT_PUBLIC_KEY": jwt_keys["public"],
+        "OPENAI_BASE_URL": f"{mock_upstream.base_url()}/v1/chat/completions",
+        "ANTHROPIC_BASE_URL": f"{mock_upstream.base_url()}/v1/messages",
+        "WARDEN_CONFIG_PATH": block_rules_dir,
+        # Override manifest to load the block test rules
+        "WARDEN_ACTIVE_RULES": "rules_block_test.yaml",
+    }
+    runner = IronWardenRunner(warden_bin, env_overrides=overrides)
+    runner.start()
+    yield runner
+    runner.stop(cleanup=True)

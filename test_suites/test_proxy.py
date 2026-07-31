@@ -682,6 +682,65 @@ def test_proxy_blocked_prompt_never_reaches_upstream(proxy_url, auth_headers, mo
         pytest.fail(f"Unexpected status {r.status_code}: {r.text}")
 
 
+def test_proxy_hard_blocked_prompt_never_reaches_upstream(mock_upstream, blocked_warden):
+    """
+    HARD SECURITY TEST: A prompt containing the sentinel keyword 'IRONWARDEN_BLOCK_THIS'
+    must trigger is_blocked=true from the policy engine (configured via
+    rules_block_test.yaml with action: Block). IronWarden must return 400 and
+    the mock upstream must receive ZERO requests — no exceptions.
+
+    This is a deterministic test with a guaranteed block, unlike the soft-block
+    test which depends on how InternalAsset category is classified.
+    """
+    import jwt as pyjwt
+    import time
+
+    mock_upstream.drain()
+
+    # Generate auth token for the blocked_warden instance (different port from default proxy_warden)
+    private_key = blocked_warden.env.get("JWT_PRIVATE_KEY", "")
+    token = pyjwt.encode(
+        {
+            "sub": "block_test_user",
+            "exp": int(time.time()) + 3600,
+            "roles": ["admin"],
+            "aud": blocked_warden.env.get("WARDEN_JWT_AUDIENCE", "test_audience"),
+            "iss": blocked_warden.env.get("WARDEN_JWT_ISSUER", "test_issuer"),
+        },
+        private_key,
+        algorithm="RS256",
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    port = blocked_warden.env["BRIDGE_PORT"]
+    blocked_proxy_url = f"http://127.0.0.1:{port}"
+
+    payload = {
+        "model": "gpt-4o",
+        "messages": [
+            {"role": "user", "content": "Please process this: IRONWARDEN_BLOCK_THIS now."}
+        ],
+    }
+    r = requests.post(
+        f"{blocked_proxy_url}/v1/chat/completions",
+        json=payload,
+        headers=headers,
+        timeout=10,
+    )
+
+    # Must be blocked — hard assertion, no dual-mode here
+    assert r.status_code == 400, (
+        f"Expected 400 (policy block) for sentinel keyword, got {r.status_code}. "
+        f"Body: {r.text}"
+    )
+
+    # Upstream must have received ZERO requests — this is the critical invariant
+    upstream_received = mock_upstream.pop_received(timeout=0.5)
+    assert upstream_received is None, (
+        "SECURITY BREACH: Policy-blocked prompt reached upstream LLM! "
+        f"Upstream received: {upstream_received}"
+    )
+
+
 def test_proxy_audit_log_written_after_chat_completion(proxy_url, auth_headers, mock_upstream, proxy_warden):
     """
     After a successful /v1/chat/completions call, the audit_reports table in
