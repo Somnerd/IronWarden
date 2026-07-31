@@ -321,3 +321,39 @@ def jwt_factory(warden):
         }
         return jwt.encode(payload, private_key, algorithm="RS256")
     return _create_token
+
+
+@pytest.fixture(scope="session")
+def warden_factory(warden_bin, jwt_keys):
+    """
+    Session-scoped factory fixture that creates IronWardenRunner instances
+    with custom environment overrides. Used by proxy tests to point IronWarden
+    at a mock upstream LLM server.
+
+    Usage:
+        def test_something(warden_factory, mock_upstream):
+            runner = warden_factory(env_overrides={"OPENAI_BASE_URL": mock_upstream.base_url()})
+            runner.start()
+            yield runner
+            runner.stop()
+    """
+    runners = []
+
+    def _factory(env_overrides=None):
+        overrides = {
+            "JWT_PRIVATE_KEY": jwt_keys["private"],
+            "JWT_PUBLIC_KEY": jwt_keys["public"],
+            **(env_overrides or {}),
+        }
+        runner = IronWardenRunner(warden_bin, env_overrides=overrides)
+        runners.append(runner)
+        return runner
+
+    yield _factory
+
+    # Cleanup all runners created by this factory
+    for runner in runners:
+        try:
+            runner.stop(cleanup=True)
+        except Exception:
+            pass

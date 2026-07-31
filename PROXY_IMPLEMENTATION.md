@@ -867,7 +867,39 @@ version = "1.0.0-rc.1"
 
 ---
 
-## Step 7 — Build & Verify
+## Step 7 — Integration Tests
+
+The integration test file `test_suites/test_proxy.py` is already written and committed.
+The `warden_factory` fixture required by these tests has been added to `test_suites/conftest.py`.
+
+**The tests spin up a local mock HTTP server** (no real OpenAI/Anthropic calls) that:
+- Records every raw payload sent by IronWarden (for PII leak assertions)
+- Returns deterministic fake responses including `[PERSON_1]` placeholders
+- Simulates split-token SSE streams to verify the re-hydration buffer
+
+### 20 tests across 6 groups:
+
+| Group | Tests | What is verified |
+|-------|-------|-----------------|
+| 1. Auth | 3 | Missing token → 401, invalid token → 401 |
+| 2. Non-streaming V-14 | 4 | Raw PII never in upstream payload; placeholder restored in response; system messages scrubbed; benign text unchanged |
+| 3. SSE streaming | 3 | Content-Type: text/event-stream; split `[PER` + `SON_1]` restored; single `[DONE]` sentinel |
+| 4. Anthropic | 4 | Basic response; PII scrubbed; system prompt scrubbed; content-block array format scrubbed |
+| 5. Legacy + models | 2 | `/v1/completions` PII scrubbed; `/v1/models` proxied |
+| 6. Fail-closed | 2 | Unreachable upstream → 502/504; `X-IronWarden-Target-URL` override works |
+
+### Run the tests:
+```bash
+# Run only the proxy tests
+.venv/bin/pytest test_suites/test_proxy.py -v
+
+# Run the full suite (must remain green — no regressions)
+./scripts/ci_local.sh | tee cicd_results.log
+```
+
+---
+
+## Step 8 — Build & Verify
 
 ```bash
 # Must compile cleanly
