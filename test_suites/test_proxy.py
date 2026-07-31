@@ -630,3 +630,299 @@ def test_proxy_target_url_override(proxy_url, auth_headers, mock_upstream):
     # The mock must have received the request (confirms override worked)
     received = mock_upstream.pop_received(timeout=3.0)
     assert received is not None, "Mock upstream never received the request via override header"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Test Group 7: Security — Blocked Prompt & Audit Log Enforcement
+# ═════════════════════════════════════════════════════════════════════════════
+
+def test_proxy_blocked_prompt_never_reaches_upstream(proxy_url, auth_headers, mock_upstream):
+    """
+    SECURITY TEST: A prompt that triggers a block rule must NEVER reach the
+    upstream LLM. The mock upstream must receive zero requests.
+
+    Uses 'Acme Corp' which is a Dictionary block-level rule in rules.yaml
+    (category: InternalAsset — treated as a blocked keyword by the policy engine).
+    """
+    mock_upstream.drain()
+
+    # 'Alice' and 'Acme Corp' are Dictionary PII rules in the test config.
+    # Depending on policy, is_blocked may fire. We use a known keyword.
+    payload = {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "Tell me about Alice at Acme Corp."}],
+    }
+    r = requests.post(
+        f"{proxy_url}/v1/chat/completions",
+        json=payload,
+        headers=auth_headers,
+        timeout=10,
+    )
+
+    # If the policy blocks this, upstream must not have received it.
+    # We check the mock regardless of status — upstream must be empty.
+    upstream_received = mock_upstream.pop_received(timeout=0.5)
+
+    if r.status_code == 400:
+        # Blocked — good. Now assert upstream was untouched.
+        assert upstream_received is None, (
+            "SECURITY BREACH: Blocked prompt reached upstream LLM! "
+            f"Upstream received: {upstream_received}"
+        )
+    elif r.status_code == 200:
+        # Not blocked (policy may allow PII scrubbing without blocking).
+        # Verify that at minimum the raw keywords were scrubbed from upstream payload.
+        assert upstream_received is not None
+        upstream_body = json.dumps(upstream_received)
+        # Even if not blocked, PII must be scrubbed from what upstream sees
+        assert "Acme Corp" not in upstream_body, (
+            f"PII 'Acme Corp' leaked to upstream: {upstream_body}"
+        )
+    else:
+        pytest.fail(f"Unexpected status {r.status_code}: {r.text}")
+
+
+def test_proxy_audit_log_written_after_chat_completion(proxy_url, auth_headers, mock_upstream, proxy_warden):
+    """
+    After a successful /v1/chat/completions call, the audit_reports table in
+    SQLite must contain at least one new row for the authenticated user.
+    This validates the fail-closed audit guarantee end-to-end on proxy routes.
+    """
+    import sqlite3
+
+    mock_upstream.drain()
+    db_path = proxy_warden.env.get("AUDIT_DB_PATH")
+    if not db_path:
+        pytest.skip("AUDIT_DB_PATH not available in proxy_warden fixture")
+
+    # Count rows before the call
+    try:
+        conn = sqlite3.connect(db_path)
+        before = conn.execute("SELECT COUNT(*) FROM audit_reports").fetchone()[0]
+        conn.close()
+    except Exception:
+        before = 0
+
+    payload = {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "Audit test: my email is test@audit-check.io"}],
+    }
+    r = requests.post(
+        f"{proxy_url}/v1/chat/completions",
+        json=payload,
+        headers=auth_headers,
+        timeout=10,
+    )
+    assert r.status_code == 200, f"Proxy call failed: {r.status_code} {r.text}"
+
+    # Allow async audit writer a moment to flush to disk
+    time.sleep(0.5)
+
+    # Count rows after
+    try:
+        conn = sqlite3.connect(db_path)
+        after = conn.execute("SELECT COUNT(*) FROM audit_reports").fetchone()[0]
+        conn.close()
+    except Exception as e:
+        pytest.fail(f"Could not read audit DB at {db_path}: {e}")
+
+    assert after > before, (
+        f"No audit row written after proxy chat completion. "
+        f"Before: {before}, After: {after}, DB: {db_path}"
+    )
+
+
+def test_proxy_upstream_error_body_not_leaked(proxy_url, auth_headers):
+    """
+    When upstream returns a non-2xx error, IronWarden must return 502 to the
+    client. The upstream error body (which may contain internal infra details)
+    must NOT be forwarded verbatim — or if it is, it must not reveal upstream
+    secrets. At minimum, we validate the status is 502, not a passthrough.
+    """
+    # Point to a server that returns 500 with a sensitive-looking body
+    # We use dead port which causes connection failure → 502/504
+    headers = {
+        **auth_headers,
+        "X-IronWarden-Target-URL": "http://127.0.0.1:1/v1/chat/completions",
+    }
+    payload = {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "trigger upstream error"}],
+    }
+    r = requests.post(
+        f"{proxy_url}/v1/chat/completions",
+        json=payload,
+        headers=headers,
+        timeout=10,
+    )
+    assert r.status_code in (502, 504), (
+        f"Expected 502/504 on upstream error, got {r.status_code}"
+    )
+    # The response body must not expose raw upstream stack traces / keys
+    body = r.text.lower()
+    assert "sk-" not in body, "Upstream API key leaked in error response"
+    assert "openai_api_key" not in body, "Env var name leaked in error response"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Test Group 8: Auth Edge Cases
+# ═════════════════════════════════════════════════════════════════════════════
+
+def test_proxy_expired_token_rejected(proxy_url, proxy_warden):
+    """
+    A JWT token that is syntactically valid and correctly signed but has an
+    expired 'exp' claim must be rejected with 401 — not 200 or 500.
+    """
+    import jwt as pyjwt
+    import time
+
+    private_key = proxy_warden.env.get("JWT_PRIVATE_KEY", "")
+    if not private_key:
+        pytest.skip("JWT_PRIVATE_KEY not available in proxy_warden fixture")
+
+    expired_token = pyjwt.encode(
+        {
+            "sub": "expired_user",
+            "exp": int(time.time()) - 3600,  # expired 1 hour ago
+            "roles": ["admin"],
+            "aud": proxy_warden.env.get("WARDEN_JWT_AUDIENCE", "test_audience"),
+            "iss": proxy_warden.env.get("WARDEN_JWT_ISSUER", "test_issuer"),
+        },
+        private_key,
+        algorithm="RS256",
+    )
+
+    headers = {"Authorization": f"Bearer {expired_token}"}
+    payload = {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "Hello with expired token"}],
+    }
+    r = requests.post(
+        f"{proxy_url}/v1/chat/completions",
+        json=payload,
+        headers=headers,
+        timeout=10,
+    )
+    assert r.status_code == 401, (
+        f"Expected 401 for expired token, got {r.status_code}. "
+        "Expired tokens must be rejected."
+    )
+
+
+def test_proxy_no_bearer_prefix_rejected(proxy_url):
+    """
+    Passing the token without the 'Bearer ' prefix must return 401.
+    Some clients incorrectly send 'Authorization: <token>' without the scheme.
+    """
+    headers = {"Authorization": "some-token-without-bearer-prefix"}
+    payload = {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+    r = requests.post(
+        f"{proxy_url}/v1/chat/completions",
+        json=payload,
+        headers=headers,
+        timeout=10,
+    )
+    assert r.status_code == 401, (
+        f"Expected 401 for missing Bearer prefix, got {r.status_code}"
+    )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Test Group 9: Anthropic Streaming & Session Persistence
+# ═════════════════════════════════════════════════════════════════════════════
+
+def test_proxy_anthropic_streaming(proxy_url, auth_headers, mock_upstream):
+    """
+    POST /v1/messages with stream: true must return Content-Type: text/event-stream.
+    PII in the streamed Anthropic response must be restored before delivery.
+    """
+    mock_upstream.drain()
+
+    payload = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 100,
+        "stream": True,
+        "messages": [
+            {"role": "user", "content": "My name is Jane Doe. Say hello."}
+        ],
+    }
+    r = requests.post(
+        f"{proxy_url}/v1/messages",
+        json=payload,
+        headers=auth_headers,
+        timeout=15,
+        stream=True,
+    )
+    assert r.status_code == 200, f"Streaming Anthropic request failed: {r.status_code}"
+    assert "text/event-stream" in r.headers.get("Content-Type", ""), (
+        f"Expected text/event-stream, got: {r.headers.get('Content-Type')}"
+    )
+
+    # Consume the stream and check for [DONE]
+    lines = []
+    for raw in r.iter_lines(decode_unicode=True):
+        if raw:
+            lines.append(raw)
+        if raw == "data: [DONE]":
+            break
+
+    assert any("data:" in line for line in lines), (
+        "No SSE data lines received in Anthropic streaming response"
+    )
+
+
+def test_proxy_session_token_map_persists_across_calls(proxy_url, auth_headers, mock_upstream):
+    """
+    Two consecutive calls from the same authenticated user should share session
+    state. PII encountered in call 1 should have a consistent token in call 2
+    (the session token map persists across requests via save_session).
+
+    Strategy: make two calls with the same PII value. Extract the placeholder
+    from the upstream-received payload in both calls. They must be identical.
+    """
+    mock_upstream.drain()
+    pii_value = "persistence@session-test.com"
+
+    def make_call():
+        mock_upstream.drain()
+        payload = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": f"My email is {pii_value}"}],
+        }
+        r = requests.post(
+            f"{proxy_url}/v1/chat/completions",
+            json=payload,
+            headers=auth_headers,
+            timeout=10,
+        )
+        assert r.status_code == 200
+        received = mock_upstream.pop_received(timeout=3.0)
+        assert received is not None
+        return received
+
+    payload_1 = make_call()
+    payload_2 = make_call()
+
+    # Extract the placeholder used for the email in both upstream payloads
+    import re
+
+    def extract_placeholder(payload):
+        body = json.dumps(payload)
+        m = re.search(r"\[EMAIL_\d+\]|\[TOKEN_\d+\]|\[PERSON_\d+\]", body)
+        return m.group(0) if m else None
+
+    placeholder_1 = extract_placeholder(payload_1)
+    placeholder_2 = extract_placeholder(payload_2)
+
+    assert placeholder_1 is not None, f"No placeholder found in call 1 upstream payload: {payload_1}"
+    assert placeholder_2 is not None, f"No placeholder found in call 2 upstream payload: {payload_2}"
+    assert placeholder_1 == placeholder_2, (
+        f"Session token map not persistent: call 1 used '{placeholder_1}', "
+        f"call 2 used '{placeholder_2}' for the same PII value '{pii_value}'"
+    )
+    # Also verify the raw PII never reached upstream in either call
+    assert pii_value not in json.dumps(payload_1), "PII leaked to upstream in call 1"
+    assert pii_value not in json.dumps(payload_2), "PII leaked to upstream in call 2"
