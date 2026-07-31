@@ -4,8 +4,10 @@ pub mod audit;
 pub mod bridge;
 pub mod librarian;
 pub mod ocr;
+pub mod proxy;
 pub mod router;
 pub mod searchboost;
+pub mod sse_proxy;
 pub mod storage;
 
 pub use audit::AsyncAuditor;

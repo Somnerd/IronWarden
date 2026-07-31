@@ -962,8 +962,12 @@ impl PiiShield for WardenEngine {
             return Ok(response.to_string());
         }
 
-        let keys: Vec<&String> = map.keys().collect();
-        let values: Vec<&String> = map.values().collect();
+        let mut keys = Vec::with_capacity(map.len());
+        let mut values = Vec::with_capacity(map.len());
+        for (k, v) in map {
+            keys.push(k);
+            values.push(v);
+        }
 
         let ac = aho_corasick::AhoCorasick::builder()
             .match_kind(aho_corasick::MatchKind::LeftmostLongest)

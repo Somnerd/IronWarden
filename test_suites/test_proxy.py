@@ -67,65 +67,80 @@ class MockUpstreamHandler(BaseHTTPRequestHandler):
 
         if self.path == "/v1/chat/completions":
             if is_stream:
-                self._send_sse_openai()
+                self._send_sse_openai(parsed)
             else:
-                self._send_openai_chat_response()
+                self._send_openai_chat_response(parsed)
 
         elif self.path == "/v1/completions":
-            self._send_openai_legacy_response()
+            self._send_openai_legacy_response(parsed)
 
         elif self.path == "/v1/messages":
             if is_stream:
-                self._send_sse_anthropic()
+                self._send_sse_anthropic(parsed)
             else:
-                self._send_anthropic_response()
+                self._send_anthropic_response(parsed)
 
         else:
             self._send(404, b"Unknown path")
 
+    def _extract_placeholder(self, parsed):
+        import re
+        s = json.dumps(parsed)
+        m = re.search(r'\[(PERSON_\d+|TOKEN_\d+|EMAIL_\d+)\]', s)
+        if m:
+            return m.group(0)
+        return "[PERSON_1]"
+
     # ── Response builders ──────────────────────────────────────────────────────
 
-    def _send_openai_chat_response(self):
+    def _send_openai_chat_response(self, parsed):
+        placeholder = self._extract_placeholder(parsed)
         body = json.dumps({
             "id": "chatcmpl-test",
             "object": "chat.completion",
             "choices": [{
                 "index": 0,
-                "message": {"role": "assistant", "content": "Hello, [PERSON_1]!"},
+                "message": {"role": "assistant", "content": f"Hello, {placeholder}!"},
                 "finish_reason": "stop"
             }],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
         }).encode()
         self._send(200, body)
 
-    def _send_openai_legacy_response(self):
+    def _send_openai_legacy_response(self, parsed):
+        placeholder = self._extract_placeholder(parsed)
         body = json.dumps({
             "id": "cmpl-test",
             "object": "text_completion",
-            "choices": [{"text": "Hi [PERSON_1]", "index": 0, "finish_reason": "stop"}],
+            "choices": [{"text": f"Hi {placeholder}", "index": 0, "finish_reason": "stop"}],
         }).encode()
         self._send(200, body)
 
-    def _send_anthropic_response(self):
+    def _send_anthropic_response(self, parsed):
+        placeholder = self._extract_placeholder(parsed)
         body = json.dumps({
             "id": "msg_test",
             "type": "message",
             "role": "assistant",
-            "content": [{"type": "text", "text": "Greetings, [PERSON_1]!"}],
+            "content": [{"type": "text", "text": f"Greetings, {placeholder}!"}],
             "stop_reason": "end_turn",
         }).encode()
         self._send(200, body)
 
-    def _send_sse_openai(self):
-        """Simulate a split-token stream: [PERSON_1] arrives across two chunks."""
+    def _send_sse_openai(self, parsed):
+        """Simulate a split-token stream: placeholder arrives across two chunks."""
+        placeholder = self._extract_placeholder(parsed)
+        half = max(1, len(placeholder) // 2)
+        p1 = placeholder[:half]
+        p2 = placeholder[half:]
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
 
         chunks = [
-            json.dumps({"choices": [{"delta": {"content": "Hello [PER"}, "index": 0}]}),
-            json.dumps({"choices": [{"delta": {"content": "SON_1]!"}, "index": 0}]}),
+            json.dumps({"choices": [{"delta": {"content": f"Hello {p1}"}, "index": 0}]}),
+            json.dumps({"choices": [{"delta": {"content": f"{p2}!"}, "index": 0}]}),
             json.dumps({"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]}),
         ]
         for chunk in chunks:
@@ -400,10 +415,10 @@ def test_proxy_chat_streaming_split_token_restored(proxy_url, auth_headers, mock
     """
     mock_upstream.drain()
 
-    # First sanitize so the session knows [PERSON_1] → e.g. "John"
+    # First sanitize so the session knows placeholder → "John Doe"
     setup_payload = {
         "model": "gpt-4o",
-        "messages": [{"role": "user", "content": "My name is John."}],
+        "messages": [{"role": "user", "content": "My name is John Doe."}],
     }
     requests.post(f"{proxy_url}/v1/chat/completions", json=setup_payload, headers=auth_headers)
     mock_upstream.drain()
@@ -411,7 +426,7 @@ def test_proxy_chat_streaming_split_token_restored(proxy_url, auth_headers, mock
     # Now request streaming
     stream_payload = {
         "model": "gpt-4o",
-        "messages": [{"role": "user", "content": "Say hello to John."}],
+        "messages": [{"role": "user", "content": "Say hello to John Doe."}],
         "stream": True,
     }
     r = requests.post(

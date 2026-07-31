@@ -138,6 +138,7 @@ class IronWardenRunner:
         self.env["WARDEN_ENV"] = "test"
         self.env["WARDEN_MODE"] = "hybrid"
         self.env["REMOTE_AUDIT_ENDPOINT"] = "http://127.0.0.1:9999/mock-audit"
+        self.env["WARDEN_MCP_SECRET"] = "test_secret_32_bytes_minimum_length!"
 
         # Generate temporary manifest mapping rules_dir to WARDEN_CONFIG_PATH for tests
         if "WARDEN_CONFIG_PATH" in self.env:
