@@ -4,12 +4,12 @@ use std::sync::Arc;
 use tempfile::tempdir;
 use tokio;
 use warden::WardenConfig;
-use worker::{LocalSessionManager, SearchBoostQueue, WorkerStorage};
+use worker::{GroundingQueue, LocalSessionManager, WorkerStorage};
 
 #[tokio::test]
 async fn test_legal_e2e() {
     let config_dir = "../config/rules";
-    let mut config = WardenConfig::from_manifest("/tmp/manifest_legal.yaml")
+    let mut config = WardenConfig::from_manifest("test_manifest_legal.yaml")
         .expect("Failed to load config manifest")
         .0;
     config.ai_enabled = false;
@@ -20,7 +20,7 @@ async fn test_legal_e2e() {
 
     let shield: Arc<dyn PiiShield + Send + Sync> = Arc::new(engine);
     let queue = Arc::new(
-        SearchBoostQueue::new(
+        GroundingQueue::new(
             "file::memory:?cache=shared".to_string(),
             &secret,
             Some(shield.clone()),

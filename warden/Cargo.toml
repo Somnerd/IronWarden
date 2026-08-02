@@ -1,6 +1,6 @@
 [package]
 name = "iw-warden"
-version = "0.1.52-alpha"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
@@ -20,6 +20,7 @@ tokio = { version = "1.37", features = ["rt", "rt-multi-thread", "time", "net", 
 ort = { version = "2.0.0-rc.12", features = ["load-dynamic"] }
 tokenizers = "0.19"
 async-trait = "0.1"
+futures = "0.3"
 console = { version = "0.16", features = ["std"] }
 aes-gcm = "0.10"
 aead = "0.5"

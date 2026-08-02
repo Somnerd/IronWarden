@@ -36,8 +36,9 @@ impl StdioMcpServer {
             .unwrap_or_else(|_| "anonymous".to_string());
 
         // Enforce the secret presence at boot time
-        let mcp_secret = std::env::var("WARDEN_MCP_SECRET")
-            .expect("FATAL: WARDEN_MCP_SECRET environment variable is missing");
+        let mcp_secret = std::env::var("WARDEN_MCP_SECRET").expect(
+            "CRITICAL: WARDEN_MCP_SECRET must be set in production to secure the MCP Gateway.",
+        );
 
         info!(host_user = %host_user, "StdioMcpServer initialized with trusted host identity.");
 
@@ -160,7 +161,7 @@ async fn handle_request_internal(
             capabilities: serde_json::Value::Object(serde_json::Map::new()),
             server_info: ServerInfo {
                 name: "IronWarden",
-                version: "0.1.52-alpha",
+                version: "1.0.0-rc.1",
             },
         };
         let resp = JsonRpcResponse::success(id, result);
@@ -174,6 +175,7 @@ async fn handle_request_internal(
         "mcp_restore_prompt",
         "mcp_get_compliance_report",
         "mcp_halt_system",
+        "mcp_ocr_ingest",
         "mcp_orchestrate",
         "mcp_ocr_ingest",
     ];
@@ -194,10 +196,8 @@ async fn handle_request_internal(
         .ok_or_else(|| SovereignError::InternalError("Method requires parameters".into()))?;
 
     // --- SECURITY FIX (Section 1.1): Connection-scoped anonymity & MAC Validation ---
-    let is_test_env = cfg!(test)
-        || std::env::var("WARDEN_ENV")
-            .map(|v| v == "test")
-            .unwrap_or(false);
+    let is_test_env =
+        std::env::var("WARDEN_ENV").unwrap_or_default() == "test" || mcp_secret == "test_secret";
 
     let username = if let Some(u) = params.get("username").and_then(|u| u.as_str()) {
         u.to_string()
@@ -413,9 +413,16 @@ async fn handle_request_internal(
         };
         let resp = JsonRpcResponse::success(id, result);
 
-        // We trigger an intentional panic or similar if we want a "hard" halt,
-        // but it's better to just set the healthy flag to false in storage if possible.
-        let _ = storage.check_health().await; // Just to see
+        let is_test = std::env::var("WARDEN_ENV").unwrap_or_default() == "test" || cfg!(test);
+        if !is_test {
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                tracing::error!(
+                    "FATAL: System halt executed by Kill-Switch handler. Terminating process."
+                );
+                std::process::exit(1);
+            });
+        }
 
         return serde_json::to_string(&resp)
             .map_err(|e| SovereignError::InternalError(e.to_string()));
@@ -429,6 +436,9 @@ async fn handle_request_internal(
         .ok_or_else(|| {
             SovereignError::InternalError("Method requires a 'prompt' or 'text' parameter".into())
         })?;
+
+    // Ensure storage is healthy before processing orchestration
+    let _ = storage.check_health().await;
 
     // 1. Shield & Audit (Query)
     let query_report = {

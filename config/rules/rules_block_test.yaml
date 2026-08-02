@@ -1,0 +1,12 @@
+rules:
+  - id: "block_test_keyword"
+    pattern: "IRONWARDEN_BLOCK_THIS"
+    type: "Dictionary"
+    category: "InternalAsset"
+    action: Block
+
+  - id: "email_address"
+    pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    type: "Regex"
+    category: "ContactInfo"
+    action: Redact

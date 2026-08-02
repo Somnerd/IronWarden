@@ -35,7 +35,7 @@ pub enum DbCommand {
 }
 
 #[derive(Clone)]
-pub struct SearchBoostQueue {
+pub struct GroundingQueue {
     #[allow(dead_code)]
     db_path: String,
     pepper: Arc<SecretVec<u8>>,
@@ -50,7 +50,7 @@ pub struct SearchBoostQueue {
     results: Arc<DashMap<String, (String, Vec<u8>)>>,
 }
 
-impl SearchBoostQueue {
+impl GroundingQueue {
     pub fn new(
         db_path: String,
         pepper: &SecretVec<u8>,
@@ -91,12 +91,12 @@ impl SearchBoostQueue {
                 status TEXT DEFAULT 'pending',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
-        ").map_err(|e| SovereignError::StorageError(format!("Failed to initialize SearchBoost table: {}", e)))?;
+        ").map_err(|e| SovereignError::StorageError(format!("Failed to initialize Grounding table: {}", e)))?;
 
         let redis_url = std::env::var("REDIS_URL").ok();
         let redis_client = redis_url.and_then(|url| redis::Client::open(url).ok());
         if redis_client.is_some() {
-            info!("Redis HA Backend: ENABLED for SearchBoost Queue.");
+            info!("Redis HA Backend: ENABLED for Grounding Queue.");
         }
 
         let (tx, rx) = flume::unbounded();
@@ -209,7 +209,7 @@ impl SearchBoostQueue {
             loop {
                 if let Err(e) = queue.process_next_job(librarian.clone()).await {
                     if !matches!(e, SovereignError::DatabaseBusy(_)) {
-                        error!("SearchBoost Worker Error: {}", e);
+                        error!("Grounding Worker Error: {}", e);
                     }
                 }
             }
@@ -290,7 +290,7 @@ impl SearchBoostQueue {
             // 2. Perform Search (RAG)
             // --- SECURITY FIX (V-14 / WP-97): RAW Query Side-Channel REMOVED ---
             // Grounding now uses exclusively the sanitized query to prevent PII leakage into the RAG pipeline.
-            info!(job_id = %id, user = %username, "Processing SearchBoost job (Sanitized Grounding)...");
+            info!(job_id = %id, user = %username, "Processing Grounding job (Sanitized Grounding)...");
             let results = librarian
                 .retrieve_policy_context(&sanitized_query, &username, 3)
                 .await
@@ -348,7 +348,7 @@ impl SearchBoostQueue {
             self.results
                 .insert(id.clone(), (username.clone(), encrypted_result));
 
-            info!(job_id = %id, "SearchBoost job completed and encrypted.");
+            info!(job_id = %id, "Grounding job completed and encrypted.");
         }
 
         Ok(())
@@ -414,21 +414,21 @@ impl SearchBoostQueue {
             error!("Failed to push job to local channel: {}", e);
         }
 
-        info!(job_id = %job_id, "Successfully enqueued encrypted SearchBoost job (Sanitized)");
+        info!(job_id = %job_id, "Successfully enqueued encrypted Grounding job (Sanitized)");
 
         Ok(job_id)
     }
 
     pub async fn shutdown(&self) {
         info!(
-            "SearchBoostQueue: Initiating graceful shutdown, flushing {} remaining jobs to DB...",
+            "GroundingQueue: Initiating graceful shutdown, flushing {} remaining jobs to DB...",
             self.db_tx.len()
         );
         while self.db_tx.len() > 0 {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
-        info!("SearchBoostQueue: Shutdown complete. All jobs successfully persisted.");
+        info!("GroundingQueue: Shutdown complete. All jobs successfully persisted.");
     }
 
     pub async fn get_result(
@@ -477,7 +477,7 @@ impl SearchBoostQueue {
                 let mut stmt = conn.prepare("SELECT username, result FROM search_jobs WHERE id = ?1 AND status = 'complete'").map_err(|e| SovereignError::StorageError(e.to_string()))?;
                 let mut rows = stmt.query([job_id_str]).map_err(|e| {
                     if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == ErrorCode::DatabaseBusy) {
-                        SovereignError::DatabaseBusy("SearchBoost Query busy".into())
+                        SovereignError::DatabaseBusy("Grounding Query busy".into())
                     } else {
                         SovereignError::StorageError(e.to_string())
                     }
@@ -795,7 +795,7 @@ mod tests {
     async fn test_searchboost_cross_user_isolation_v19() {
         let db_path = format!("sb_test_isolation_{}.db", uuid::Uuid::new_v4());
         let pepper = SecretVec::from(vec![0u8; 32]);
-        let queue = SearchBoostQueue::new(db_path.clone(), &pepper, None, None).unwrap();
+        let queue = GroundingQueue::new(db_path.clone(), &pepper, None, None).unwrap();
 
         let job_id = queue
             .enqueue("query".into(), HashMap::new(), "th1".into(), "userA".into())
@@ -830,7 +830,7 @@ mod tests {
         let res_b = queue.get_result(&job_id, "userB", false).await;
         assert!(
             res_b.is_err(),
-            "Cross-user data leakage detected in SearchBoost get_result!"
+            "Cross-user data leakage detected in Grounding get_result!"
         );
         assert!(res_b
             .unwrap_err()
@@ -851,7 +851,7 @@ mod tests {
     async fn test_searchboost_fifo_ordering() {
         let db_path = format!("sb_test_fifo_{}.db", uuid::Uuid::new_v4());
         let pepper = SecretVec::from(vec![0u8; 32]);
-        let queue = SearchBoostQueue::new(db_path.clone(), &pepper, None, None).unwrap();
+        let queue = GroundingQueue::new(db_path.clone(), &pepper, None, None).unwrap();
 
         let job1 = queue
             .enqueue(
@@ -898,7 +898,7 @@ mod tests {
     async fn test_searchboost_graceful_shutdown() {
         let db_path = format!("sb_test_shutdown_{}.db", uuid::Uuid::new_v4());
         let pepper = SecretVec::from(vec![0u8; 32]);
-        let queue = SearchBoostQueue::new(db_path.clone(), &pepper, None, None).unwrap();
+        let queue = GroundingQueue::new(db_path.clone(), &pepper, None, None).unwrap();
 
         // Enqueue many jobs rapidly
         for i in 0..100 {
@@ -936,7 +936,7 @@ mod tests {
 
         // Point to a dead port to simulate Redis connection failure
         std::env::set_var("REDIS_URL", "redis://127.0.0.1:9999");
-        let queue = SearchBoostQueue::new(db_path.clone(), &pepper, None, None).unwrap();
+        let queue = GroundingQueue::new(db_path.clone(), &pepper, None, None).unwrap();
 
         // Enqueue should fallback to SQLite seamlessly
         let job = queue

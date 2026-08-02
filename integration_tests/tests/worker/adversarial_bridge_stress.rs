@@ -93,7 +93,7 @@ cwIDAQAB
         shield: engine.clone(),
         grounding_shield: engine.clone(),
         queue: Arc::new(
-            worker::SearchBoostQueue::new(
+            worker::GroundingQueue::new(
                 db_path.clone(),
                 &pepper,
                 Some(engine.clone()),

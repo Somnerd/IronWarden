@@ -1,6 +1,6 @@
 [package]
 name = "worker"
-version = "0.1.52-alpha"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
@@ -10,7 +10,9 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 tokio-rusqlite = "0.7"
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["full"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+tokio-stream = "0.1"
+bytes = "1.0"
 serde_json = "1.0"
 tracing = "0.1"
 hmac = "0.12"
@@ -59,6 +61,6 @@ tower = { version = "0.4.13", features = ["util"] }
 http-body-util = "0.1.0"
 
 [[bench]]
-name = "searchboost_benchmark"
+name = "grounding_benchmark"
 harness = false
 

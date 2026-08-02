@@ -294,7 +294,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
 
-    let queue = Arc::new(worker::SearchBoostQueue::new(
+    let queue = Arc::new(worker::GroundingQueue::new(
         audit_db_path.clone(),
         &global_pepper,
         Some(shield.clone()),

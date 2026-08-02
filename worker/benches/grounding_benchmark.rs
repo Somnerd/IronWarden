@@ -3,10 +3,10 @@ use secrecy::SecretVec;
 use std::collections::HashMap;
 
 use tempfile::NamedTempFile;
-use worker::searchboost::SearchBoostQueue;
+use worker::grounding::GroundingQueue;
 
 fn bench_enqueue(c: &mut Criterion) {
-    let mut group = c.benchmark_group("searchboost_queue");
+    let mut group = c.benchmark_group("grounding_queue");
     group.bench_function("enqueue_job", |b| {
         b.iter(|| {
             // Disabled due to CI deadlock with Tokio runtime drop
