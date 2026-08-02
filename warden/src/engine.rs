@@ -93,7 +93,9 @@ async fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
                 SovereignError::InternalError("Failed to serialize Guardrail payload".into())
             })?;
 
-            if let Err(e) = tokio::time::timeout(timeout_duration, stream.write_all(payload.as_bytes())).await {
+            if let Err(e) =
+                tokio::time::timeout(timeout_duration, stream.write_all(payload.as_bytes())).await
+            {
                 warn!("ML Guardrail Sidecar write timed out or failed: {}. Enforcing fail-closed policy.", e);
                 return Err(SovereignError::UnauthorizedAccess(
                     "ML Guardrail Sidecar write timed out — Fail-Closed Policy enforced".into(),
@@ -124,7 +126,8 @@ async fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
                 "ML Guardrail Sidecar unreachable or timed out. Enforcing fail-closed policy (SEC-01)."
             );
             Err(SovereignError::UnauthorizedAccess(
-                "ML Guardrail Sidecar unreachable or timed out — Fail-Closed Policy enforced".into(),
+                "ML Guardrail Sidecar unreachable or timed out — Fail-Closed Policy enforced"
+                    .into(),
             ))
         }
     }
