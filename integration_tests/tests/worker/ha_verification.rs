@@ -1,6 +1,6 @@
-// Integration tests verifying SearchBoostQueue initialization behavior under High Availability (HA) detection, confirming it starts correctly both with and without the `REDIS_URL` environment variable.
+// Integration tests verifying GroundingQueue initialization behavior under High Availability (HA) detection, confirming it starts correctly both with and without the `REDIS_URL` environment variable.
 use secrecy::SecretVec;
-use worker::searchboost::SearchBoostQueue;
+use worker::grounding::GroundingQueue;
 
 #[tokio::test]
 async fn test_ha_logic_detection() {
@@ -8,7 +8,7 @@ async fn test_ha_logic_detection() {
     std::env::set_var("REDIS_URL", "redis://localhost:6379");
 
     let pepper = SecretVec::from(vec![0u8; 32]);
-    let _queue = SearchBoostQueue::new("test_ha.db".to_string(), &pepper, None, None).unwrap();
+    let _queue = GroundingQueue::new("test_ha.db".to_string(), &pepper, None, None).unwrap();
 
     // System didn't panic - good.
 
@@ -24,7 +24,7 @@ async fn test_ha_logic_disabled_without_env() {
     std::env::remove_var("REDIS_URL");
 
     let pepper = SecretVec::from(vec![0u8; 32]);
-    let _queue = SearchBoostQueue::new("test_no_ha.db".to_string(), &pepper, None, None).unwrap();
+    let _queue = GroundingQueue::new("test_no_ha.db".to_string(), &pepper, None, None).unwrap();
 
     // Cleanup
     let _ = std::fs::remove_file("test_no_ha.db");

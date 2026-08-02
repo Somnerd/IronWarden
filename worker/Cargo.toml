@@ -61,6 +61,6 @@ tower = { version = "0.4.13", features = ["util"] }
 http-body-util = "0.1.0"
 
 [[bench]]
-name = "searchboost_benchmark"
+name = "grounding_benchmark"
 harness = false
 

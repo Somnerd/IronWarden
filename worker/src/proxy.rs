@@ -1,6 +1,6 @@
 //! Shared types and helpers for the IronWarden Universal Proxy routes.
 
-use crate::searchboost::LocalSessionManager;
+use crate::grounding::LocalSessionManager;
 use axum::http::{HeaderMap, StatusCode};
 use iw_core::crypto::JwtVerifier;
 use iw_core::{SessionContext, TokenMap};

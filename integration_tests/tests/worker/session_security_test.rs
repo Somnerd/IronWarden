@@ -4,7 +4,7 @@ use iw_core::PiiCategory;
 use iw_core::SessionContext;
 use secrecy::SecretVec;
 use std::sync::Arc;
-use worker::searchboost::LocalSessionManager;
+use worker::grounding::LocalSessionManager;
 
 #[tokio::test]
 async fn test_v19_session_swap_integrity() {

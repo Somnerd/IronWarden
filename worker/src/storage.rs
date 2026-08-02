@@ -1,6 +1,6 @@
 use crate::audit::AsyncAuditor;
+use crate::grounding::GroundingQueue;
 use crate::librarian::LocalLibrarian;
-use crate::searchboost::SearchBoostQueue;
 use async_trait::async_trait;
 use iw_core::{ComplianceReport, ScrubbingReport, SovereignError, StorageProvider};
 use secrecy::SecretVec;
@@ -11,7 +11,7 @@ use tracing::info;
 /// The "Librarian" aggregator that provides the full StorageProvider trait implementation.
 pub struct WorkerStorage {
     auditor: AsyncAuditor,
-    sb_queue: Option<SearchBoostQueue>,
+    grounding_queue: Option<GroundingQueue>,
     librarian: Arc<LocalLibrarian>,
     #[allow(dead_code)]
     db_path: String,
@@ -23,7 +23,7 @@ impl WorkerStorage {
         audit_db_path: &str,
         knowledge_base_path: &str,
         pepper: SecretVec<u8>,
-        sb_queue: Option<SearchBoostQueue>,
+        grounding_queue: Option<GroundingQueue>,
         remote_forwarder: Option<Arc<dyn crate::audit::RemoteAuditForwarder>>,
     ) -> Result<Self, SovereignError> {
         // Await the spawn to ensure DB is writable before boot
@@ -50,15 +50,15 @@ impl WorkerStorage {
 
         let storage = Self {
             auditor,
-            sb_queue: sb_queue.clone(),
+            grounding_queue: grounding_queue.clone(),
             librarian: Arc::new(librarian),
             db_path: audit_db_path.to_string(),
             conn: conn.clone(),
         };
 
-        if let Some(queue) = sb_queue {
+        if let Some(queue) = grounding_queue {
             queue.spawn_worker(storage.librarian.clone());
-            info!("SearchBoost background worker ignited.");
+            info!("Grounding background worker ignited.");
         }
 
         let db_path_clone = audit_db_path.to_string();
@@ -143,8 +143,8 @@ impl WorkerStorage {
             )));
         }
 
-        let queue = self.sb_queue.as_ref().ok_or_else(|| {
-            SovereignError::StorageError("SearchBoost Queue not initialized".into())
+        let queue = self.grounding_queue.as_ref().ok_or_else(|| {
+            SovereignError::StorageError("Grounding Queue not initialized".into())
         })?;
 
         let job_id = queue
