@@ -572,11 +572,9 @@ impl PiiShield for WardenEngine {
                         tokio::runtime::RuntimeFlavor::CurrentThread => {
                             futures::executor::block_on(pool.get())
                         }
-                        _ => {
-                            tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(pool.get())
-                            })
-                        }
+                        _ => tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(pool.get())
+                        }),
                     };
                     if let Some(ai_instance) = ai_instance_opt {
                         if let Some(ai_entity) =

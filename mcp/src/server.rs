@@ -416,7 +416,9 @@ async fn handle_request_internal(
         if !is_test {
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                tracing::error!("FATAL: System halt executed by Kill-Switch handler. Terminating process.");
+                tracing::error!(
+                    "FATAL: System halt executed by Kill-Switch handler. Terminating process."
+                );
                 std::process::exit(1);
             });
         }
