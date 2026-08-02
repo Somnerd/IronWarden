@@ -36,8 +36,9 @@ impl StdioMcpServer {
             .unwrap_or_else(|_| "anonymous".to_string());
 
         // Enforce the secret presence at boot time
-        let mcp_secret = std::env::var("WARDEN_MCP_SECRET")
-            .expect("CRITICAL: WARDEN_MCP_SECRET must be set in production to secure the MCP Gateway.");
+        let mcp_secret = std::env::var("WARDEN_MCP_SECRET").expect(
+            "CRITICAL: WARDEN_MCP_SECRET must be set in production to secure the MCP Gateway.",
+        );
 
         info!(host_user = %host_user, "StdioMcpServer initialized with trusted host identity.");
 
