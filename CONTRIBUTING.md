@@ -2,6 +2,8 @@
 
 Thank you for your interest in contributing to **IronWarden**! IronWarden is a high-performance, security-focused Sovereign AI Data Protection Gateway written in Rust.
 
+By contributing to this project, you agree that your contributions will be licensed under the project's AGPLv3 license (the "inbound=outbound" principle). You retain copyright to your own contributions, but grant the project the right to use and distribute them under these terms.
+
 We welcome community contributions, bug fixes, documentation improvements, and security enhancements.
 
 ---

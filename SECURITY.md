@@ -17,11 +17,11 @@ We provide security updates and patches for the following releases:
 
 ## 🔒 Reporting a Vulnerability
 
-If you discover a security vulnerability or security invariant breach in IronWarden, **please do NOT open a public GitHub issue**.
+If you discover a security vulnerability or security invariant breach in IronWarden, **please do NOT open a public GitHub issue**, it should be contacted through private channels. For any other type of issue (e.g., Performance, User Experience, etc.), please go through GitHub Issues so the community can check if someone else has already opened the same issue.
 
 ### How to Privately Disclose:
 1. **GitHub Private Advisory (Preferred)**: Submit a report via [GitHub Security Advisories](https://github.com/Somnerd/IronWarden/security/advisories/new).
-2. **Direct Email**: Send an encrypted report to **nikolas@ironwarden.io** or contact **Somnerd**.
+2. **Direct Email**: Send a report to **nikolasalexandrakis.work@gmail.com** or contact **Somnerd**.
 
 ### What to Include in Your Report:
 * Description of the vulnerability or security invariant failure (e.g. PII leak, side-channel, MAC forgery).
@@ -32,14 +32,7 @@ If you discover a security vulnerability or security invariant breach in IronWar
 
 ## ⏱️ Response SLA
 
-We adhere to the following response timeline for security reports:
-
-| Milestone | SLA Target |
-| :--- | :--- |
-| **Initial Acknowledgment** | Within **48 hours** |
-| **Triage & Severity Assessment** | Within **5 business days** |
-| **Fix Release (Critical / High)** | Within **14 days** |
-| **Fix Release (Medium / Low)** | Within **30 days** |
+We adhere to no strict timeline for security reports since this is a free, unpaid side project, and the maintainer has a life and a family. However, I will try to the best of my abilities to handle security reports and issues as quickly and efficiently as I can.
 
 ---
 

@@ -37,7 +37,7 @@ impl StdioMcpServer {
 
         // Enforce the secret presence at boot time
         let mcp_secret = std::env::var("WARDEN_MCP_SECRET")
-            .unwrap_or_else(|_| "dummy_mcp_secret_value_for_testing_purposes".to_string());
+            .expect("CRITICAL: WARDEN_MCP_SECRET must be set in production to secure the MCP Gateway.");
 
         info!(host_user = %host_user, "StdioMcpServer initialized with trusted host identity.");
 
@@ -435,6 +435,9 @@ async fn handle_request_internal(
         .ok_or_else(|| {
             SovereignError::InternalError("Method requires a 'prompt' or 'text' parameter".into())
         })?;
+
+    // Ensure storage is healthy before processing orchestration
+    let _ = storage.check_health().await;
 
     // 1. Shield & Audit (Query)
     let query_report = {

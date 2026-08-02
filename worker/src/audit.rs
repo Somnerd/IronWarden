@@ -72,6 +72,140 @@ impl HttpAuditForwarder {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+    use sha2::Digest;
+    use iw_core::{Redaction, EnforcementAction, traits::PiiCategory};
+
+    fn create_test_db(path: &str, genesis: &[u8; 32], hmac_key: &[u8; 32]) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS audit_reports (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', is_blocked BOOLEAN, redactions_json TEXT, payload_hash TEXT, integrity_hash TEXT)", []).unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS ephemeral_raw_logs (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', encrypted_data BLOB, nonce BLOB)", []).unwrap();
+        
+        let ts = "2023-10-10 10:10:10";
+        let username = "alice";
+        let is_blocked = false;
+        let redactions = vec![Redaction {
+            rule_id: "test_rule".to_string(),
+            action: EnforcementAction::Redact,
+            offset: 0,
+            length: 4,
+            placeholder: "[TEST]".to_string(),
+            category: PiiCategory::Other,
+        }];
+        let redactions_json = serde_json::to_string(&redactions).unwrap();
+        let redactions_bin = bincode::serialize(&redactions).unwrap();
+        
+        let payload = b"test payload";
+        let nonce = vec![0u8; 12];
+        let mut hasher = Sha256::new();
+        hasher.update(payload);
+        hasher.update(&nonce);
+        let payload_hash = hasher.finalize();
+        
+        let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key).unwrap();
+        mac.update(genesis);
+        mac.update(ts.as_bytes());
+        mac.update(username.as_bytes());
+        mac.update(&[is_blocked as u8]);
+        mac.update(&redactions_bin);
+        mac.update(&payload_hash);
+        let integrity_hash = mac.finalize().into_bytes().to_vec();
+        
+        conn.execute(
+            "INSERT INTO ephemeral_raw_logs (id, timestamp, username, encrypted_data, nonce) VALUES (?1, ?2, ?3, ?4, ?5)",
+            (1, ts, username, payload.to_vec(), nonce.clone())
+        ).unwrap();
+        
+        conn.execute(
+            "INSERT INTO audit_reports (id, timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (1, ts, username, is_blocked, &redactions_json, hex::encode(&payload_hash), hex::encode(&integrity_hash))
+        ).unwrap();
+        
+        AsyncAuditor::update_anchor(path, 1, &integrity_hash).unwrap();
+    }
+
+    #[test]
+    fn test_hmac_chain_integrity_walk_success() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let genesis = [0u8; 32];
+        let hmac_key = [1u8; 32];
+        
+        create_test_db(path, &genesis, &hmac_key);
+        
+        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
+        assert!(result.is_ok(), "init_db should succeed on valid DB");
+    }
+
+    #[test]
+    fn test_hmac_chain_integrity_walk_tampered_username() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let genesis = [0u8; 32];
+        let hmac_key = [1u8; 32];
+        
+        create_test_db(path, &genesis, &hmac_key);
+        let conn = Connection::open(path).unwrap();
+        conn.execute("UPDATE audit_reports SET username = 'bob' WHERE id = 1", []).unwrap();
+        drop(conn);
+        
+        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
+        assert!(result.is_err(), "init_db should fail on tampered username");
+    }
+
+    #[test]
+    fn test_hmac_chain_integrity_walk_tampered_is_blocked() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let genesis = [0u8; 32];
+        let hmac_key = [1u8; 32];
+        
+        create_test_db(path, &genesis, &hmac_key);
+        let conn = Connection::open(path).unwrap();
+        conn.execute("UPDATE audit_reports SET is_blocked = 1 WHERE id = 1", []).unwrap();
+        drop(conn);
+        
+        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
+        assert!(result.is_err(), "init_db should fail on tampered is_blocked");
+    }
+
+    #[test]
+    fn test_aes_256_gcm_payload_binding_tampered_payload() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let genesis = [0u8; 32];
+        let hmac_key = [1u8; 32];
+        
+        create_test_db(path, &genesis, &hmac_key);
+        let conn = Connection::open(path).unwrap();
+        conn.execute("UPDATE ephemeral_raw_logs SET encrypted_data = x'deadbeef' WHERE id = 1", []).unwrap();
+        drop(conn);
+        
+        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
+        assert!(result.is_err(), "init_db should fail on tampered payload");
+    }
+
+    #[test]
+    fn test_aes_256_gcm_payload_binding_tampered_nonce() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let genesis = [0u8; 32];
+        let hmac_key = [1u8; 32];
+        
+        create_test_db(path, &genesis, &hmac_key);
+        let conn = Connection::open(path).unwrap();
+        // Since nonce was 12 bytes of 0s, 12 bytes of 1s will be a valid length but wrong value
+        conn.execute("UPDATE ephemeral_raw_logs SET nonce = x'010101010101010101010101' WHERE id = 1", []).unwrap();
+        drop(conn);
+        
+        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
+        assert!(result.is_err(), "init_db should fail on tampered nonce");
+    }
+}
+
 #[async_trait::async_trait]
 impl RemoteAuditForwarder for HttpAuditForwarder {
     async fn forward_log(
@@ -736,7 +870,7 @@ impl AsyncAuditor {
 }
 
 #[cfg(test)]
-mod tests {
+mod additional_audit_tests {
     use super::*;
     use iw_core::{ScrubbingReport, TokenMap};
     use secrecy::SecretVec;
