@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tempfile::tempdir;
 use tokio::time::{sleep, Duration};
 use warden::WardenConfig;
-use worker::{LocalSessionManager, SearchBoostQueue, WorkerStorage};
+use worker::{GroundingQueue, LocalSessionManager, WorkerStorage};
 
 #[tokio::test]
 async fn test_v19_session_isolation_aad_adversarial() {
@@ -109,7 +109,7 @@ rules:
 
     // Create queue AND worker properly
     let queue = Arc::new(
-        SearchBoostQueue::new(db_path.clone(), &pepper1, Some(shield.clone()), None).unwrap(),
+        GroundingQueue::new(db_path.clone(), &pepper1, Some(shield.clone()), None).unwrap(),
     );
     let storage = WorkerStorage::new(&db_path, &kb_path, pepper2, Some((*queue).clone()), None)
         .await

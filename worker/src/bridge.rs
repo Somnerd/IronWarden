@@ -838,7 +838,7 @@ mod tests {
         let token = encode(&Header::new(Algorithm::RS256), &claims, &key).unwrap();
 
         let pepper = SecretVec::from(vec![0u8; 32]);
-        let queue = SearchBoostQueue::new(
+        let queue = GroundingQueue::new(
             "file::memory:?cache=shared".to_string(),
             &pepper,
             None,

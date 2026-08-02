@@ -5,7 +5,7 @@ use mcp::StdioMcpServer;
 use secrecy::{ExposeSecret, SecretVec};
 use std::sync::Arc;
 use tempfile::tempdir;
-use worker::{LocalSessionManager, SearchBoostQueue, WorkerStorage};
+use worker::{GroundingQueue, LocalSessionManager, WorkerStorage};
 
 struct MockRouter;
 #[async_trait]
@@ -30,7 +30,7 @@ async fn test_mcp_full_pipeline_with_tantivy() {
 
     // 1. Setup Components
     let session_manager = LocalSessionManager::new(db_path.clone(), &pepper).unwrap();
-    let queue = SearchBoostQueue::new(db_path.clone(), &pepper, None, None).unwrap();
+    let queue = GroundingQueue::new(db_path.clone(), &pepper, None, None).unwrap();
 
     // Create a new SecretVec for storage as it takes ownership
     let storage_pepper = SecretVec::new(pepper.expose_secret().clone());

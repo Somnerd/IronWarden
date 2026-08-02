@@ -1,6 +1,6 @@
 [package]
 name = "iw-warden"
-version = "0.1.52-alpha"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]

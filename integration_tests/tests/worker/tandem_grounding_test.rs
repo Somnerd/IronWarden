@@ -4,7 +4,7 @@ use iw_warden::WardenEngine;
 use secrecy::SecretVec;
 use std::collections::HashMap;
 use std::sync::Arc;
-use worker::{LocalLibrarian, SearchBoostQueue};
+use worker::{GroundingQueue, LocalLibrarian};
 
 #[tokio::test]
 async fn test_v14_leak_prevention_enforced() {
@@ -55,7 +55,7 @@ async fn test_v14_leak_prevention_enforced() {
     let shield = Arc::new(engine);
 
     // 3. Setup Queue (GroundingShield is no longer used for side-channel)
-    let queue = SearchBoostQueue::new(db_path, &pepper, Some(shield.clone()), None).unwrap();
+    let queue = GroundingQueue::new(db_path, &pepper, Some(shield.clone()), None).unwrap();
 
     // 4. Test Scenario: V-14 Mandatory Sanitization
     let username = "test_user";
@@ -116,7 +116,7 @@ async fn test_aad_binding_integrity() {
         .to_string();
     let pepper = SecretVec::new(vec![0u8; 32]);
 
-    let queue = SearchBoostQueue::new(db_path, &pepper, None, None).unwrap();
+    let queue = GroundingQueue::new(db_path, &pepper, None, None).unwrap();
     let username = "alice";
     let query = "Sensitive query for Alice";
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tempfile::tempdir;
 use tokio;
 use warden::WardenConfig;
-use worker::{LocalSessionManager, SearchBoostQueue, WorkerStorage};
+use worker::{GroundingQueue, LocalSessionManager, WorkerStorage};
 
 #[tokio::test]
 async fn test_legal_e2e() {
@@ -20,7 +20,7 @@ async fn test_legal_e2e() {
 
     let shield: Arc<dyn PiiShield + Send + Sync> = Arc::new(engine);
     let queue = Arc::new(
-        SearchBoostQueue::new(
+        GroundingQueue::new(
             "file::memory:?cache=shared".to_string(),
             &secret,
             Some(shield.clone()),
