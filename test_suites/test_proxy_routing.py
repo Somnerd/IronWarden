@@ -71,6 +71,7 @@ class RoutingMockHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        self.server.received_payloads.put({"path": self.path, "body": {}})
         body = json.dumps({"object": "list", "data": []}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

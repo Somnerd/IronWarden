@@ -184,8 +184,14 @@ mod tests {
 
     #[test]
     fn test_routing_header_override_takes_priority() {
-        let h = headers_with("X-IronWarden-Target-URL", "http://custom-override.example.com");
-        assert_eq!(resolve_upstream_url(&h, "claude-3"), "http://custom-override.example.com");
+        let h = headers_with(
+            "X-IronWarden-Target-URL",
+            "http://custom-override.example.com",
+        );
+        assert_eq!(
+            resolve_upstream_url(&h, "claude-3"),
+            "http://custom-override.example.com"
+        );
     }
 
     #[test]
@@ -271,9 +277,9 @@ mod tests {
         combined.insert("a".to_string(), "1".to_string());
         let mut addition = HashMap::new();
         addition.insert("b".to_string(), "2".to_string());
-        
+
         merge_token_map(&mut combined, &addition);
-        
+
         assert_eq!(combined.get("a").unwrap(), "1");
         assert_eq!(combined.get("b").unwrap(), "2");
         assert_eq!(combined.len(), 2);
@@ -285,9 +291,9 @@ mod tests {
         combined.insert("a".to_string(), "1".to_string());
         let mut addition = HashMap::new();
         addition.insert("a".to_string(), "2".to_string());
-        
+
         merge_token_map(&mut combined, &addition);
-        
+
         assert_eq!(combined.get("a").unwrap(), "2");
         assert_eq!(combined.len(), 1);
     }
@@ -297,9 +303,9 @@ mod tests {
         let mut combined = HashMap::new();
         combined.insert("a".to_string(), "1".to_string());
         let addition = HashMap::new();
-        
+
         merge_token_map(&mut combined, &addition);
-        
+
         assert_eq!(combined.get("a").unwrap(), "1");
         assert_eq!(combined.len(), 1);
     }

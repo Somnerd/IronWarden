@@ -151,7 +151,7 @@ class MockUpstreamHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
-    def _send_sse_anthropic(self):
+    def _send_sse_anthropic(self, parsed=None):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")

@@ -139,6 +139,7 @@ class IronWardenRunner:
         self.env["WARDEN_MODE"] = "hybrid"
         self.env["REMOTE_AUDIT_ENDPOINT"] = "http://127.0.0.1:9999/mock-audit"
         self.env["WARDEN_MCP_SECRET"] = "test_secret_32_bytes_minimum_length!"
+        self.env.setdefault("WARDEN_PEPPER", "this-is-a-valid-32-byte-test-pepper-string!")
 
         # Generate temporary manifest mapping rules_dir to WARDEN_CONFIG_PATH for tests
         if "WARDEN_CONFIG_PATH" in self.env:
@@ -150,7 +151,9 @@ class IronWardenRunner:
             # Read original active_rules if they exist to prevent breaking regional tests
             original_manifest_path = os.path.join(project_root, "config/manifest.yaml")
             active_rules = ["rules.yaml"]
-            if os.path.exists(original_manifest_path):
+            if "WARDEN_ACTIVE_RULES" in self.env:
+                active_rules = [self.env["WARDEN_ACTIVE_RULES"]]
+            elif os.path.exists(original_manifest_path):
                 try:
                     with open(original_manifest_path, "r") as f:
                         orig = yaml.safe_load(f)
@@ -406,7 +409,6 @@ def blocked_warden(warden_bin, jwt_keys, mock_upstream):
         "OPENAI_BASE_URL": f"{mock_upstream.base_url()}/v1/chat/completions",
         "ANTHROPIC_BASE_URL": f"{mock_upstream.base_url()}/v1/messages",
         "WARDEN_CONFIG_PATH": block_rules_dir,
-        # Override manifest to load the block test rules
         "WARDEN_ACTIVE_RULES": "rules_block_test.yaml",
     }
     runner = IronWardenRunner(warden_bin, env_overrides=overrides)
