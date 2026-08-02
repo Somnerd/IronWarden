@@ -568,9 +568,16 @@ impl PiiShield for WardenEngine {
                 let should_force_promote = shadow.category == PiiCategory::IndividualName;
 
                 if let Some(pool) = &self.ai {
-                    let ai_instance_opt = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(pool.get())
-                    });
+                    let ai_instance_opt = match tokio::runtime::Handle::current().runtime_flavor() {
+                        tokio::runtime::RuntimeFlavor::CurrentThread => {
+                            futures::executor::block_on(pool.get())
+                        }
+                        _ => {
+                            tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(pool.get())
+                            })
+                        }
+                    };
                     if let Some(ai_instance) = ai_instance_opt {
                         if let Some(ai_entity) =
                             ai_instance.validate_miss(&miss, normalized, session)

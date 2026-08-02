@@ -35,7 +35,7 @@ pub enum DbCommand {
 }
 
 #[derive(Clone)]
-pub struct SearchBoostQueue {
+pub struct GroundingQueue {
     #[allow(dead_code)]
     db_path: String,
     pepper: Arc<SecretVec<u8>>,
@@ -50,7 +50,7 @@ pub struct SearchBoostQueue {
     results: Arc<DashMap<String, (String, Vec<u8>)>>,
 }
 
-impl SearchBoostQueue {
+impl GroundingQueue {
     pub fn new(
         db_path: String,
         pepper: &SecretVec<u8>,
@@ -91,12 +91,12 @@ impl SearchBoostQueue {
                 status TEXT DEFAULT 'pending',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
-        ").map_err(|e| SovereignError::StorageError(format!("Failed to initialize SearchBoost table: {}", e)))?;
+        ").map_err(|e| SovereignError::StorageError(format!("Failed to initialize Grounding table: {}", e)))?;
 
         let redis_url = std::env::var("REDIS_URL").ok();
         let redis_client = redis_url.and_then(|url| redis::Client::open(url).ok());
         if redis_client.is_some() {
-            info!("Redis HA Backend: ENABLED for SearchBoost Queue.");
+            info!("Redis HA Backend: ENABLED for Grounding Queue.");
         }
 
         let (tx, rx) = flume::unbounded();
