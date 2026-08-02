@@ -50,17 +50,40 @@ struct GuardrailPayload<'a> {
     prompt: &'a str,
 }
 
+use tracing::warn;
+
 async fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let socket_path = "/tmp/warden_llamaguard.sock";
+    let socket_path = std::env::var("WARDEN_ML_SIDECAR_SOCKET")
+        .unwrap_or_else(|_| "/tmp/warden_llamaguard.sock".to_string());
 
-    if !std::path::Path::new(socket_path).exists() {
+    let require_sidecar = std::env::var("WARDEN_REQUIRE_ML_SIDECAR")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    if !std::path::Path::new(&socket_path).exists() {
+        if require_sidecar {
+            warn!(
+                socket_path = %socket_path,
+                "ML Guardrail Sidecar socket not found. Enforcing fail-closed policy (SEC-01)."
+            );
+            return Err(SovereignError::UnauthorizedAccess(
+                "ML Guardrail Sidecar socket missing — Fail-Closed Policy enforced".into(),
+            ));
+        }
         return Ok(false);
     }
 
+    let timeout_ms = std::env::var("WARDEN_ML_SIDECAR_TIMEOUT_MS")
+        .ok()
+        .and_then(|t| t.parse::<u64>().ok())
+        .unwrap_or(100);
+
+    let timeout_duration = std::time::Duration::from_millis(timeout_ms);
+
     match tokio::time::timeout(
-        std::time::Duration::from_millis(100),
-        tokio::net::UnixStream::connect(socket_path),
+        timeout_duration,
+        tokio::net::UnixStream::connect(&socket_path),
     )
     .await
     {
@@ -70,28 +93,24 @@ async fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
                 SovereignError::InternalError("Failed to serialize Guardrail payload".into())
             })?;
 
-            tokio::time::timeout(
-                std::time::Duration::from_millis(100),
-                stream.write_all(payload.as_bytes()),
-            )
-            .await
-            .map_err(|_| {
-                SovereignError::InternalError("ML Guardrail Sidecar write timed out".into())
-            })?
-            .map_err(|_| {
-                SovereignError::InternalError("ML Guardrail Sidecar write failed".into())
-            })?;
+            if let Err(e) = tokio::time::timeout(timeout_duration, stream.write_all(payload.as_bytes())).await {
+                warn!("ML Guardrail Sidecar write timed out or failed: {}. Enforcing fail-closed policy.", e);
+                return Err(SovereignError::UnauthorizedAccess(
+                    "ML Guardrail Sidecar write timed out — Fail-Closed Policy enforced".into(),
+                ));
+            }
 
             let mut buf = [0u8; 1024];
-            let n =
-                tokio::time::timeout(std::time::Duration::from_millis(100), stream.read(&mut buf))
-                    .await
-                    .map_err(|_| {
-                        SovereignError::InternalError("ML Guardrail Sidecar read timed out".into())
-                    })?
-                    .map_err(|_| {
-                        SovereignError::InternalError("ML Guardrail Sidecar read failed".into())
-                    })?;
+            let read_res = tokio::time::timeout(timeout_duration, stream.read(&mut buf)).await;
+            let n = match read_res {
+                Ok(Ok(n)) => n,
+                _ => {
+                    warn!("ML Guardrail Sidecar read timed out or failed. Enforcing fail-closed policy.");
+                    return Err(SovereignError::UnauthorizedAccess(
+                        "ML Guardrail Sidecar read timed out — Fail-Closed Policy enforced".into(),
+                    ));
+                }
+            };
 
             let response = String::from_utf8_lossy(&buf[..n]);
             if response.contains("BLOCKED") {
@@ -99,9 +118,15 @@ async fn check_ml_sidecar(input: &str) -> Result<bool, SovereignError> {
             }
             Ok(false)
         }
-        _ => Err(SovereignError::InternalError(
-            "ML Guardrail Sidecar unreachable or timed out".into(),
-        )),
+        _ => {
+            warn!(
+                socket_path = %socket_path,
+                "ML Guardrail Sidecar unreachable or timed out. Enforcing fail-closed policy (SEC-01)."
+            );
+            Err(SovereignError::UnauthorizedAccess(
+                "ML Guardrail Sidecar unreachable or timed out — Fail-Closed Policy enforced".into(),
+            ))
+        }
     }
 }
 
