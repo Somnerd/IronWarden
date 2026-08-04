@@ -377,12 +377,14 @@ impl PiiShield for WardenEngine {
                         action: *action,
                         category: *category,
                     });
-                    
+
                     if !is_duplicate {
                         all_confirmed.push(UnifiedMatch {
                             start: unicode_start,
                             end: unicode_end,
-                            text: std::borrow::Cow::Borrowed(&normalized[unicode_start..unicode_end]),
+                            text: std::borrow::Cow::Borrowed(
+                                &normalized[unicode_start..unicode_end],
+                            ),
                             rule_id: format!("{}_ascii", id),
                             is_confirmed: true,
                             action,
@@ -396,7 +398,8 @@ impl PiiShield for WardenEngine {
                             break;
                         }
                     } else {
-                        search_start = mat.start() + ascii_str[mat.start()..].chars().next().unwrap().len_utf8();
+                        search_start = mat.start()
+                            + ascii_str[mat.start()..].chars().next().unwrap().len_utf8();
                     }
                 } else {
                     break;
