@@ -1,17 +1,14 @@
-use tracing::{info, error, warn};
 use ort::session::Session;
 use ort::value::Tensor;
-use tokenizers::Tokenizer;
 use std::path::Path;
+use std::sync::Mutex;
+use tokenizers::Tokenizer;
+use tracing::{error, info, warn};
 
 /// NER label set for DistilBERT-NER (CoNLL-2003 standard).
 /// Index 0 = O (outside), then B-/I- pairs for PER, ORG, LOC, MISC.
 const NER_LABELS: &[&str] = &[
-    "O",
-    "B-PER", "I-PER",
-    "B-ORG", "I-ORG",
-    "B-LOC", "I-LOC",
-    "B-MISC", "I-MISC",
+    "O", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC", "B-MISC", "I-MISC",
 ];
 
 pub struct Entity {
@@ -26,7 +23,7 @@ pub enum NerBackend {
 }
 
 pub struct OnnxNer {
-    session: std::sync::Mutex<Session>,
+    session: Mutex<Session>,
     tokenizer: Tokenizer,
     threshold: f64,
 }
@@ -46,7 +43,7 @@ impl OnnxNer {
             .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
 
         Ok(Self {
-            session: std::sync::Mutex::new(session),
+            session: Mutex::new(session),
             tokenizer,
             threshold,
         })
@@ -89,15 +86,18 @@ impl OnnxNer {
         };
 
         // Run ONNX inference via named inputs.
-        let mut guard = self.session.lock().unwrap();
-        let outputs = match guard.run(ort::inputs! {
+        let mut session = self.session.lock().unwrap_or_else(|e| e.into_inner());
+        let outputs = match session.run(ort::inputs! {
             "input_ids" => input_ids_tensor,
             "attention_mask" => attention_mask_tensor
         }) {
             Ok(o) => o,
             Err(e) => {
                 // --- SECURITY FIX (Finding 3): OOM returns an error instead of abort() ---
-                error!("ONNX inference failed (possible OOM): {}. Failing closed.", e);
+                error!(
+                    "ONNX inference failed (possible OOM): {}. Failing closed.",
+                    e
+                );
                 return Vec::new();
             }
         };
@@ -116,7 +116,7 @@ impl OnnxNer {
 
         // Expected shape: [1, seq_len, num_labels]
         if logits_shape.len() != 3 || logits_shape[0] != 1 {
-            error!("Unexpected logits shape: {:?}", &*logits_shape);
+            error!("Unexpected logits shape: {:?}", logits_shape);
             return Vec::new();
         }
         let num_labels = logits_shape[2] as usize;
@@ -198,6 +198,7 @@ impl OnnxNer {
 
 pub struct HybridNer {
     backend: NerBackend,
+    #[allow(dead_code)]
     threshold: f64,
 }
 
@@ -217,7 +218,10 @@ impl HybridNer {
                     });
                 }
                 Err(e) => {
-                    error!("ONNX Initialization Failed: {}. Falling back to Heuristic-Only mode.", e);
+                    error!(
+                        "ONNX Initialization Failed: {}. Falling back to Heuristic-Only mode.",
+                        e
+                    );
                 }
             }
         } else {
@@ -252,9 +256,11 @@ impl HybridNer {
         match &self.backend {
             NerBackend::Onnx(onnx) => {
                 let entities = onnx.predict(&miss.text);
-                entities
-                    .into_iter()
-                    .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+                entities.into_iter().max_by(|a, b| {
+                    a.score
+                        .partial_cmp(&b.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
             }
             NerBackend::None => None,
         }
@@ -264,14 +270,14 @@ impl HybridNer {
 /// A thread-safe pool for managing multiple AI model instances.
 /// This abolishes the global AI mutex (WP #76).
 pub struct HybridNerPool {
-    sender: crossbeam_channel::Sender<HybridNer>,
-    receiver: crossbeam_channel::Receiver<HybridNer>,
+    sender: flume::Sender<HybridNer>,
+    receiver: flume::Receiver<HybridNer>,
 }
 
 impl HybridNerPool {
     pub fn new(threshold: f64, count: usize) -> Result<Self, String> {
         info!("Initializing AI Worker Pool with {} instances...", count);
-        let (tx, rx) = crossbeam_channel::bounded(count);
+        let (tx, rx) = flume::bounded(count);
 
         for i in 0..count {
             let instance = HybridNer::new(threshold)?;
@@ -285,11 +291,68 @@ impl HybridNerPool {
         })
     }
 
-    pub fn get(&self) -> Option<HybridNer> {
-        self.receiver.recv_timeout(std::time::Duration::from_millis(100)).ok()
+    pub async fn get(&self) -> Option<HybridNer> {
+        // --- SECURITY FIX (Section 4): Decoupled AI Circuit Breaker ---
+        // Uses tokio::time::timeout on the receiver side rather than blocking a worker thread.
+        // Falls back to Aho-Corasick immediately on 25ms timeout.
+        tokio::time::timeout(
+            std::time::Duration::from_millis(25),
+            self.receiver.recv_async(),
+        )
+        .await
+        .ok()
+        .and_then(|r| r.ok())
     }
 
     pub fn release(&self, instance: HybridNer) {
         let _ = self.sender.send(instance);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_ai_pool_concurrent_access() {
+        // This test ensures the HybridNerPool can be accessed concurrently without deadlocks
+        // We'll initialize a pool with 2 instances and spawn 10 concurrent requests.
+        // Note: In an environment without ONNX models, this will fall back to NerBackend::None,
+        // which still tests the concurrency logic of the pool itself (channel send/recv).
+        let pool = Arc::new(HybridNerPool::new(0.85, 2).unwrap());
+
+        let mut handles = vec![];
+        for i in 0..10 {
+            let pool_clone = pool.clone();
+            handles.push(tokio::spawn(async move {
+                // Try to acquire an instance
+                if let Some(instance) = pool_clone.get().await {
+                    // Simulate work
+                    let _ = instance.analyze(&format!("Test input {}", i));
+                    // Yield to simulate async delay
+                    tokio::task::yield_now().await;
+                    // Release instance back to pool
+                    pool_clone.release(instance);
+                    true
+                } else {
+                    false
+                }
+            }));
+        }
+
+        let mut success_count = 0;
+        for handle in handles {
+            if handle.await.unwrap_or(false) {
+                success_count += 1;
+            }
+        }
+
+        // Since we are running concurrently, some might timeout (25ms) if the CI is slow,
+        // but we expect at least SOME successes, and crucially: NO deadlocks or panics.
+        assert!(
+            success_count > 0,
+            "Expected at least one successful pool acquisition"
+        );
     }
 }

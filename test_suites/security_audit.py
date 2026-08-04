@@ -1,3 +1,8 @@
+"""
+End-to-end security audit script checking sanitization bypass evasion techniques.
+Verifies that the gateway normalizes and blocks homoglyph and zero-width character evasion
+attempts, and successfully records the redactions in the SQLite audit log database.
+"""
 import subprocess
 import json
 import sqlite3
@@ -9,7 +14,7 @@ def run_test_case(name, prompt):
     request = {"jsonrpc": "2.0", "id": "1", "method": "process", "params": {"prompt": prompt}}
     env = os.environ.copy()
     env["OPENAI_API_KEY"] = "sk-mock"
-    env["WARDEN_PEPPER"] = "a_very_secret_pepper_32_bytes_long"
+    env["WARDEN_PEPPER"] = "this-is-a-valid-32-byte-test-pepper-string!"
 
     process = subprocess.Popen(
         ["/home/somnerd/Documents/IronWarden/target/debug/app"],
@@ -40,6 +45,12 @@ def verify_redaction(test_name, expected_token):
 if __name__ == "__main__":
     if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db"):
         os.remove("/home/somnerd/Documents/IronWarden/audit.db")
+    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db-shm"):
+        os.remove("/home/somnerd/Documents/IronWarden/audit.db-shm")
+    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db-wal"):
+        os.remove("/home/somnerd/Documents/IronWarden/audit.db-wal")
+    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db.anchor"):
+        os.remove("/home/somnerd/Documents/IronWarden/audit.db.anchor")
 
     run_test_case("Standard", "Hello Alice.")
     time.sleep(1)

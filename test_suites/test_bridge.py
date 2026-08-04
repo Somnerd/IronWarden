@@ -1,3 +1,8 @@
+"""
+HTTP/REST API tests for the IronWarden Bridge endpoint.
+Validates authentication, role-based access control (401/403 status codes), rate limiting,
+health checks, and job status retrieval via JWT tokens.
+"""
 import pytest
 import requests
 import jwt
@@ -63,19 +68,23 @@ def test_bridge_enqueue_authorized(bridge_url, jwt_token):
     assert response.json()["pii_scrubbed"] is True
 
 def test_bridge_rate_limiting(bridge_url, jwt_token):
-    # Burst is 100, RPS is 25. Let's try to hit it.
+    # Burst is 100, RPS is 25. Use concurrent requests to reliably hit burst limit.
     headers = {"Authorization": f"Bearer {jwt_token}"}
     payload = {"query": "test", "thread_id": "t1"}
     
-    # We might not be able to hit 100 in a loop easily without async, 
-    # but let's try 110 requests.
-    codes = []
-    for _ in range(110):
+    session = requests.Session()
+    session.headers.update(headers)
+
+    def send_req(_):
         try:
-            r = requests.post(f"{bridge_url}/enqueue", json=payload, headers=headers, timeout=0.1)
-            codes.append(r.status_code)
+            r = session.post(f"{bridge_url}/enqueue", json=payload, timeout=2.0)
+            return r.status_code
         except requests.exceptions.RequestException:
-            break
+            return None
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=30) as executor:
+        codes = list(executor.map(send_req, range(130)))
             
     assert 429 in codes
 

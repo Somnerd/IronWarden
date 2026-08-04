@@ -15,3 +15,8 @@
 **Vulnerability:** SQLite `DELETE FROM` statements only mark rows as free space without wiping the underlying disk data, allowing recovery of sensitive data like deleted audit logs and sessions from the `.db` or `.db-wal` files. Using `VACUUM` to wipe data causes severe performance degradation.
 **Learning:** For privacy compliance and secure data deletion, overwriting the disk is necessary, but full-table rebuilds (`VACUUM`) are too slow for high-throughput gateways. `PRAGMA secure_delete = ON;` provides immediate, localized zeroing of deleted content without full-table locks.
 **Prevention:** Always initialize SQLite connections handling sensitive data with `PRAGMA secure_delete = ON;` to ensure physical disk wipe of deleted rows.
+
+## 2026-06-21 - [DoS Vulnerability via Brittle Hard-Stops]
+**Vulnerability:** The worker storage initialized a disk space monitoring thread that deliberately called `std::process::exit(1)` when disk space dropped below 10%, ostensibly to preserve "Zero-Failure compliance." This created a Denial of Service (DoS) vulnerability under resource exhaustion conditions.
+**Learning:** Brittle hard-stops on resource thresholds (like disk space) allow an attacker or normal workload to completely halt the system by filling up the disk. Resilience is preferred over crashing.
+**Prevention:** Instead of crashing, gracefully degrade functionality or proactively mitigate resource exhaustion (e.g., purging old transient logs like `ephemeral_raw_logs`) when approaching critical thresholds.

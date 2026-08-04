@@ -1,3 +1,8 @@
+"""
+Adversarial security, payload validation, and resource contention tests.
+Checks security policy bypass mechanisms, config directory fallback safety, payload size limits
+(testing 413 Payload Too Large responses), and concurrent requests under AI mutex contention.
+"""
 import pytest
 import requests
 import time
@@ -24,12 +29,20 @@ def test_security_path_traversal_config(warden_bin):
     """
     Test if setting WARDEN_CONFIG_PATH to a directory without rules fails safely.
     """
+    import os
+    import shutil
     from conftest import IronWardenRunner
-    runner = IronWardenRunner(warden_bin, env_overrides={"WARDEN_CONFIG_PATH": "/tmp"})
+    tmp_config_dir = "test_traversal_config"
+    if os.path.exists(tmp_config_dir):
+        shutil.rmtree(tmp_config_dir)
+    os.makedirs(tmp_config_dir)
+    # Create empty rules file so it canonicalizes successfully but has 0 rules
+    with open(os.path.join(tmp_config_dir, "rules.yaml"), "w") as f:
+        f.write("rules: []\n")
+
+    runner = IronWardenRunner(warden_bin, env_overrides={"WARDEN_CONFIG_PATH": tmp_config_dir})
     try:
         runner.start()
-        # If it starts with 0 rules, it should ideally warn.
-        # But we check if it actually loads any rules from rules.yaml (which is NOT in /tmp)
         params = {"username": "t", "prompt": "Alice"}
         response = runner.send_mcp("mcp_sanitize_prompt", params)
         # If Alice is NOT redacted, it means no rules were loaded.
@@ -37,15 +50,15 @@ def test_security_path_traversal_config(warden_bin):
         assert len(response["result"]["redactions"]) == 0
     finally:
         runner.stop()
+        if os.path.exists(tmp_config_dir):
+            shutil.rmtree(tmp_config_dir)
 
-def test_scaling_payload_limits(warden):
+def test_scaling_payload_limits(warden, jwt_factory):
     """
     Verify the gateway's payload size limits.
     """
     bridge_url = f"http://localhost:{warden.env['BRIDGE_PORT']}"
-    import jwt
-    secret = warden.env["JWT_SECRET"]
-    token = jwt.encode({"sub": "tester", "exp": int(time.time()) + 3600}, secret, algorithm="HS256")
+    token = jwt_factory("tester")
     headers = {"Authorization": f"Bearer {token}"}
     
     # 2MB should be rejected (413)
@@ -58,7 +71,7 @@ def test_scaling_payload_limits(warden):
     response = requests.post(f"{bridge_url}/enqueue", json={"query": medium_query, "thread_id": "m"}, headers=headers)
     assert response.status_code == 200
 
-def test_scaling_ai_mutex_contention(warden):
+def test_scaling_ai_mutex_contention(warden, jwt_factory):
     """
     Verify that multiple concurrent requests are serialized by the AI Mutex.
     (Indirectly observed via latency spikes).
@@ -66,9 +79,7 @@ def test_scaling_ai_mutex_contention(warden):
     # Note: Since our AI is a mock, this might be fast, but if we add a sleep in the mock...
     # For now, just ensure 5 concurrent heavy requests don't crash.
     bridge_url = f"http://localhost:{warden.env['BRIDGE_PORT']}"
-    import jwt
-    secret = warden.env["JWT_SECRET"]
-    token = jwt.encode({"sub": "tester", "exp": int(time.time()) + 3600}, secret, algorithm="HS256")
+    token = jwt_factory("tester")
     headers = {"Authorization": f"Bearer {token}"}
     
     def send():

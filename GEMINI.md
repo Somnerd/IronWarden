@@ -28,6 +28,8 @@ This document defines the foundational mandates for agent-user and agent-peer in
 - **Traceability:** Every code change MUST be documented with a detailed comment on the corresponding OpenProject work package, explaining the technical rationale and the specific files modified.
 - **Verification Gate:** No task shall be moved to 'Closed' until it has been verified by QA. 
 - **Warden Oversight:** The Warden will monitor these transitions. Any 'In Progress' task without comments for >24 hours or any 'Closed' task that bypassed 'QA Verification' will be flagged as an operational bottleneck.
+- **Strict Pull Request Protocol:** ALL code changes MUST go through a Pull Request targeting the appropriate base branch. **Direct pushes or direct merges to `main` or `dev` are strictly forbidden under any circumstances.**
+- **CI/CD Verification Mandate:** A Pull Request MUST NOT be merged until the CI/CD pipeline completes successfully. Agents must actively wait for and parse the full CI logs (`gh run view --log`) to definitively confirm that tests, linters, and builds pass, rather than relying on cached or false-positive partial checks (like CodeRabbit).
 
 ## 6. Code Red: Security Invariants (May 2026 Mandate)
 IronWarden operates under a **Zero-Failure / Fail-Closed** mandate. The following invariants are codified and must be preserved:

@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
 use crate::engine::WardenEngine;
+use iw_core::{EnforcementAction, PiiCategory};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use tracing::{info, error};
-use iw_core::{PiiCategory, EnforcementAction};
+use tracing::{error, info};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum RuleType {
@@ -50,8 +50,19 @@ pub struct WardenConfig {
     pub ai_confidence_threshold: f64,
 }
 
-fn default_ai_enabled() -> bool { false }
-fn default_ai_threshold() -> f64 { 0.85 }
+fn default_ai_enabled() -> bool {
+    false
+}
+fn default_ai_threshold() -> f64 {
+    0.85
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ManifestConfig {
+    pub rules_dir: String,
+    #[serde(default)]
+    pub active_rules: Vec<String>,
+}
 
 impl Default for WardenConfig {
     fn default() -> Self {
@@ -73,49 +84,124 @@ impl WardenConfig {
         Ok(config)
     }
 
-    pub fn from_dir<P: AsRef<Path>>(path: P) -> Result<Self, iw_core::SovereignError> {
+    pub fn from_manifest<P: AsRef<Path>>(
+        manifest_path: P,
+    ) -> Result<(Self, Vec<String>), iw_core::SovereignError> {
+        let manifest_content = fs::read_to_string(manifest_path.as_ref()).map_err(|e| {
+            iw_core::SovereignError::ConfigError(format!(
+                "Failed to read manifest file {:?}: {}",
+                manifest_path.as_ref(),
+                e
+            ))
+        })?;
+        let manifest: ManifestConfig = serde_yaml::from_str(&manifest_content).map_err(|e| {
+            iw_core::SovereignError::ConfigError(format!(
+                "Failed to parse manifest YAML {:?}: {}",
+                manifest_path.as_ref(),
+                e
+            ))
+        })?;
+
         let mut combined_config = WardenConfig::default();
-        let entries = fs::read_dir(path)
-            .map_err(|e| iw_core::SovereignError::ConfigError(format!("IO Error reading directory: {}", e)))?;
-            
-        for entry in entries {
-            let entry = entry.map_err(|e| iw_core::SovereignError::ConfigError(format!("IO Error: {}", e)))?;
-            let path = entry.path();
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("yaml") {
-                let content = fs::read_to_string(&path)
-                    .map_err(|e| iw_core::SovereignError::ConfigError(format!("IO Error reading {:?}: {}", path, e)))?;
-                let mut config: WardenConfig = serde_yaml::from_str(&content)
-                    .map_err(|e| iw_core::SovereignError::ConfigError(format!("YAML Error in {:?}: {}", path, e)))?;
-                combined_config.rules.append(&mut config.rules);
-                combined_config.heuristics.append(&mut config.heuristics);
-                if config.ai_enabled {
-                    combined_config.ai_enabled = true;
-                    combined_config.ai_confidence_threshold = config.ai_confidence_threshold;
+        let mut warnings = Vec::new();
+
+        let rules_dir_path = Path::new(&manifest.rules_dir);
+        let canonical_rules_dir = fs::canonicalize(rules_dir_path).map_err(|e| {
+            iw_core::SovereignError::ConfigError(format!(
+                "Failed to canonicalize rules_dir {:?}: {}",
+                rules_dir_path, e
+            ))
+        })?;
+
+        for rule_file in &manifest.active_rules {
+            let rule_path = rules_dir_path.join(rule_file);
+
+            let canonical_rule_path = match fs::canonicalize(&rule_path) {
+                Ok(p) => p,
+                Err(e) => {
+                    warnings.push(format!(
+                        "Failed to canonicalize rule file {:?}: {}",
+                        rule_path, e
+                    ));
+                    continue;
                 }
+            };
+
+            if !canonical_rule_path.starts_with(&canonical_rules_dir) {
+                warnings.push(format!(
+                    "Path traversal detected for rule file {:?}",
+                    rule_path
+                ));
+                continue;
+            }
+
+            let content = match fs::read_to_string(&canonical_rule_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    warnings.push(format!(
+                        "Failed to read rule file {:?}: {}",
+                        canonical_rule_path, e
+                    ));
+                    continue;
+                }
+            };
+            let mut config: WardenConfig = match serde_yaml::from_str(&content) {
+                Ok(c) => c,
+                Err(e) => {
+                    warnings.push(format!(
+                        "Failed to parse YAML for rule file {:?}: {}",
+                        canonical_rule_path, e
+                    ));
+                    continue;
+                }
+            };
+            combined_config.rules.append(&mut config.rules);
+            combined_config.heuristics.append(&mut config.heuristics);
+            if config.ai_enabled {
+                combined_config.ai_enabled = true;
+                combined_config.ai_confidence_threshold = config.ai_confidence_threshold;
             }
         }
-        Ok(combined_config)
+        Ok((combined_config, warnings))
     }
 
-    pub fn compile_engine(&self, pepper: &secrecy::SecretVec<u8>) -> Result<WardenEngine, iw_core::SovereignError> {
+    pub fn compile_engine(
+        &self,
+        pepper: &secrecy::SecretVec<u8>,
+    ) -> Result<WardenEngine, iw_core::SovereignError> {
         let mut dictionary_rules = Vec::new();
         let mut regex_rules = Vec::new();
 
         for rule in &self.rules {
             match rule.r#type {
-                RuleType::Dictionary => dictionary_rules.push((rule.id.clone(), rule.pattern.clone(), rule.action, rule.category)),
-                RuleType::Regex => regex_rules.push((rule.id.clone(), rule.pattern.clone(), rule.action, rule.category)),
+                RuleType::Dictionary => dictionary_rules.push((
+                    rule.id.clone(),
+                    rule.pattern.clone(),
+                    rule.action,
+                    rule.category,
+                )),
+                RuleType::Regex => regex_rules.push((
+                    rule.id.clone(),
+                    rule.pattern.clone(),
+                    rule.action,
+                    rule.category,
+                )),
             }
         }
 
         let ai = if self.ai_enabled {
-            let cpu_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+            let cpu_count = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1);
             let pool_size = std::cmp::min(4, cpu_count); // Cap at 4 instances for memory efficiency
             match crate::ai::HybridNerPool::new(self.ai_confidence_threshold, pool_size) {
                 Ok(pool) => {
-                    info!("Hybrid Intelligence Pool initialized with {} workers", pool_size);
+                    info!(
+                        "Hybrid Intelligence Pool initialized with {} workers",
+                        pool_size
+                    );
                     Some(pool)
-                },
+                }
                 Err(e) => {
                     error!("AI Engine Pool failed to initialize: {}", e);
                     None
@@ -125,7 +211,14 @@ impl WardenConfig {
             None
         };
 
-        WardenEngine::new(dictionary_rules, regex_rules, self.heuristics.clone(), ai, self.ai_confidence_threshold, pepper)
+        WardenEngine::new(
+            dictionary_rules,
+            regex_rules,
+            self.heuristics.clone(),
+            ai,
+            self.ai_confidence_threshold,
+            pepper,
+        )
     }
 }
 
@@ -139,7 +232,7 @@ mod tests {
     fn test_invalid_yaml_fails_gracefully() {
         let mut file = NamedTempFile::new().unwrap();
         writeln!(file, "rules: [ invalid yaml \n - ").unwrap();
-        
+
         let result = WardenConfig::from_file(file.path());
         assert!(result.is_err());
         if let Err(iw_core::SovereignError::ConfigError(msg)) = result {
@@ -152,7 +245,9 @@ mod tests {
     #[test]
     fn test_valid_yaml_parses() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, "
+        writeln!(
+            file,
+            "
 rules:
   - id: test_rule
     pattern: 'test'
@@ -160,8 +255,10 @@ rules:
     action: Redact
 ai_enabled: true
 ai_confidence_threshold: 0.95
-        ").unwrap();
-        
+        "
+        )
+        .unwrap();
+
         let config = WardenConfig::from_file(file.path()).unwrap();
         assert_eq!(config.rules.len(), 1);
         assert_eq!(config.rules[0].id, "test_rule");

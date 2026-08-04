@@ -1,0 +1,57 @@
+rules:
+  - id: "gr_afm"
+    type: "Regex"
+    pattern: '\b[0-9]{9}\b'
+    category: "IdentificationNumber"
+  
+  - id: "gr_amka"
+    type: "Regex"
+    pattern: '\b(?:0[1-9]|[12]\d|3[01])(?:0[1-9]|1[0-2])\d{2}\d{5}\b'
+    category: "IdentificationNumber"
+
+  - id: "eu_iban"
+    type: "Regex"
+    pattern: '[A-Z]{2}\d{2}[A-Z0-9]{11,30}'
+    category: "FinancialData"
+
+  - id: "case_id"
+    type: "Regex"
+    pattern: '\bLAW-[0-9]{4}-[A-Z0-9]+\b'
+    category: "InternalAsset"
+
+  - id: "attorney_bar_number"
+    type: "Regex"
+    pattern: '(?i)\b(?:BAR|Bar Number:?)[.\-\s]*\d{5,8}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  - id: "court_case_docket"
+    type: "Regex"
+    pattern: '(?i)\b\d{2,4}-[a-z]{2,4}-\d{4,6}\b'
+    category: "InternalAsset"
+    action: Redact
+
+  - id: "confidential_marker"
+    type: "Regex"
+    pattern: '(?i)\b(?:CONFIDENTIAL|ATTORNEY-CLIENT PRIVILEGE|SUBJECT TO NDA|WORK PRODUCT)\b'
+    category: "InternalAsset"
+    action: Redact
+  
+  - id: "gr_phone"
+    type: "Regex"
+    pattern: '\b(2[0-9]{9}|69[0-9]{8})\b'
+    category: "ContactInfo"
+
+  - id: "gr_postal"
+    type: "Regex"
+    pattern: '\b[1-8][0-9]{4}\b'
+    category: "ContactInfo"
+
+heuristics:
+  - label: "POTENTIAL_CLIENT_NAME"
+    pattern: '\b[A-Z\u0391-\u03A9][a-z\u03B1-\u03C9\u03AC-\u03CE]+(?:[ \-''](?:da|de|von|van|Ibn|al)?[ \-'']?[A-Z\u0391-\u03A9][a-z\u03B1-\u03C9\u03AC-\u03CE]+)+\b'
+    skip_sentence_start: true
+    category: "IndividualName"
+
+ai_enabled: true
+ai_confidence_threshold: 0.85

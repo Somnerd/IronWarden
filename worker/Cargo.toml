@@ -1,6 +1,6 @@
 [package]
 name = "worker"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
@@ -10,7 +10,9 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 tokio-rusqlite = "0.7"
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["full"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+tokio-stream = "0.1"
+bytes = "1.0"
 serde_json = "1.0"
 tracing = "0.1"
 hmac = "0.12"
@@ -42,7 +44,23 @@ arrow-schema = "57"
 futures = "0.3"
 secrecy = "0.8.0"
 bincode = "1.3.3"
+flume = "0.12.0"
+r2d2 = "0.8.10"
+r2d2_sqlite = "0.31.0"
+pdf-extract = "0.12.0"
+docx-rs = "0.4.22"
+zip = "8.6.0"
+quick-xml = "0.41.0"
+
 
 [dev-dependencies]
 tempfile = "3.10"
 iw-warden = { path = "../warden" }
+criterion = "0.5"
+tower = { version = "0.4.13", features = ["util"] }
+http-body-util = "0.1.0"
+
+[[bench]]
+name = "grounding_benchmark"
+harness = false
+

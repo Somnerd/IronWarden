@@ -1,3 +1,8 @@
+"""
+Edge case and error handling tests for IronWarden's redaction engine and MCP server.
+Checks handling of overlapping rules (avoiding double tokenization), nested PII redaction
+(e.g., project names in email addresses), and unknown JSON-RPC method errors.
+"""
 import pytest
 import json
 

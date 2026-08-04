@@ -1,3 +1,8 @@
+"""
+Session isolation security verification test ("The Credit Card Trap").
+Simulates multiple users (Alice and Bob) enqueuing sensitive data to verify
+that user Bob cannot restore Alice's sanitized credit card tokens, ensuring session isolation.
+"""
 import json
 import subprocess
 import time
@@ -16,7 +21,8 @@ class IronWardenProcess:
             bufsize=1,
             env={
                 **os.environ,
-                "WARDEN_PEPPER": "01234567890123456789012345678901",
+                "WARDEN_MODE": "hybrid",
+                "WARDEN_PEPPER": "this-is-a-valid-32-byte-test-pepper-string!",
                 "OPENAI_API_KEY": "test_key",
                 "REDIS_URL": "redis://:searchboost_pass@localhost:6379"
             }
