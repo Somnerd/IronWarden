@@ -242,10 +242,10 @@ impl WardenEngine {
 }
 
 #[derive(Clone, Debug)]
-struct UnifiedMatch {
+struct UnifiedMatch<'a> {
     start: usize,
     end: usize,
-    text: String,
+    text: std::borrow::Cow<'a, str>,
     rule_id: String,
     #[allow(dead_code)]
     is_confirmed: bool,
@@ -377,6 +377,29 @@ impl PiiShield for WardenEngine {
                         action: *action,
                         category: *category,
                     });
+                    
+                    if !is_duplicate {
+                        all_confirmed.push(UnifiedMatch {
+                            start: unicode_start,
+                            end: unicode_end,
+                            text: std::borrow::Cow::Borrowed(&normalized[unicode_start..unicode_end]),
+                            rule_id: format!("{}_ascii", id),
+                            is_confirmed: true,
+                            action,
+                            category,
+                        });
+                    }
+                    if mat.start() == mat.end() {
+                        if let Some(c) = ascii_str[search_start..].chars().next() {
+                            search_start += c.len_utf8();
+                        } else {
+                            break;
+                        }
+                    } else {
+                        search_start = mat.start() + ascii_str[mat.start()..].chars().next().unwrap().len_utf8();
+                    }
+                } else {
+                    break;
                 }
             }
 
@@ -626,7 +649,7 @@ impl PiiShield for WardenEngine {
                             all_potentials.push(UnifiedMatch {
                                 start: unicode_start,
                                 end: unicode_end,
-                                text: miss.text,
+                                text: std::borrow::Cow::Owned(miss.text.clone()),
                                 rule_id: shadow.label.clone(),
                                 is_confirmed: false,
                                 action: shadow.action,
