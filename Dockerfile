@@ -1,5 +1,5 @@
 # --- Build Stage ---
-FROM rust:1.80-slim-bookworm AS builder
+FROM rust:1.97-bookworm AS builder
 
 WORKDIR /usr/src/ironwarden
 
@@ -11,21 +11,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtesseract-dev \
     libleptonica-dev \
     clang \
+    protobuf-compiler \
+    libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source code into builder container
 COPY Cargo.toml Cargo.lock ./
-COPY iw_core ./iw_core
+COPY core ./core
 COPY warden ./warden
 COPY worker ./worker
 COPY mcp ./mcp
 COPY app ./app
+COPY cli ./cli
+COPY integration_tests ./integration_tests
+COPY config ./config
+COPY scripts ./scripts
+
+
 
 # Build release binary
 RUN cargo build --release -p app
 
 # --- Runtime Stage ---
-FROM debian:bookworm-slim AS runner
+FROM debian:trixie-slim AS runner
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \

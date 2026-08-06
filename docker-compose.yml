@@ -1,17 +1,17 @@
-version: '3.8'
-
+#version: '3.8'
 services:
   ironwarden:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ironwarden_gateway
+    container_name: ironwarden
     ports:
       - "8080:8080"   # Universal AI Gateway Proxy (/v1/chat/completions, /v1/messages)
       - "14141:14141" # Stdio/HTTP MCP Control Plane
     environment:
       - PORT=8080
       - WARDEN_ENV=production
+      - WARDEN_MODE=bridge
       - RUST_LOG=info
       - WARDEN_PEPPER=${WARDEN_PEPPER:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       - WARDEN_MCP_SECRET=${WARDEN_MCP_SECRET:-default_mcp_secret_change_in_production}
@@ -21,8 +21,9 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - UPSTREAM_OPENAI_URL=${UPSTREAM_OPENAI_URL:-https://api.openai.com}
       - UPSTREAM_ANTHROPIC_URL=${UPSTREAM_ANTHROPIC_URL:-https://api.anthropic.com}
+      - IGNORE_HA_ENFORCEMENT=true
     volumes:
-      - ./config/rules:/app/config/rules
+      - ./config:/app/config
       - ./logs:/app/logs
       - ./data:/app/data
     restart: unless-stopped
@@ -32,7 +33,7 @@ services:
   # Optional local Redis instance (ignored if connecting to an external SearchBoost Redis via REDIS_URL)
   redis:
     image: redis:7.4-alpine
-    container_name: ironwarden_redis
+    container_name: iw_redis
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes

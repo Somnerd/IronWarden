@@ -18,7 +18,7 @@ pub struct Entity {
 }
 
 pub enum NerBackend {
-    Onnx(OnnxNer),
+    Onnx(Box<OnnxNer>),
     None,
 }
 
@@ -213,7 +213,7 @@ impl HybridNer {
                 Ok(onnx) => {
                     info!("ONNX Runtime Inference Engine: ONLINE (DistilBERT-INT8)");
                     return Ok(Self {
-                        backend: NerBackend::Onnx(onnx),
+                        backend: NerBackend::Onnx(Box::new(onnx)),
                         threshold,
                     });
                 }

@@ -342,11 +342,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwt_public_key = match global_config.jwt_public_key.clone() {
         Some(k) => secrecy::SecretVec::new(k),
         None => {
-            if deployment_profile == "hybrid" || deployment_profile == "bridge" {
-                if !global_config.allow_fallback {
-                    tracing::error!("CRITICAL CONFIGURATION ERROR: Missing JWT_PUBLIC_KEY in bridge/hybrid mode");
-                    std::process::exit(1);
-                }
+            if (deployment_profile == "hybrid" || deployment_profile == "bridge")
+                && !global_config.allow_fallback
+            {
+                tracing::error!("CRITICAL CONFIGURATION ERROR: Missing JWT_PUBLIC_KEY in bridge/hybrid mode");
+                std::process::exit(1);
             }
             secrecy::SecretVec::new(Vec::new())
         }

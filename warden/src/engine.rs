@@ -242,10 +242,10 @@ impl WardenEngine {
 }
 
 #[derive(Clone, Debug)]
-struct UnifiedMatch<'a> {
+struct UnifiedMatch {
     start: usize,
     end: usize,
-    text: std::borrow::Cow<'a, str>,
+    text: String,
     rule_id: String,
     #[allow(dead_code)]
     is_confirmed: bool,
@@ -377,29 +377,6 @@ impl PiiShield for WardenEngine {
                         action: *action,
                         category: *category,
                     });
-                    
-                    if !is_duplicate {
-                        all_confirmed.push(UnifiedMatch {
-                            start: unicode_start,
-                            end: unicode_end,
-                            text: std::borrow::Cow::Borrowed(&normalized[unicode_start..unicode_end]),
-                            rule_id: format!("{}_ascii", id),
-                            is_confirmed: true,
-                            action,
-                            category,
-                        });
-                    }
-                    if mat.start() == mat.end() {
-                        if let Some(c) = ascii_str[search_start..].chars().next() {
-                            search_start += c.len_utf8();
-                        } else {
-                            break;
-                        }
-                    } else {
-                        search_start = mat.start() + ascii_str[mat.start()..].chars().next().unwrap().len_utf8();
-                    }
-                } else {
-                    break;
                 }
             }
 
@@ -649,7 +626,7 @@ impl PiiShield for WardenEngine {
                             all_potentials.push(UnifiedMatch {
                                 start: unicode_start,
                                 end: unicode_end,
-                                text: std::borrow::Cow::Owned(miss.text.clone()),
+                                text: miss.text.clone(),
                                 rule_id: shadow.label.clone(),
                                 is_confirmed: false,
                                 action: shadow.action,
@@ -1046,10 +1023,8 @@ impl WardenEngine {
                     i += 1;
                 }
                 let len = i - start;
-                if len > 40 {
-                    if Self::calculate_entropy(&bytes[start..i]) > 5.8 {
-                        return true;
-                    }
+                if len > 40 && Self::calculate_entropy(&bytes[start..i]) > 5.8 {
+                    return true;
                 }
             } else {
                 i += 1;
@@ -1490,7 +1465,7 @@ mod tests {
     #[tokio::test]
     async fn test_native_greek_pii_overlap() {
         let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
-        let engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85, &pepper).unwrap();
+        let _engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85, &pepper).unwrap();
 
         // AMKA is 11 digits. If there's an overlapping rule (like a dictionary match or a smaller regex),
         // we must ensure the AMKA match wins due to overlap integrity (leftmost-longest).

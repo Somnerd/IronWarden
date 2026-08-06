@@ -121,7 +121,7 @@ mod tests {
 
         conn.execute(
             "INSERT INTO audit_reports (id, timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            (1, ts, username, is_blocked, &redactions_json, hex::encode(&payload_hash), hex::encode(&integrity_hash))
+            (1, ts, username, is_blocked, &redactions_json, hex::encode(payload_hash), hex::encode(&integrity_hash))
         ).unwrap();
 
         AsyncAuditor::update_anchor(path, 1, &integrity_hash).unwrap();
@@ -416,7 +416,7 @@ impl AsyncAuditor {
                                     } else {
                                         let res2 = c.execute(
                                             "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", 
-                                            (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(&payload_hash), hex::encode(&current_hash))
+                                            (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(payload_hash), hex::encode(&current_hash))
                                         );
                                         if let Err(e) = res2 {
                                             let _ = c.execute("ROLLBACK", []);
@@ -458,7 +458,7 @@ impl AsyncAuditor {
                                             let forward_username = username.clone();
                                             let ack_tx = tx_for_thread.clone();
 
-                                            let _ = tokio::runtime::Handle::current().spawn(async move {
+                                            tokio::runtime::Handle::current().spawn(async move {
                                                 if let Err(e) = forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await {
                                                     error!("Remote Audit Forwarding Failed: {}. Audit remains local-only.", e);
                                                 } else {
@@ -567,7 +567,7 @@ impl AsyncAuditor {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
             loop {
                 interval.tick().await;
-                if let Err(_) = tx_clone.send(AuditMessage::Purge).await {
+                if tx_clone.send(AuditMessage::Purge).await.is_err() {
                     break;
                 }
             }

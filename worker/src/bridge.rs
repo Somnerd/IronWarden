@@ -216,7 +216,7 @@ async fn handle_enqueue(
             Json(EnqueueResponse {
                 status: "queued",
                 id: job_id,
-                pii_scrubbed: report.token_map.len() > 0,
+                pii_scrubbed: !report.token_map.is_empty(),
             }),
         )
             .into_response(),

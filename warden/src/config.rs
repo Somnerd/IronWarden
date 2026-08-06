@@ -262,7 +262,7 @@ ai_confidence_threshold: 0.95
         let config = WardenConfig::from_file(file.path()).unwrap();
         assert_eq!(config.rules.len(), 1);
         assert_eq!(config.rules[0].id, "test_rule");
-        assert_eq!(config.ai_enabled, true);
+        assert!(config.ai_enabled);
         assert_eq!(config.ai_confidence_threshold, 0.95);
     }
 }

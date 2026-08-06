@@ -130,6 +130,7 @@ impl StdioMcpServer {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_request_internal(
     request: String,
     shield: Arc<dyn PiiShield>,
@@ -379,7 +380,7 @@ async fn handle_request_internal(
 
         let provider = Box::new(worker::ocr::TesseractOcr);
         let worker_instance = worker::ocr::OcrWorker::new(provider);
-        let text = worker_instance
+        let text: String = worker_instance
             .process_file(&decoded_data, mime_type)
             .await?;
 
@@ -567,7 +568,6 @@ mod tests {
     use iw_core::{ComplianceReport, ScrubbingReport, TokenMap};
     use serde_json::json;
     use std::time::Duration;
-    use serde_json::json;
 
     struct MockShield;
     #[async_trait]

@@ -9,7 +9,7 @@ fn regex_restore(response: &str, map: &HashMap<String, String>) -> String {
     }
 
     let mut sorted_keys: Vec<&String> = map.keys().collect();
-    sorted_keys.sort_by(|a, b| b.len().cmp(&a.len()));
+    sorted_keys.sort_by_key(|b| std::cmp::Reverse(b.len()));
 
     let tokens: Vec<String> = sorted_keys.into_iter().map(|k| regex::escape(k)).collect();
     let pattern = format!("({})", tokens.join("|"));
@@ -68,7 +68,7 @@ criterion_group!(benches, bench_restoration);
 fn replace_restore(response: &str, map: &HashMap<String, String>) -> String {
     let mut restored = response.to_string();
     let mut sorted_keys: Vec<&String> = map.keys().collect();
-    sorted_keys.sort_by(|a, b| b.len().cmp(&a.len()));
+    sorted_keys.sort_by_key(|b| std::cmp::Reverse(b.len()));
 
     for token in sorted_keys {
         if let Some(original) = map.get(token) {
