@@ -44,6 +44,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install ONNX Runtime 1.20.1 (required by ort crate with load-dynamic feature)
+RUN curl -fsSL \
+    "https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz" \
+    -o /tmp/ort.tgz \
+    && tar -xzf /tmp/ort.tgz -C /tmp \
+    && cp /tmp/onnxruntime-linux-x64-1.20.1/lib/libonnxruntime.so.1.20.1 /usr/lib/x86_64-linux-gnu/ \
+    && ln -s /usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.20.1 /usr/lib/x86_64-linux-gnu/libonnxruntime.so \
+    && rm -rf /tmp/ort.tgz /tmp/onnxruntime-linux-x64-1.20.1
+
 WORKDIR /app
 
 # Copy binary from builder

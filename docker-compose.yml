@@ -15,6 +15,9 @@ services:
       - RUST_LOG=info
       - WARDEN_PEPPER=${WARDEN_PEPPER:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       - WARDEN_MCP_SECRET=${WARDEN_MCP_SECRET:-default_mcp_secret_change_in_production}
+      - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}
+      - WARDEN_JWT_AUDIENCE=${WARDEN_JWT_AUDIENCE:-ironwarden}
+      - WARDEN_JWT_ISSUER=${WARDEN_JWT_ISSUER:-ironwarden}
       # Connect to external Redis (e.g. SearchBoost's Redis) or local Redis service:
       # If SearchBoost is not installed, it safely falls back to the local Redis container included below.
       # If installed later, simply set REDIS_URL to point to SearchBoost's instance.
@@ -22,6 +25,11 @@ services:
       - UPSTREAM_OPENAI_URL=${UPSTREAM_OPENAI_URL:-https://api.openai.com}
       - UPSTREAM_ANTHROPIC_URL=${UPSTREAM_ANTHROPIC_URL:-https://api.anthropic.com}
       - IGNORE_HA_ENFORCEMENT=true
+      # ONNX Runtime shared library — ort uses libloading which defers to the OS linker
+      - LD_LIBRARY_PATH=/app/data/models
+      - ORT_DYLIB_PATH=/app/data/models/libonnxruntime.so
+      # 1 NER worker on this Rosetta-emulated host; increase on native Linux
+      - WARDEN_NER_POOL_SIZE=1
     volumes:
       - ./config:/app/config
       - ./logs:/app/logs

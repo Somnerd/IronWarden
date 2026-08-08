@@ -193,7 +193,13 @@ impl WardenConfig {
             let cpu_count = std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(1);
-            let pool_size = std::cmp::min(4, cpu_count); // Cap at 4 instances for memory efficiency
+            // Allow pool size override via env var for resource-constrained or emulated hosts.
+            // Defaults to min(4, cpu_count) for native; set WARDEN_NER_POOL_SIZE=1 for Rosetta/ARM.
+            let pool_size = std::env::var("WARDEN_NER_POOL_SIZE")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .map(|n| n.clamp(1, 8))
+                .unwrap_or_else(|| std::cmp::min(4, cpu_count));
             match crate::ai::HybridNerPool::new(self.ai_confidence_threshold, pool_size) {
                 Ok(pool) => {
                     info!(

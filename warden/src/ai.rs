@@ -34,8 +34,9 @@ impl OnnxNer {
 
         let session = Session::builder()
             .map_err(|e| format!("Failed to create ONNX builder: {}", e))?
-            .with_intra_threads(2)
-            .map_err(|e| format!("Failed to set threads: {}", e))?
+            // NOTE: Do NOT call with_intra_threads() here.
+            // ORT's Eigen thread-pool barrier deadlocks under Rosetta x86_64 emulation
+            // when intra_threads > 1. Defaulting to 1 thread avoids the futex hang.
             .commit_from_file(model_path)
             .map_err(|e| format!("Failed to load ONNX model: {}", e))?;
 
