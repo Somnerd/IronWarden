@@ -34,9 +34,19 @@ impl OnnxNer {
 
         let session = Session::builder()
             .map_err(|e| format!("Failed to create ONNX builder: {}", e))?
-            // NOTE: Do NOT call with_intra_threads() here.
-            // ORT's Eigen thread-pool barrier deadlocks under Rosetta x86_64 emulation
-            // when intra_threads > 1. Defaulting to 1 thread avoids the futex hang.
+            // Force fully single-threaded ORT execution.
+            // Under Rosetta x86_64 emulation on Apple Silicon, ORT's internal thread pools
+            // (both intra-op Eigen pool and inter-op scheduler) deadlock in futex_wait_queue
+            // when more than 1 thread is created. Setting both to 1 and disabling spin-loops
+            // ensures the session init completes without hanging.
+            .with_intra_threads(1)
+            .map_err(|e| format!("Failed to set intra_threads: {}", e))?
+            .with_inter_threads(1)
+            .map_err(|e| format!("Failed to set inter_threads: {}", e))?
+            .with_intra_op_spinning(false)
+            .map_err(|e| format!("Failed to disable intra_op_spinning: {}", e))?
+            .with_inter_op_spinning(false)
+            .map_err(|e| format!("Failed to disable inter_op_spinning: {}", e))?
             .commit_from_file(model_path)
             .map_err(|e| format!("Failed to load ONNX model: {}", e))?;
 
