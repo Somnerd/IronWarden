@@ -383,7 +383,12 @@ async fn handle_request_internal(
             .process_file(&decoded_data, mime_type)
             .await?;
 
-        let resp = JsonRpcResponse::success(id, serde_json::json!({ "extracted_text": text }));
+        #[derive(Serialize)]
+        struct OcrResult {
+            extracted_text: String,
+        }
+        let result = OcrResult { extracted_text: text };
+        let resp = JsonRpcResponse::success(id, result);
         return serde_json::to_string(&resp)
             .map_err(|e| SovereignError::InternalError(e.to_string()));
     }

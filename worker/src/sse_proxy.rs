@@ -124,14 +124,32 @@ pub async fn stream_proxy_response(
                     // Flush anything remaining in the split-token buffer
                     let remaining = rehydrator.flush_all();
                     if !remaining.is_empty() {
-                        let synthetic = serde_json::json!({
-                            "choices": [{
-                                "delta": {"content": remaining},
-                                "finish_reason": null,
-                                "index": 0
-                            }]
-                        });
-                        output.push_str(&format!("data: {}\n\n", synthetic));
+                        #[derive(serde::Serialize)]
+                        struct DeltaContent<'a> {
+                            content: &'a str,
+                        }
+                        #[derive(serde::Serialize)]
+                        struct Choice<'a> {
+                            delta: DeltaContent<'a>,
+                            finish_reason: Option<&'a str>,
+                            index: u32,
+                        }
+                        #[derive(serde::Serialize)]
+                        struct SyntheticResponse<'a> {
+                            choices: [Choice<'a>; 1],
+                        }
+                        let synthetic = SyntheticResponse {
+                            choices: [Choice {
+                                delta: DeltaContent {
+                                    content: &remaining,
+                                },
+                                finish_reason: None,
+                                index: 0,
+                            }],
+                        };
+                        if let Ok(synthetic_str) = serde_json::to_string(&synthetic) {
+                            output.push_str(&format!("data: {}\n\n", synthetic_str));
+                        }
                     }
                     output.push_str("data: [DONE]\n\n");
                     continue;
