@@ -387,7 +387,9 @@ async fn handle_request_internal(
         struct OcrResult {
             extracted_text: String,
         }
-        let result = OcrResult { extracted_text: text };
+        let result = OcrResult {
+            extracted_text: text,
+        };
         let resp = JsonRpcResponse::success(id, result);
         return serde_json::to_string(&resp)
             .map_err(|e| SovereignError::InternalError(e.to_string()));
