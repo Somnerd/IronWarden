@@ -27,15 +27,17 @@ pub struct OnnxNer {
     tokenizer: Tokenizer,
     threshold: f64,
 }
-
 impl OnnxNer {
     pub fn new(model_path: &Path, tokenizer_path: &Path, threshold: f64) -> Result<Self, String> {
         info!("Loading ONNX NER Model from {:?}...", model_path);
 
+        let model_bytes = std::fs::read(model_path)
+            .map_err(|e| format!("Failed to read ONNX model from {:?}: {}", model_path, e))?;
+
         let session = Session::builder()
             .map_err(|e| format!("Failed to create ONNX builder: {}", e))?
             // Force fully single-threaded ORT execution.
-            // Under Rosetta x86_64 emulation on Apple Silicon, ORT's internal thread pools
+            // Under emulated/constrained environments, ORT's internal thread pools
             // (both intra-op Eigen pool and inter-op scheduler) deadlock in futex_wait_queue
             // when more than 1 thread is created. Setting both to 1 and disabling spin-loops
             // ensures the session init completes without hanging.
@@ -47,7 +49,7 @@ impl OnnxNer {
             .map_err(|e| format!("Failed to disable intra_op_spinning: {}", e))?
             .with_inter_op_spinning(false)
             .map_err(|e| format!("Failed to disable inter_op_spinning: {}", e))?
-            .commit_from_file(model_path)
+            .commit_from_memory(&model_bytes)
             .map_err(|e| format!("Failed to load ONNX model: {}", e))?;
 
         let tokenizer = Tokenizer::from_file(tokenizer_path)
