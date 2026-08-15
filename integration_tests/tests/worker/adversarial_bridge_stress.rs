@@ -3,7 +3,6 @@ use axum::http::StatusCode;
 use iw_core::crypto::Claims;
 use iw_warden::WardenConfig;
 use jsonwebtoken::{encode, EncodingKey, Header};
-use secrecy::SecretVec;
 use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;

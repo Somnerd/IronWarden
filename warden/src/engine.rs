@@ -1034,7 +1034,10 @@ impl WardenEngine {
             "SSN"
         } else if rule_upper.contains("PASSPORT") {
             "PASSPORT"
-        } else if rule_upper.contains("IP_ADDRESS") || rule_upper.contains("IPV4") || rule_upper.contains("IPV6") {
+        } else if rule_upper.contains("IP_ADDRESS")
+            || rule_upper.contains("IPV4")
+            || rule_upper.contains("IPV6")
+        {
             "IP"
         } else {
             match category {
@@ -1715,17 +1718,32 @@ mod tests {
         )];
 
         let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
-        let engine = WardenEngine::new(dict_rules, pattern_rules, vec![], None, 0.85, &pepper).unwrap();
+        let engine =
+            WardenEngine::new(dict_rules, pattern_rules, vec![], None, 0.85, &pepper).unwrap();
 
         let prompt = "Contact Alice Smith at alice@example.com with tax ID 123456789.";
         let report = engine.sanitize_prompt(prompt, None).await.unwrap();
 
-        assert!(report.sanitized_text.contains("[NAME_1]"), "Expected [NAME_1] in {}", report.sanitized_text);
-        assert!(report.sanitized_text.contains("[EMAIL_"), "Expected [EMAIL_N] in {}", report.sanitized_text);
-        assert!(report.sanitized_text.contains("[AFM_"), "Expected [AFM_N] in {}", report.sanitized_text);
+        assert!(
+            report.sanitized_text.contains("[NAME_1]"),
+            "Expected [NAME_1] in {}",
+            report.sanitized_text
+        );
+        assert!(
+            report.sanitized_text.contains("[EMAIL_"),
+            "Expected [EMAIL_N] in {}",
+            report.sanitized_text
+        );
+        assert!(
+            report.sanitized_text.contains("[AFM_"),
+            "Expected [AFM_N] in {}",
+            report.sanitized_text
+        );
 
         // Verify restoration
-        let restored = engine.restore_prompt(&report.sanitized_text, &report.token_map).unwrap();
+        let restored = engine
+            .restore_prompt(&report.sanitized_text, &report.token_map)
+            .unwrap();
         assert_eq!(restored, prompt);
     }
 }

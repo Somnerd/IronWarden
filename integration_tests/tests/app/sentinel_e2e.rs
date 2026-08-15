@@ -101,7 +101,7 @@ rules:
 ";
     let config_path = dir.path().join("rules.yaml");
     fs::write(&config_path, rules_yaml).unwrap();
-    let config = WardenConfig::from_file(&config_path.to_str().unwrap()).unwrap();
+    let config = WardenConfig::from_file(config_path.to_str().unwrap()).unwrap();
 
     let pepper1 = SecretVec::new(vec![0u8; 32]);
     let pepper2 = SecretVec::new(vec![0u8; 32]);
@@ -111,7 +111,7 @@ rules:
     let queue = Arc::new(
         GroundingQueue::new(db_path.clone(), &pepper1, Some(shield.clone()), None).unwrap(),
     );
-    let storage = WorkerStorage::new(&db_path, &kb_path, pepper2, Some((*queue).clone()), None)
+    let _storage = WorkerStorage::new(&db_path, &kb_path, pepper2, Some((*queue).clone()), None)
         .await
         .unwrap();
 
@@ -179,7 +179,7 @@ async fn test_v13_anchor_tampering_fail_closed() {
         .to_string();
     let anchor_path = dir.path().join("audit_anchor.db.anchor");
     let pepper1 = SecretVec::new(vec![0u8; 32]);
-    let pepper2 = SecretVec::new(vec![0u8; 32]);
+    let _pepper2 = SecretVec::new(vec![0u8; 32]);
 
     // 1. Initialize Auditor
     let auditor = worker::audit::AsyncAuditor::spawn(&db_path, pepper1, None)
@@ -235,7 +235,7 @@ rules:
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("rules.yaml");
     fs::write(&config_path, rules_yaml).unwrap();
-    let config = WardenConfig::from_file(&config_path.to_str().unwrap()).unwrap();
+    let config = WardenConfig::from_file(config_path.to_str().unwrap()).unwrap();
     let pepper = SecretVec::new(vec![0u8; 32]);
     let engine = config.compile_engine(&pepper).unwrap();
 

@@ -4,7 +4,7 @@ use iw_warden::WardenConfig;
 
 #[tokio::test]
 async fn test_legal_rules_loading() {
-    let config_dir = "../config/rules";
+    let _config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_legal.yaml")
         .expect("Failed to load config manifest")
         .0;
@@ -32,7 +32,7 @@ async fn test_legal_rules_loading() {
 
 #[tokio::test]
 async fn test_legal_pii_redaction() {
-    let config_dir = "../config/rules";
+    let _config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_legal.yaml")
         .expect("Failed to load config manifest")
         .0;
@@ -47,7 +47,7 @@ async fn test_legal_pii_redaction() {
     let input_bar = "Counsel: Alice Smith, Bar Number 12345.";
     let report_bar = engine.sanitize_prompt(input_bar, None).await.unwrap();
     assert!(
-        report_bar.sanitized_text.contains("[TOKEN_"),
+        !report_bar.token_map.is_empty() && report_bar.sanitized_text.contains('['),
         "Attorney bar number should be redacted"
     );
 
@@ -55,7 +55,7 @@ async fn test_legal_pii_redaction() {
     let input_docket = "Filed under docket 2024-CV-12345.";
     let report_docket = engine.sanitize_prompt(input_docket, None).await.unwrap();
     assert!(
-        report_docket.sanitized_text.contains("[TOKEN_"),
+        !report_docket.token_map.is_empty() && report_docket.sanitized_text.contains('['),
         "Court case docket should be redacted"
     );
 
@@ -63,7 +63,7 @@ async fn test_legal_pii_redaction() {
     let input_conf = "This document is ATTORNEY-CLIENT PRIVILEGE and SUBJECT TO NDA.";
     let report_conf = engine.sanitize_prompt(input_conf, None).await.unwrap();
     assert!(
-        report_conf.sanitized_text.contains("[TOKEN_"),
+        !report_conf.token_map.is_empty() && report_conf.sanitized_text.contains('['),
         "Confidential markers should be redacted"
     );
 
@@ -71,7 +71,7 @@ async fn test_legal_pii_redaction() {
     let input_afm = "My tax identification number (AFM) is 123456789.";
     let report_afm = engine.sanitize_prompt(input_afm, None).await.unwrap();
     assert!(
-        report_afm.sanitized_text.contains("[TOKEN_"),
+        !report_afm.token_map.is_empty() && report_afm.sanitized_text.contains('['),
         "Greek AFM should be redacted"
     );
 }

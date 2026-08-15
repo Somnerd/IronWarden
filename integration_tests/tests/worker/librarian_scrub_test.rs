@@ -6,7 +6,7 @@ use tempfile::tempdir;
 
 #[tokio::test]
 async fn test_leak_proof_librarian_flow() {
-    let base_dir = tempdir().unwrap();
+    let _base_dir = tempdir().unwrap();
 
     // 1. Setup a direct engine with the rule we want
     let dictionary_rules = Vec::new();

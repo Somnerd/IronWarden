@@ -4,7 +4,7 @@ use iw_warden::WardenConfig;
 
 #[tokio::test]
 async fn test_medical_rules_loading() {
-    let config_dir = "../config/rules";
+    let _config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_medical.yaml")
         .expect("Failed to load config manifest")
         .0;
@@ -32,7 +32,7 @@ async fn test_medical_rules_loading() {
 
 #[tokio::test]
 async fn test_medical_pii_redaction() {
-    let config_dir = "../config/rules";
+    let _config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_medical.yaml")
         .expect("Failed to load config manifest")
         .0;
@@ -47,7 +47,7 @@ async fn test_medical_pii_redaction() {
     let input_mrn = "Patient's MRN is MRN-12345678.";
     let report_mrn = engine.sanitize_prompt(input_mrn, None).await.unwrap();
     assert!(
-        report_mrn.sanitized_text.contains("[TOKEN_"),
+        !report_mrn.token_map.is_empty() && report_mrn.sanitized_text.contains('['),
         "MRN should be redacted"
     );
 
@@ -55,7 +55,7 @@ async fn test_medical_pii_redaction() {
     let input_npi = "Provider NPI is 1987654321.";
     let report_npi = engine.sanitize_prompt(input_npi, None).await.unwrap();
     assert!(
-        report_npi.sanitized_text.contains("[TOKEN_"),
+        !report_npi.token_map.is_empty() && report_npi.sanitized_text.contains('['),
         "NPI should be redacted"
     );
 
@@ -63,7 +63,7 @@ async fn test_medical_pii_redaction() {
     let input_mbi = "Medicare MBI is 1EG4TE5MK72.";
     let report_mbi = engine.sanitize_prompt(input_mbi, None).await.unwrap();
     assert!(
-        report_mbi.sanitized_text.contains("[TOKEN_"),
+        !report_mbi.token_map.is_empty() && report_mbi.sanitized_text.contains('['),
         "MBI should be redacted"
     );
 
@@ -71,7 +71,7 @@ async fn test_medical_pii_redaction() {
     let input_rx = "Refill Rx-98765432.";
     let report_rx = engine.sanitize_prompt(input_rx, None).await.unwrap();
     assert!(
-        report_rx.sanitized_text.contains("[TOKEN_"),
+        !report_rx.token_map.is_empty() && report_rx.sanitized_text.contains('['),
         "Prescription number should be redacted"
     );
 
@@ -79,14 +79,14 @@ async fn test_medical_pii_redaction() {
     let input_icd = "Diagnosis code is I10 (Essential hypertension).";
     let report_icd = engine.sanitize_prompt(input_icd, None).await.unwrap();
     assert!(
-        report_icd.sanitized_text.contains("[TOKEN_"),
+        !report_icd.token_map.is_empty() && report_icd.sanitized_text.contains('['),
         "ICD-10 code should be redacted"
     );
 }
 
 #[tokio::test]
 async fn test_medical_heuristics_audit_only() {
-    let config_dir = "../config/rules";
+    let _config_dir = "../config/rules";
     let mut config = WardenConfig::from_manifest("test_manifest_medical.yaml")
         .expect("Failed to load config manifest")
         .0;

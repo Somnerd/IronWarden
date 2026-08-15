@@ -4,8 +4,8 @@ use iw_warden::WardenConfig;
 use std::fs;
 use tempfile::tempdir;
 
-#[tokio::main]
-async fn main() {
+#[tokio::test]
+async fn test_ghosting() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("rules.yaml");
 

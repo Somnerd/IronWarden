@@ -36,7 +36,7 @@ rules:
     let storage = Arc::new(
         WorkerStorage::new(
             &db_path,
-            &lancedb_path,
+            lancedb_path,
             secrecy::SecretVec::new(pepper),
             None,
             None,
@@ -53,7 +53,9 @@ rules:
     let report = shield.sanitize_prompt(raw_input, None).await.unwrap();
 
     // VERIFY: Normalization caught the homoglyph and zero-width char
-    assert!(report.sanitized_text.contains("[TOKEN_1]"));
+    assert!(
+        report.sanitized_text.contains("[NAME_1]") || report.sanitized_text.contains("[TOKEN_1]")
+    );
     assert!(!report.sanitized_text.contains("Alice"));
 
     // VERIFY: Offset drift corrected. Offset 14 in original is where the 'Α' starts.
@@ -136,6 +138,6 @@ async fn test_stateful_tokenization_session_consistency() {
         .unwrap();
     let token3 = report3.redactions[0].placeholder.clone();
 
-    // Note: Since it's a new session, it starts from TOKEN_1
-    assert_eq!(token3, "[TOKEN_1]");
+    // Note: Since it's a new session, it starts from [NAME_1]
+    assert_eq!(token3, "[NAME_1]");
 }

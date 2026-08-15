@@ -565,6 +565,7 @@ impl McpServer for StdioMcpServer {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use iw_core::{ComplianceReport, ScrubbingReport, TokenMap};
     use serde_json::json;
     use std::time::Duration;
 

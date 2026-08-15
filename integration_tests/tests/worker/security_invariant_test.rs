@@ -1,7 +1,6 @@
 // Security invariant tests verifying auditor hard-stop functionality when the database anchor file is missing, and verifying V-19 session isolation/AAD binding of encrypted session data.
-use iw_core::{EnforcementAction, PiiCategory, ScrubbingReport, StorageProvider};
+use iw_core::StorageProvider;
 use secrecy::SecretVec;
-use std::sync::Arc;
 use tempfile::tempdir;
 use tokio::time::{sleep, Duration};
 use worker::WorkerStorage;
