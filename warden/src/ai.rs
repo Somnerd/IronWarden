@@ -368,4 +368,25 @@ mod tests {
             "Expected at least one successful pool acquisition"
         );
     }
+
+    #[test]
+    fn test_onnx_model_load_direct() {
+        let model_path = Path::new("../data/models/distilbert-ner/model_quantized.onnx");
+        let tokenizer_path = Path::new("../data/models/distilbert-ner/tokenizer.json");
+        if model_path.exists() && tokenizer_path.exists() {
+            println!("Testing direct ONNX model load...");
+            let res = OnnxNer::new(model_path, tokenizer_path, 0.85);
+            match res {
+                Ok(ner) => {
+                    println!("Model loaded successfully!");
+                    let entities = ner.predict("John Doe works at Apple in London");
+                    println!("Predicted {} entities", entities.len());
+                    assert!(!entities.is_empty(), "Expected entities detected");
+                }
+                Err(e) => {
+                    panic!("Direct ONNX load failed: {}", e);
+                }
+            }
+        }
+    }
 }

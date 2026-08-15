@@ -25,10 +25,16 @@ services:
       - UPSTREAM_OPENAI_URL=${UPSTREAM_OPENAI_URL:-https://api.openai.com}
       - UPSTREAM_ANTHROPIC_URL=${UPSTREAM_ANTHROPIC_URL:-https://api.anthropic.com}
       - IGNORE_HA_ENFORCEMENT=true
-      # ONNX Runtime shared library — ort uses libloading which defers to the OS linker
-      - LD_LIBRARY_PATH=/app/data/models
-      - ORT_DYLIB_PATH=/app/data/models/libonnxruntime.so
-      # 1 NER worker on this Rosetta-emulated host; increase on native Linux
+      # ONNX Runtime shared library — installed in runner image
+      - LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
+      - ORT_DYLIB_PATH=/usr/lib/x86_64-linux-gnu/libonnxruntime.so
+      # Disable OpenMP & Intel KMP busy-waiting & constrain thread pool in ONNX Runtime prebuilt binary
+      - OMP_NUM_THREADS=1
+      - OMP_WAIT_POLICY=PASSIVE
+      - OMP_DYNAMIC=FALSE
+      - KMP_BLOCKTIME=0
+      - KMP_AFFINITY=disabled
+      # 1 NER worker on this host; increase on multi-core Linux
       - WARDEN_NER_POOL_SIZE=1
     volumes:
       - ./config:/app/config
