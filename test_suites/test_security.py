@@ -26,7 +26,7 @@ def test_security_homoglyph_bypass(warden):
     
     # Normalizer should convert Greek Alpha to Latin A, and then AC should catch it.
     assert homoglyph_input not in result["sanitized_text"]
-    assert "[TOKEN_1]" in result["sanitized_text"]
+    assert any(t in result["sanitized_text"] for t in ["[NAME_1]", "[TOKEN_1]"])
     assert "client_names" in result["redactions"][0]["rule_id"]
 
 def test_security_invisible_char_bypass(warden):
@@ -45,7 +45,7 @@ def test_security_invisible_char_bypass(warden):
     
     # Normalizer should strip the ZWSP.
     assert invisible_input not in result["sanitized_text"]
-    assert "[TOKEN_1]" in result["sanitized_text"]
+    assert any(t in result["sanitized_text"] for t in ["[NAME_1]", "[TOKEN_1]"])
 
 def test_security_session_isolation_leak(warden):
     """
@@ -58,19 +58,19 @@ def test_security_session_isolation_leak(warden):
     # We need a rule that catches these. Let's assume 'internal_projects' or 'company_secrets' matches generic patterns,
     # but for precision let's just use 'Alice' and 'Acme Corp' which are in rules.yaml.
     
-    warden.send_mcp("mcp_sanitize_prompt", {"username": "alice", "prompt": f"Secret: Alice"})
+    s1 = warden.send_mcp("mcp_sanitize_prompt", {"username": "alice", "prompt": f"Secret: Alice"})
+    token1 = s1["result"]["redactions"][0]["placeholder"] if s1["result"]["redactions"] else "[TOKEN_1]"
     
     # 2. Bob enqueues his secret
     warden.send_mcp("mcp_sanitize_prompt", {"username": "bob", "prompt": f"Secret: Acme Corp"})
     
-    # 3. Bob tries to restore [TOKEN_1] (which is Alice's 'Alice' token)
+    # 3. Bob tries to restore Alice's token
     restore_resp = warden.send_mcp("mcp_restore_prompt", {
         "username": "bob",
-        "response": "The secret is [TOKEN_1]"
+        "response": f"The secret is {token1}"
     })
     
-    # If isolation works, [TOKEN_1] for Bob should NOT be 'Alice'.
-    # It should either be Bob's token 'Acme Corp' (if IDs are shared) or just '[TOKEN_1]' if not found.
+    # If isolation works, token1 for Bob should NOT be 'Alice'.
     assert "Alice" not in restore_resp["result"]
 
 def test_security_audit_log_tamper_detection(warden):

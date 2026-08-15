@@ -65,21 +65,23 @@ def test_mcp_multi_token_restoration(warden):
     })
     
     assert full_name in restore_resp["result"]
-    # Check that no [TOKEN_X] remains
-    assert "[TOKEN_" not in restore_resp["result"]
+    # Check that no placeholder remains
+    assert "[" not in restore_resp["result"]
 
 def test_mcp_name_fragment_collision(warden):
     """
     Test edge case: Two people sharing a common part of a long name.
     'Edward Kenway' and 'Edward Teach'.
     """
-    warden.send_mcp("mcp_sanitize_prompt", {"username": "u1", "prompt": "Edward Kenway"})
-    warden.send_mcp("mcp_sanitize_prompt", {"username": "u1", "prompt": "Edward Teach"})
+    res1 = warden.send_mcp("mcp_sanitize_prompt", {"username": "u1", "prompt": "Edward Kenway"})
+    res2 = warden.send_mcp("mcp_sanitize_prompt", {"username": "u1", "prompt": "Edward Teach"})
+    t1 = res1["result"]["redactions"][0]["placeholder"]
+    t2 = res2["result"]["redactions"][0]["placeholder"]
     
     # Ensure they have distinct mappings
     resp = warden.send_mcp("mcp_restore_prompt", {
         "username": "u1",
-        "response": "Hello [TOKEN_1] and [TOKEN_2]"
+        "response": f"Hello {t1} and {t2}"
     })
     
     assert "Edward Kenway" in resp["result"]

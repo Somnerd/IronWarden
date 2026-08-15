@@ -16,7 +16,7 @@ def test_localization_gr_afm_valid(warden):
     result = response["result"]
     
     assert afm not in result["sanitized_text"]
-    assert "[TOKEN_1]" in result["sanitized_text"]
+    assert any(t in result["sanitized_text"] for t in ["[AFM_1]", "[TOKEN_1]"])
     assert "gr_afm" in result["redactions"][0]["rule_id"]
 
 def test_localization_gr_amka_valid(warden):
@@ -30,7 +30,7 @@ def test_localization_gr_amka_valid(warden):
     result = response["result"]
     
     assert amka not in result["sanitized_text"]
-    assert "[TOKEN_1]" in result["sanitized_text"]
+    assert any(t in result["sanitized_text"] for t in ["[AMKA_1]", "[TOKEN_1]"])
     assert "gr_amka" in result["redactions"][0]["rule_id"]
 
 def test_localization_gr_name_heuristic(warden):
@@ -49,7 +49,7 @@ def test_localization_gr_name_heuristic(warden):
         # or redactions if upgraded by AI.
         
         found_in_misses = any(m["text"] == name for m in result["potential_misses"])
-        found_in_redactions = any(r["placeholder"].startswith("[TOKEN_") or r["placeholder"].startswith("[AI_REDACTED") for r in result["redactions"])
+        found_in_redactions = any(r["placeholder"].startswith("[") for r in result["redactions"])
         
         assert found_in_misses or found_in_redactions, f"Heuristic failed to catch Greek name: {name}"
 

@@ -39,7 +39,7 @@ def test_operational_hot_reload(warden_bin):
         # 2. Verify initial rule works
         params = {"username": "t", "prompt": "My secret is SECRET_A"}
         resp1 = runner.send_mcp("mcp_sanitize_prompt", params)
-        assert "[TOKEN_1]" in resp1["result"]["sanitized_text"]
+        assert len(resp1["result"]["redactions"]) > 0 and "SECRET_A" not in resp1["result"]["sanitized_text"]
         
         # 3. Verify a NEW secret is NOT caught yet
         params_new = {"username": "t", "prompt": "My secret is NEW_SECRET_B"}
@@ -63,7 +63,7 @@ def test_operational_hot_reload(warden_bin):
         # 5. Verify the NEW secret is now caught
         resp3 = runner.send_mcp("mcp_sanitize_prompt", params_new)
         assert "NEW_SECRET_B" not in resp3["result"]["sanitized_text"]
-        assert "[TOKEN_" in resp3["result"]["sanitized_text"]
+        assert len(resp3["result"]["redactions"]) > 0
         
     finally:
         runner.stop()
@@ -93,9 +93,9 @@ def test_integrity_json_preservation(warden):
         
     # 2. Check if keys are preserved but values are tokenized
     assert "user" in parsed
-    assert parsed["user"] == "[TOKEN_1]"
-    assert parsed["email"] == "[TOKEN_2]"
-    assert parsed["metadata"]["project"] == "[TOKEN_3]"
+    assert parsed["user"] in ["[NAME_1]", "[TOKEN_1]"]
+    assert parsed["email"] in ["[EMAIL_2]", "[TOKEN_2]"]
+    assert parsed["metadata"]["project"] in ["[ASSET_3]", "[PROJECT_3]", "[TOKEN_3]"]
 
 def test_operational_graceful_shutdown(warden_bin):
     """
