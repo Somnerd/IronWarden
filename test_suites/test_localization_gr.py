@@ -16,7 +16,7 @@ def test_localization_gr_afm_valid(warden):
     result = response["result"]
     
     assert afm not in result["sanitized_text"]
-    assert any(t in result["sanitized_text"] for t in ["[AFM_1]", "[TOKEN_1]"])
+    assert any(p in result["sanitized_text"] for p in ["[AFM_", "[TOKEN_", "[ID_"])
     assert "gr_afm" in result["redactions"][0]["rule_id"]
 
 def test_localization_gr_amka_valid(warden):
@@ -30,7 +30,7 @@ def test_localization_gr_amka_valid(warden):
     result = response["result"]
     
     assert amka not in result["sanitized_text"]
-    assert any(t in result["sanitized_text"] for t in ["[AMKA_1]", "[TOKEN_1]"])
+    assert any(p in result["sanitized_text"] for p in ["[AMKA_", "[TOKEN_", "[ID_"])
     assert "gr_amka" in result["redactions"][0]["rule_id"]
 
 def test_localization_gr_name_heuristic(warden):

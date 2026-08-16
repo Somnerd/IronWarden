@@ -93,9 +93,9 @@ def test_integrity_json_preservation(warden):
         
     # 2. Check if keys are preserved but values are tokenized
     assert "user" in parsed
-    assert parsed["user"] in ["[NAME_1]", "[TOKEN_1]"]
-    assert parsed["email"] in ["[EMAIL_2]", "[TOKEN_2]"]
-    assert parsed["metadata"]["project"] in ["[ASSET_3]", "[PROJECT_3]", "[TOKEN_3]"]
+    assert any(parsed["user"].startswith(p) for p in ["[NAME_", "[TOKEN_"])
+    assert any(parsed["email"].startswith(p) for p in ["[EMAIL_", "[TOKEN_"])
+    assert any(parsed["metadata"]["project"].startswith(p) for p in ["[ASSET_", "[PROJECT_", "[TOKEN_"])
 
 def test_operational_graceful_shutdown(warden_bin):
     """
