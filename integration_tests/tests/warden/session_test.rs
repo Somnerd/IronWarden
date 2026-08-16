@@ -25,12 +25,12 @@ rules:
     let shield = config.compile_engine(&pepper).unwrap();
 
     // Create a shared session
-    let mut session = SessionContext::new();
+    let session = SessionContext::new();
 
     // 1. First request: Alice and Bob
     let input1 = "Hello Alice and Bob.";
     let report1 = shield
-        .sanitize_prompt(input1, Some(&mut session))
+        .sanitize_prompt(input1, Some(&session))
         .await
         .unwrap();
 
@@ -55,7 +55,7 @@ rules:
     // 2. Second request: Only Alice (should have same token)
     let input2 = "Is Alice there?";
     let report2 = shield
-        .sanitize_prompt(input2, Some(&mut session))
+        .sanitize_prompt(input2, Some(&session))
         .await
         .unwrap();
 
@@ -72,7 +72,7 @@ rules:
     // 3. Third request: Bob (should have same token)
     let input3 = "Bob left.";
     let report3 = shield
-        .sanitize_prompt(input3, Some(&mut session))
+        .sanitize_prompt(input3, Some(&session))
         .await
         .unwrap();
 

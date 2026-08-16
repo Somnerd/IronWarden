@@ -86,10 +86,10 @@ class MockUpstreamHandler(BaseHTTPRequestHandler):
     def _extract_placeholder(self, parsed):
         import re
         s = json.dumps(parsed)
-        m = re.search(r'\[(PERSON_\d+|TOKEN_\d+|EMAIL_\d+)\]', s)
+        m = re.search(r'\[([A-Z0-9_]+)\]', s)
         if m:
             return m.group(0)
-        return "[PERSON_1]"
+        return "[NAME_1]"
 
     # ── Response builders ──────────────────────────────────────────────────────
 
@@ -970,7 +970,7 @@ def test_proxy_session_token_map_persists_across_calls(proxy_url, auth_headers, 
 
     def extract_placeholder(payload):
         body = json.dumps(payload)
-        m = re.search(r"\[EMAIL_\d+\]|\[TOKEN_\d+\]|\[PERSON_\d+\]", body)
+        m = re.search(r"\[[A-Z0-9_]+\]", body)
         return m.group(0) if m else None
 
     placeholder_1 = extract_placeholder(payload_1)

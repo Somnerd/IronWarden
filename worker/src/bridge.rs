@@ -216,7 +216,7 @@ async fn handle_enqueue(
             Json(EnqueueResponse {
                 status: "queued",
                 id: job_id,
-                pii_scrubbed: report.token_map.len() > 0,
+                pii_scrubbed: !report.token_map.is_empty(),
             }),
         )
             .into_response(),
@@ -662,10 +662,11 @@ async fn handle_anthropic_messages(
         }
     }
 
-    let target_url = std::env::var("ANTHROPIC_BASE_URL")
-        .unwrap_or_else(|_| "https://api.anthropic.com/v1/messages".to_string());
+    let target_url = resolve_upstream_url(&headers, &payload.model);
     let api_key = headers
         .get("x-api-key")
+        .or_else(|| headers.get("X-IronWarden-Upstream-Key"))
+        .or_else(|| headers.get("x-ironwarden-upstream-key"))
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
         .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())

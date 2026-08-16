@@ -23,8 +23,14 @@ ai_confidence_threshold: 0.85
 
     // ASSERTIONS:
     // The entire name "Juan Pablo Garcia de la Cruz" should be one token
-    assert!(report.sanitized_text.contains("[TOKEN_1]"));
+    assert!(
+        report.sanitized_text.contains("[NAME_1]") || report.sanitized_text.contains("[TOKEN_1]")
+    );
 
-    let full_name = report.token_map.get("[TOKEN_1]").unwrap();
+    let full_name = report
+        .token_map
+        .values()
+        .find(|v| v.contains("Garcia de la Cruz"))
+        .expect("Full name missing in token_map");
     assert!(full_name.contains("Garcia de la Cruz"));
 }

@@ -34,7 +34,9 @@ rules:
         .sanitize_prompt("Hello Alice.", Some(&session))
         .await
         .unwrap();
-    assert!(report1.sanitized_text.contains("[TOKEN_1]")); // Alice is TOKEN_1
+    assert!(
+        report1.sanitized_text.contains("[NAME_1]") || report1.sanitized_text.contains("[TOKEN_1]")
+    ); // Alice is NAME_1
 
     // 2. Introduce the email containing "alice"
     let report2 = shield
@@ -43,7 +45,10 @@ rules:
         .unwrap();
     // Prior to Type Isolation, the email would get merged with Alice and corrupted to [TOKEN_1].
     // With Type Isolation, it correctly receives a NEW token for the email.
-    assert!(report2.sanitized_text.contains("[TOKEN_2]")); // Email is TOKEN_2
+    assert!(
+        report2.sanitized_text.contains("[EMAIL_2]")
+            || report2.sanitized_text.contains("[TOKEN_2]")
+    ); // Email is EMAIL_2
 
     // 3. Introduce the name "Alicia"
     let report3 = shield
@@ -52,14 +57,18 @@ rules:
         .unwrap();
     // Prior to Word Boundary Enforcement, Alicia would get merged into Alice.
     // Now, Alicia correctly receives a NEW token.
-    assert!(report3.sanitized_text.contains("[TOKEN_3]")); // Alicia is TOKEN_3
+    assert!(
+        report3.sanitized_text.contains("[NAME_3]") || report3.sanitized_text.contains("[TOKEN_3]")
+    ); // Alicia is NAME_3
 
     // 4. Confirm Alice still matches exactly
     let report4 = shield
         .sanitize_prompt("Alice again.", Some(&session))
         .await
         .unwrap();
-    assert!(report4.sanitized_text.contains("[TOKEN_1]")); // Reuses Alice token
+    assert!(
+        report4.sanitized_text.contains("[NAME_1]") || report4.sanitized_text.contains("[TOKEN_1]")
+    ); // Reuses Alice token
 
     // 5. Test Word Boundary Enforcement (Negative case)
     // Alice should NOT be redacted when part of "Malice"
@@ -67,6 +76,9 @@ rules:
         .sanitize_prompt("Do not match Malice.", Some(&session))
         .await
         .unwrap();
-    assert!(!report5.sanitized_text.contains("[TOKEN_1]"));
+    assert!(
+        !report5.sanitized_text.contains("[NAME_1]")
+            && !report5.sanitized_text.contains("[TOKEN_1]")
+    );
     assert!(report5.sanitized_text.contains("Malice"));
 }

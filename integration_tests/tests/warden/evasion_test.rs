@@ -24,7 +24,7 @@ async fn test_v15_homoglyph_evasion() {
 
     println!("Sanitized text: {}", report.sanitized_text);
     assert!(
-        report.sanitized_text.contains("[TOKEN_1]"),
+        report.sanitized_text.contains("[NAME_1]") || report.sanitized_text.contains("[TOKEN_1]"),
         "V-15: Homoglyph 'Alice' was not redacted!"
     );
 }

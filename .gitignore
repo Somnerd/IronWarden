@@ -53,3 +53,8 @@ test_suites/__pycache__/
 test_env/
 test_audit*
 
+# Scratch & Logs
+scratch/
+*.logs
+
+

@@ -128,10 +128,7 @@ impl GroundingQueue {
             loop {
                 let item = tokio::select! {
                     res = db_rx_clone.recv_async() => {
-                        match res {
-                            Ok(item) => Some(item),
-                            Err(_) => None,
-                        }
+                        res.ok()
                     }
                     _ = tokio::time::sleep(Duration::from_millis(50)) => None,
                 };
@@ -424,7 +421,7 @@ impl GroundingQueue {
             "GroundingQueue: Initiating graceful shutdown, flushing {} remaining jobs to DB...",
             self.db_tx.len()
         );
-        while self.db_tx.len() > 0 {
+        while !self.db_tx.is_empty() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         tokio::time::sleep(Duration::from_millis(150)).await;

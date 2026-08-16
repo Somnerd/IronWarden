@@ -6,8 +6,8 @@ edition = "2021"
 [dependencies]
 iw_core = { path = "../core" }
 warden = { package = "iw-warden", path = "../warden" }
-worker = { path = "../worker" }
-mcp = { path = "../mcp" }
+worker = { package = "iw_worker", path = "../worker" }
+mcp = { package = "iw_mcp", path = "../mcp" }
 tokio = { version = "1.0", features = ["full"] }
 dotenvy = "0.15"
 tracing = "0.1"

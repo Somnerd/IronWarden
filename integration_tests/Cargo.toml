@@ -7,8 +7,8 @@ publish = false
 [dependencies]
 iw_core = { path = "../core" }
 warden = { package = "iw-warden", path = "../warden" }
-worker = { path = "../worker" }
-mcp = { path = "../mcp" }
+worker = { package = "iw_worker", path = "../worker" }
+mcp = { package = "iw_mcp", path = "../mcp" }
 tokio = { version = "1.37", features = ["full"] }
 tempfile = "3.10"
 rusqlite = { version = "0.37", features = ["bundled"] }

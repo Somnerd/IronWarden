@@ -1,5 +1,5 @@
 # --- Build Stage ---
-FROM rust:1.80-slim-bookworm AS builder
+FROM rust:1.97-bookworm AS builder
 
 WORKDIR /usr/src/ironwarden
 
@@ -11,21 +11,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtesseract-dev \
     libleptonica-dev \
     clang \
+    protobuf-compiler \
+    libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source code into builder container
 COPY Cargo.toml Cargo.lock ./
-COPY iw_core ./iw_core
+COPY core ./core
 COPY warden ./warden
 COPY worker ./worker
 COPY mcp ./mcp
 COPY app ./app
+COPY cli ./cli
+COPY integration_tests ./integration_tests
+COPY config ./config
+COPY scripts ./scripts
+
+
 
 # Build release binary
 RUN cargo build --release -p app
 
 # --- Runtime Stage ---
-FROM debian:bookworm-slim AS runner
+FROM debian:trixie-slim AS runner
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
@@ -35,6 +43,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install ONNX Runtime 1.20.1 (required by ort crate with load-dynamic feature)
+RUN curl -fsSL \
+    "https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz" \
+    -o /tmp/ort.tgz \
+    && tar -xzf /tmp/ort.tgz -C /tmp \
+    && cp /tmp/onnxruntime-linux-x64-1.20.1/lib/libonnxruntime.so.1.20.1 /usr/lib/x86_64-linux-gnu/ \
+    && ln -s /usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.20.1 /usr/lib/x86_64-linux-gnu/libonnxruntime.so \
+    && rm -rf /tmp/ort.tgz /tmp/onnxruntime-linux-x64-1.20.1
 
 WORKDIR /app
 

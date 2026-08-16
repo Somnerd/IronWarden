@@ -19,8 +19,7 @@ def test_integrity_overlapping_rules(warden):
     result = response["result"]
     
     # It should only be redacted ONCE (one token).
-    # Double redaction [TOKEN_1][TOKEN_2] would be a bug.
-    assert result["sanitized_text"].count("[TOKEN_") == 1
+    assert len(result["redactions"]) == 1
     assert "Alice" not in result["sanitized_text"]
 
 def test_integrity_nested_pii(warden):
@@ -39,7 +38,7 @@ def test_integrity_nested_pii(warden):
     # Ideally, the longest match (email) should take precedence, 
     # OR they both get redacted if they don't perfectly overlap.
     # Current engine logic sorts by length/start.
-    assert "[TOKEN_" in result["sanitized_text"]
+    assert len(result["redactions"]) >= 1
     assert "project_alpha" not in result["sanitized_text"]
     assert "corp.com" not in result["sanitized_text"]
 

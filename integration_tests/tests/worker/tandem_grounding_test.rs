@@ -63,7 +63,9 @@ async fn test_v14_leak_prevention_enforced() {
 
     // Step A: Bridge-side Processing (Scrubbing Only)
     let report = shield.sanitize_prompt(raw_query, None).await.unwrap();
-    assert!(report.sanitized_text.contains("[TOKEN_1]"));
+    assert!(
+        report.sanitized_text.contains("[ASSET_1]") || report.sanitized_text.contains("[TOKEN_1]")
+    );
     assert!(!report.sanitized_text.contains("Icarus"));
 
     // Step B: Enqueue (Signature now ONLY accepts 4 arguments, raw/sealed query is impossible)
@@ -121,7 +123,7 @@ async fn test_aad_binding_integrity() {
     let query = "Sensitive query for Alice";
 
     // Enqueue for Alice
-    let job_id = queue
+    let _job_id = queue
         .enqueue(
             query.to_string(),
             HashMap::new(),

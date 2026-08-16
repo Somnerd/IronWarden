@@ -18,7 +18,7 @@ pub struct Entity {
 }
 
 pub enum NerBackend {
-    Onnx(OnnxNer),
+    Onnx(Box<OnnxNer>),
     None,
 }
 
@@ -27,16 +27,29 @@ pub struct OnnxNer {
     tokenizer: Tokenizer,
     threshold: f64,
 }
-
 impl OnnxNer {
     pub fn new(model_path: &Path, tokenizer_path: &Path, threshold: f64) -> Result<Self, String> {
         info!("Loading ONNX NER Model from {:?}...", model_path);
 
+        let model_bytes = std::fs::read(model_path)
+            .map_err(|e| format!("Failed to read ONNX model from {:?}: {}", model_path, e))?;
+
         let session = Session::builder()
             .map_err(|e| format!("Failed to create ONNX builder: {}", e))?
-            .with_intra_threads(2)
-            .map_err(|e| format!("Failed to set threads: {}", e))?
-            .commit_from_file(model_path)
+            // Force fully single-threaded ORT execution.
+            // Under emulated/constrained environments, ORT's internal thread pools
+            // (both intra-op Eigen pool and inter-op scheduler) deadlock in futex_wait_queue
+            // when more than 1 thread is created. Setting both to 1 and disabling spin-loops
+            // ensures the session init completes without hanging.
+            .with_intra_threads(1)
+            .map_err(|e| format!("Failed to set intra_threads: {}", e))?
+            .with_inter_threads(1)
+            .map_err(|e| format!("Failed to set inter_threads: {}", e))?
+            .with_intra_op_spinning(false)
+            .map_err(|e| format!("Failed to disable intra_op_spinning: {}", e))?
+            .with_inter_op_spinning(false)
+            .map_err(|e| format!("Failed to disable inter_op_spinning: {}", e))?
+            .commit_from_memory(&model_bytes)
             .map_err(|e| format!("Failed to load ONNX model: {}", e))?;
 
         let tokenizer = Tokenizer::from_file(tokenizer_path)
@@ -213,7 +226,7 @@ impl HybridNer {
                 Ok(onnx) => {
                     info!("ONNX Runtime Inference Engine: ONLINE (DistilBERT-INT8)");
                     return Ok(Self {
-                        backend: NerBackend::Onnx(onnx),
+                        backend: NerBackend::Onnx(Box::new(onnx)),
                         threshold,
                     });
                 }
@@ -354,5 +367,26 @@ mod tests {
             success_count > 0,
             "Expected at least one successful pool acquisition"
         );
+    }
+
+    #[test]
+    fn test_onnx_model_load_direct() {
+        let model_path = Path::new("../data/models/distilbert-ner/model_quantized.onnx");
+        let tokenizer_path = Path::new("../data/models/distilbert-ner/tokenizer.json");
+        if model_path.exists() && tokenizer_path.exists() {
+            println!("Testing direct ONNX model load...");
+            let res = OnnxNer::new(model_path, tokenizer_path, 0.85);
+            match res {
+                Ok(ner) => {
+                    println!("Model loaded successfully!");
+                    let entities = ner.predict("John Doe works at Apple in London");
+                    println!("Predicted {} entities", entities.len());
+                    assert!(!entities.is_empty(), "Expected entities detected");
+                }
+                Err(e) => {
+                    panic!("Direct ONNX load failed: {}", e);
+                }
+            }
+        }
     }
 }

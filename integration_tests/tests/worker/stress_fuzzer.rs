@@ -93,7 +93,7 @@ async fn test_time_travel_purge_and_hmac_integrity() {
 
     // 5. Build and run the `iw-cli` tool to verify integrity
     let build_status = Command::new("cargo")
-        .args(&["build", "-p", "iw-cli"])
+        .args(["build", "-p", "iw-cli"])
         .status()
         .expect("Failed to build iw-cli");
     assert!(build_status.success());
@@ -103,7 +103,7 @@ async fn test_time_travel_purge_and_hmac_integrity() {
             "WARDEN_PEPPER",
             "this-is-a-valid-32-byte-test-pepper-string!",
         )
-        .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
+        .args(["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
         .output()
         .expect("Failed to run verify");
 
@@ -136,7 +136,7 @@ async fn test_time_travel_purge_and_hmac_integrity() {
             "WARDEN_PEPPER",
             "this-is-a-valid-32-byte-test-pepper-string!",
         )
-        .args(&["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
+        .args(["run", "-p", "iw-cli", "--", "verify", "--db", db_path])
         .output()
         .expect("Failed to run verify");
 

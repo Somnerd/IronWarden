@@ -56,7 +56,7 @@ impl PiiShield for AhoCorasickShield {
             let mut ssn_counter = 0;
             let ssn_sanitized =
                 self.ssn_regex
-                    .replace_all(&normalized_prompt, |caps: &regex::Captures| {
+                    .replace_all(normalized_prompt, |caps: &regex::Captures| {
                         ssn_counter += 1;
                         let token = format!("[SSN_{}]", ssn_counter);
                         let matched_text =
@@ -72,11 +72,7 @@ impl PiiShield for AhoCorasickShield {
                             rule_id: "regex_ssn".into(),
                             action: EnforcementAction::Redact,
                             offset: orig_start,
-                            length: if orig_end >= orig_start {
-                                orig_end - orig_start
-                            } else {
-                                0
-                            },
+                            length: orig_end.saturating_sub(orig_start),
                             placeholder: token.clone(),
                             category: PiiCategory::IdentificationNumber,
                         });

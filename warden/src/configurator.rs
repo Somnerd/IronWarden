@@ -218,7 +218,7 @@ mod tests {
     // A helper to run tests sequentially when modifying environment variables
     fn run_with_env<F>(setup: F)
     where
-        F: FnOnce() -> (),
+        F: FnOnce(),
     {
         let _guard = ENV_MUTEX.lock().unwrap();
         // Clear variables that affect `allow_fallback`

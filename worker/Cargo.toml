@@ -1,5 +1,5 @@
 [package]
-name = "worker"
+name = "iw_worker"
 version = "1.0.0"
 edition = "2021"
 
@@ -63,4 +63,3 @@ http-body-util = "0.1.0"
 [[bench]]
 name = "grounding_benchmark"
 harness = false
-
