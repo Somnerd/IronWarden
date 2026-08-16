@@ -1,27 +1,27 @@
 [package]
 name = "app"
-version = "1.0.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-iw_core = { path = "../core" }
-warden = { package = "iw-warden", path = "../warden" }
-worker = { package = "iw_worker", path = "../worker" }
-mcp = { package = "iw_mcp", path = "../mcp" }
-tokio = { version = "1.0", features = ["full"] }
-dotenvy = "0.15"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["json"] }
-axum = { version = "0.7", features = ["macros"] }
-dashmap = "6.1.0"
-arc-swap = "1.7"
-secrecy = "0.8.0"
-async-trait = "0.1"
-rusqlite = "0.37"
+iw_core = { workspace = true }
+warden = { workspace = true }
+worker = { workspace = true }
+mcp = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+dotenvy.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+axum.workspace = true
+dashmap.workspace = true
+arc-swap.workspace = true
+secrecy.workspace = true
+async-trait.workspace = true
+rusqlite.workspace = true
 
 [dev-dependencies]
-tempfile = "3.10"
-rusqlite = "0.37"
-serde_json = "1.0"
-serde_yaml = "0.9"
-async-trait = "0.1"
+tempfile.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+async-trait.workspace = true

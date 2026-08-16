@@ -1,42 +1,40 @@
 [package]
 name = "iw-warden"
-version = "1.0.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-iw_core = { path = "../core" }
-aho-corasick = "1.1"
-regex = "1.10"
-unicode-normalization = "0.1"
-base64 = "0.22"
-once_cell = "1.19"
-any_ascii = "0.3"
-crossbeam-channel = "0.5"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
-tracing = "0.1.44"
-tokio = { version = "1.37", features = ["rt", "rt-multi-thread", "time", "net", "io-util"] }
-ort = { version = "2.0.0-rc.12", features = ["load-dynamic"] }
-tokenizers = "0.19"
-async-trait = "0.1"
-futures = "0.3"
-console = { version = "0.16", features = ["std"] }
-aes-gcm = "0.10"
-aead = "0.5"
-hkdf = "0.12"
-sha2 = "0.10"
-zeroize = "1.7"
-rand = "0.8"
-secrecy = { version = "0.8", features = ["serde"] }
-flume = "0.12.0"
+iw_core = { workspace = true }
+aho-corasick.workspace = true
+regex.workspace = true
+unicode-normalization.workspace = true
+base64.workspace = true
+once_cell.workspace = true
+any_ascii.workspace = true
+crossbeam-channel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "net", "io-util"] }
+ort.workspace = true
+tokenizers.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+console.workspace = true
+aes-gcm.workspace = true
+aead.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+rand.workspace = true
+secrecy = { workspace = true, features = ["serde"] }
+flume.workspace = true
 
 [dev-dependencies]
-tempfile = "3.10"
-proptest = "1.4"
-
-[dev-dependencies.criterion]
-version = "0.5"
+tempfile.workspace = true
+proptest.workspace = true
+criterion.workspace = true
 
 [[bench]]
 name = "engine_benchmark"
@@ -46,5 +44,4 @@ name = "ner_benchmark"
 harness = false
 
 [build-dependencies]
-cc = "1.2.65"
-
+cc.workspace = true

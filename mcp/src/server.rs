@@ -276,8 +276,6 @@ async fn handle_request_internal(
         use sha2::Sha256;
         type HmacSha256 = Hmac<Sha256>;
 
-        // Ensure KeyInit is in scope for new_from_slice
-        use hmac::digest::KeyInit;
         let mut mac = HmacSha256::new_from_slice(mcp_secret.as_bytes())
             .map_err(|_| SovereignError::InternalError("Failed to initialize HMAC".into()))?;
         mac.update(target_string.as_bytes());
