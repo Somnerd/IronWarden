@@ -1,28 +1,27 @@
 [package]
 name = "iw_core"
-version = "1.0.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-thiserror = "2.0"
-async-trait = "0.1"
-serde = { version = "1.0", features = ["derive"] }
-dashmap = "6.0"
-secrecy = "0.8.0"
-moka = { version = "0.12", features = ["sync"] }
-tracing = "0.1"
-aes-gcm = "0.10.3"
-hkdf = "0.12"
-sha2 = "0.10"
-rand = "0.8"
-zeroize = { version = "1.8", features = ["zeroize_derive"] }
-aead = "0.5"
-tokio = { version = "1.0", features = ["rt", "macros", "rt-multi-thread"] }
-jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
-serde_json = "1.0.151"
-base64 = "0.22.1"
-openssl = "0.10.81"
-
+thiserror.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+dashmap.workspace = true
+secrecy.workspace = true
+moka.workspace = true
+tracing.workspace = true
+aes-gcm.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+rand.workspace = true
+zeroize.workspace = true
+aead.workspace = true
+tokio.workspace = true
+jsonwebtoken.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+openssl.workspace = true
 
 [dev-dependencies]
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

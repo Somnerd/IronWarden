@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use iw_core::{KDF_SALT_GENESIS, KDF_SALT_INTEGRITY, Redaction};
+use iw_core::{Redaction, KDF_SALT_GENESIS, KDF_SALT_INTEGRITY};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
 

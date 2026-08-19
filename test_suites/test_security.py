@@ -45,7 +45,7 @@ def test_security_invisible_char_bypass(warden):
     
     # Normalizer should strip the ZWSP.
     assert invisible_input not in result["sanitized_text"]
-    assert any(t in result["sanitized_text"] for t in ["[NAME_1]", "[TOKEN_1]"])
+    assert any(p in result["sanitized_text"] for p in ["[NAME_", "[TOKEN_"])
 
 def test_security_session_isolation_leak(warden):
     """

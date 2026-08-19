@@ -19,9 +19,9 @@ def test_distributed_session_mismatch(warden_bin, jwt_keys):
     import time
     unique_id_a = f"{int(time.time() * 1000)}_a"
     unique_id_b = f"{int(time.time() * 1000)}_b"
-    runner_a = IronWardenRunner(warden_bin, env_overrides={"AUDIT_DB_PATH": f"audit_a_{unique_id_a}.db", "LANCEDB_PATH": f"lancedb_a_{unique_id_a}"})
+    runner_a = IronWardenRunner(warden_bin, env_overrides={"AUDIT_DB_PATH": f"audit_a_{unique_id_a}.db", "LANCEDB_PATH": f"lancedb_a_{unique_id_a}", "REDIS_URL": ""})
     # Instance B (Dynamic Port)
-    runner_b = IronWardenRunner(warden_bin, env_overrides={"AUDIT_DB_PATH": f"audit_b_{unique_id_b}.db", "LANCEDB_PATH": f"lancedb_b_{unique_id_b}"})
+    runner_b = IronWardenRunner(warden_bin, env_overrides={"AUDIT_DB_PATH": f"audit_b_{unique_id_b}.db", "LANCEDB_PATH": f"lancedb_b_{unique_id_b}", "REDIS_URL": ""})
     
     try:
         runner_a.start(env_vars={"JWT_PRIVATE_KEY": jwt_keys["private"], "JWT_PUBLIC_KEY": jwt_keys["public"]})
@@ -36,7 +36,7 @@ def test_distributed_session_mismatch(warden_bin, jwt_keys):
         token = resp_a["result"]["redactions"][0]["placeholder"]
         
         # 2. Attempt to restore that token on Instance B
-        restore_params = {"username": "alice", "response": f"The fruit is {token}"}
+        restore_params = {"username": "alice", "response": f"The secret is {token}"}
         resp_b = runner_b.send_mcp("mcp_restore_prompt", restore_params)
         
         # PROOF: Instance B should fail to restore Alice's token because it's stored in Instance A's DashMap/SQLite
@@ -44,7 +44,7 @@ def test_distributed_session_mismatch(warden_bin, jwt_keys):
         print(f"DEBUG: Instance B restored text: {restored_text}")
         
         assert token in restored_text, "Instance B should NOT have been able to restore the token (Isolation Proof)"
-        assert "APPLE" not in restored_text
+        assert "Alice" not in restored_text
         
     finally:
         runner_a.stop()

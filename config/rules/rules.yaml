@@ -43,3 +43,18 @@ rules:
     pattern: "Secret[A-Z]"
     type: "Regex"
     category: "InternalAsset"
+
+  - id: "gr_afm"
+    pattern: '\b\d{9}\b'
+    type: "Regex"
+    category: "IdentificationNumber"
+
+  - id: "gr_amka"
+    pattern: '\b(?:0[1-9]|[12]\d|3[01])(?:0[1-9]|1[0-2])\d{2}\d{5}\b'
+    type: "Regex"
+    category: "IdentificationNumber"
+
+heuristics:
+  - label: "POTENTIAL_GREEK_NAME"
+    pattern: '\b[Α-ΩΆΈΉΊΌΎΏ][α-ωάέήίόύώϊϋΐΰ]+(?:ης|ου|ος|ας|α|ων)\b'
+    skip_sentence_start: true
