@@ -1,6 +1,9 @@
 # 🏰 IronWarden v1.0.0-rc.1
 ### Universal AI Privacy Firewall & Security Gateway
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![CI Status](https://github.com/Somnerd/IronWarden/actions/workflows/rust_ci.yml/badge.svg)](https://github.com/Somnerd/IronWarden/actions)
+
 IronWarden is a high-performance, single-binary **AI security proxy**. Point any OpenAI, Anthropic, or locally hosted LLM (via OpenAI-compatible API) SDK client at it and get automatic PII redaction, cryptographic audit logging, and rate limiting — with **zero code changes** in your application.
 
 ---
@@ -131,6 +134,10 @@ Installation instructions for major platforms:
 IronWarden is the **Shield**. It focuses on **Security, Redaction, and Auditing**.
 For advanced semantic search, multi-format PDF ingestion, and high-dimensional vector retrieval, use the **SearchBoost** extension.
 
----
-**Status:** v1.0.0-rc.1 — Universal AI Gateway Proxy.
-**License:** AGPLv3 / Commercial.
+## 📜 License
+
+IronWarden is dual-licensed under:
+* **Open Source:** [GNU Affero General Public License v3 (AGPLv3)](LICENSE). Free for open source use, research, and non-commercial community projects.
+* **Commercial Enterprise:** [Commercial License](LICENSE-COMMERCIAL.md) for organizations requiring proprietary embedding, custom SLAs, FIPS compliance support, or exemption from AGPLv3 copyleft terms.
+
+For commercial inquiries, please see [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md).
