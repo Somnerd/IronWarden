@@ -54,7 +54,7 @@ def create_issue(token, repo, title, body):
         return None
 
 def main():
-    token = os.environ.get("GITHUB_TOKEN") or "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"
+    token = os.environ.get("GITHUB_TOKEN")
     if not token:
         print("❌ Error: GITHUB_TOKEN environment variable is not set.")
         return
