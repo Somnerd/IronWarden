@@ -11,6 +11,22 @@ env:
   WARDEN_MCP_SECRET: "dummy_mcp_secret_value_for_testing_purposes"
 
 jobs:
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: TruffleHog OSS Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
