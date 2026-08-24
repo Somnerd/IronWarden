@@ -38,6 +38,14 @@ export WARDEN_MCP_SECRET="test_secret"
 export WARDEN_ENV="development"
 ```
 
+### 4. Install Pre-Commit Secret Scanning Hooks
+To prevent accidental secret leaks and enforce code formatting before every commit:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
 ---
 
 ## 🧪 Running Tests & Quality Checks

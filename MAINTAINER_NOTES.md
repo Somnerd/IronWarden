@@ -76,5 +76,7 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
   4. `unit-tests`: Full workspace lib/binary test suite.
   5. `integration-tests`: Rust integration suite (`iw-integration-tests`) + Python end-to-end pytest suite (`test_suites/`).
   6. `benchmarks`: Performance regression benchmarking.
+- **Local Pre-Commit Hook**: `.pre-commit-config.yaml`
+  - Integrated with `detect-private-key`, `detect-secrets`, `trufflehog`, and standard file format validators to block unencrypted secrets at commit time.
 - **Local Validation Status**: Verified clean workspace compile, zero clippy warnings (`-D warnings`), and 100% formatted.
 
