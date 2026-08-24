@@ -122,13 +122,18 @@ Installation instructions for major platforms:
 
 ## 🚀 Deployment
 
-### Installation & Run
+### Quick Demo (Heuristic-Only Mode — Zero Downloads)
+IronWarden runs instantly out of the box without downloading any ML model weights:
+```bash
+cp example.env .env
+docker-compose up -d
+```
 
-1.  **Model Setup:** Run `./scripts/setup_models.sh` to download ONNX weights. These weights are required for Hybrid NER mode. Note that IronWarden falls back to Heuristic-Only mode if weights are missing.
-2.  **Configure:** Set your 32-byte `WARDEN_PEPPER` in the environment (`export WARDEN_PEPPER=$(openssl rand -hex 16)`).
-3.  **Rules:** Drop your regional rules into `config/rules/`.
-4.  **Policies:** Drop your policy files into `policies/`.
-5.  **Run:** `./ironwarden`
+### Full AI Protection (Hybrid NER Mode)
+To enable deep contextual named entity recognition (names, locations, organizations):
+1. **Fetch Weights:** Run `./scripts/setup_models.sh` (Downloads Apache 2.0 DistilBERT ONNX weights with SHA-256 validation).
+2. **Details & Licensing:** See [`MODELS.md`](MODELS.md) for full asset licensing and checksum details.
+3. **Configure & Run:** Set your environment variables in `.env` and start `./ironwarden`.
 
 ---
 

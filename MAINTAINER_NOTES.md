@@ -83,3 +83,12 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, 0 errors across workspace.
   - `cargo test -p iw-integration-tests`: 49/49 invariant tests passed (V-12, V-13, V-14, V-15, V-19, DatabaseBusy fail-closed, Boot handshake tamper detection).
 
+---
+
+## 🧠 6. Model Weights & Upstream Asset Licensing
+
+- **Documentation**: Detailed in [`MODELS.md`](MODELS.md).
+- **Upstream License**: Apache 2.0 (`optimum/distilbert-base-uncased-finetuned-ner` and `distilbert-base-uncased`).
+- **Distribution Policy**: Model binaries are NOT bundled in repository releases. Users fetch them via `./scripts/setup_models.sh` with SHA-256 integrity validation.
+- **Zero-Dependency Demo Mode**: If model weights are omitted, the gateway defaults to Heuristic-Only mode without network calls or external downloads.
+
