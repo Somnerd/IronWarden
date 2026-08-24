@@ -57,3 +57,18 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
 
 - [ ] Merge `dev` $\rightarrow$ `main` via Pull Request (direct merges strictly forbidden per `GEMINI.md`).
 - [ ] Create signed GitHub Release `v1.0.0` with release notes and attach standalone binary artifacts if needed.
+
+---
+
+## 🛠️ 5. CI / Quality Gate Verification
+
+- **Automated Workflow**: `.github/workflows/rust_ci.yml`
+- **Jobs Executed**:
+  1. `secret-scan`: TruffleHog automated credential scanner.
+  2. `security-audit`: `cargo-audit` dependency vulnerability verification.
+  3. `lint-and-format`: `cargo fmt --all -- --check` & `cargo clippy --workspace --all-targets -- -D warnings`.
+  4. `unit-tests`: Full workspace lib/binary test suite.
+  5. `integration-tests`: Rust integration suite (`iw-integration-tests`) + Python end-to-end pytest suite (`test_suites/`).
+  6. `benchmarks`: Performance regression benchmarking.
+- **Local Validation Status**: Verified clean workspace compile, zero clippy warnings (`-D warnings`), and 100% formatted.
+

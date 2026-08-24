@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   WARDEN_MCP_SECRET: "dummy_mcp_secret_value_for_testing_purposes"
+  WARDEN_PEPPER: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 jobs:
   secret-scan:
@@ -27,40 +28,41 @@ jobs:
           head: HEAD
           extra_args: --only-verified
 
-  lint:
-    name: Lint & Format
+  security-audit:
+    name: Security Audit (cargo-audit)
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Run Cargo Audit
+        uses: rustsec/audit-check@v2.0.0
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  lint-and-format:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
       - name: Set up Rust Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache: true
-          rustflags: ""
+          components: rustfmt, clippy
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Check Code Formatting
-        run: |
-          cargo fmt --all
-          git diff --quiet || (
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            git commit -am "style: auto format code with rustfmt"
-            git push origin HEAD:${{ github.head_ref || github.ref_name }}
-          )
+      - name: Check Formatting
+        run: cargo fmt --all -- --check
       - name: Run Clippy Lints
-        run: cargo clippy --workspace --all-targets
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   unit-tests:
     name: Unit Tests
-    needs: lint
+    needs: lint-and-format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -79,7 +81,7 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: lint
+    needs: lint-and-format
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -111,7 +113,7 @@ jobs:
 
   benchmarks:
     name: Benchmarks
-    needs: lint
+    needs: lint-and-format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
