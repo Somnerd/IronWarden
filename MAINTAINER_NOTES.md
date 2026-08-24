@@ -26,10 +26,13 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
 
 ## 🟡 2. GitHub Governance & Pull Request Workflow
 
-- [ ] **Open Pull Request for `chore/oss-standards`**:
+- [ ] **Review & Merge PR #182 (`fix/docker-compose-setup` ➔ `dev`)**:
+  - Contains Dockerfile protobuf fixes, Debian trixie runtime image update, and standalone configuration mapping.
+
+- [ ] **Open Pull Request for `chore/oss-standards` (➔ `dev`)**:
   - Target branch: `dev`
   - URL: [https://github.com/Somnerd/IronWarden/pull/new/chore/oss-standards](https://github.com/Somnerd/IronWarden/pull/new/chore/oss-standards)
-  - Verify that all CI pipelines (formatting, clippy, unit tests, integration tests, TruffleHog secret scan) pass with green checks.
+  - Contains OSS licensing (`LICENSE`, `LICENSE-COMMERCIAL.md`), `.env.example`, TruffleHog CI scanning, cargo-audit, and token security removal.
 
 - [ ] **OpenProject / Task Tracking**:
   - Add documentation comment on the corresponding work package explaining files modified (`LICENSE`, `LICENSE-COMMERCIAL.md`, `example.env`, `.env.example`, `.gitignore`, `scripts/`, `.github/workflows/rust_ci.yml`).
@@ -50,6 +53,9 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
 
 - [ ] **Review Issue #183 (Anthropic Target URL Header)**:
   - Verify `/v1/messages` header routing overrides for local proxy tests.
+
+- [ ] **Review Issue #133 (ONNX AI Pool Mutex Poison Recovery)**:
+  - Ensure worker pool uses `.unwrap_or_else(|e| e.into_inner())` to prevent threadpool poisoning.
 
 ---
 
