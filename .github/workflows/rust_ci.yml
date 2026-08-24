@@ -106,8 +106,8 @@ jobs:
           mkdir -p integration_tests
           cp warden/test_manifest_*.yaml integration_tests/ || true
           cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml || true
-      - name: Run Rust Integration Tests
-        run: cargo test -p iw-integration-tests || true
+      - name: Run Rust Invariant & Security Integration Tests
+        run: cargo test -p iw-integration-tests
       - name: Run Python Integration Test Suite
         run: pytest test_suites/
 

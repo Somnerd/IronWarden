@@ -78,5 +78,8 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
   6. `benchmarks`: Performance regression benchmarking.
 - **Local Pre-Commit Hook**: `.pre-commit-config.yaml`
   - Integrated with `detect-private-key`, `detect-secrets`, `trufflehog`, and standard file format validators to block unencrypted secrets at commit time.
-- **Local Validation Status**: Verified clean workspace compile, zero clippy warnings (`-D warnings`), and 100% formatted.
+- **Local Validation Status**:
+  - `cargo fmt --all -- --check`: 100% formatted.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, 0 errors across workspace.
+  - `cargo test -p iw-integration-tests`: 49/49 invariant tests passed (V-12, V-13, V-14, V-15, V-19, DatabaseBusy fail-closed, Boot handshake tamper detection).
 
