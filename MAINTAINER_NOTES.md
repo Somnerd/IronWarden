@@ -122,3 +122,13 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
 - **Automated Workflow**: Generates ephemeral RSA-2048 keypair for zero-trust JWT auth, launches gateway in Heuristic-Only mode, intercepts a simulated PII payload (SSN, Email, IBAN, Phone), and demonstrates real-time redaction and cryptographic HMAC audit chaining.
 - **Documentation**: Updated in [`README.md`](README.md) and [`QUICKSTART.md`](QUICKSTART.md).
 
+---
+
+## 🛠️ 9. Exact Build & Run Command Reference
+
+- **Cargo Build**: `cargo build --release --bin app --bin iw-cli`
+  - **Gateway Executable**: `target/release/app`
+  - **CLI Verification Tool**: `target/release/iw-cli`
+- **Native Execution**: `cargo run --release --bin app` or `./target/release/app`
+- **Environment Template**: `cp .env.example .env` (tracked in git via `!.env.example` rule).
+

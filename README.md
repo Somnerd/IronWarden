@@ -130,20 +130,46 @@ Run the interactive terminal demo without Docker, Tesseract, or ML downloads:
 
 ### 🐳 Docker Compose Deployment
 ```bash
-cp example.env .env
+cp .env.example .env
 docker-compose up -d
 ```
 
-### Standalone Binary Releases
+### 🦀 Build & Run from Source (Cargo)
+To compile and launch the gateway natively using Cargo:
+
+1. **Configure Environment:**
+   ```bash
+   cp .env.example .env
+   # Edit .env to set WARDEN_PEPPER and JWT_PUBLIC_KEY
+   ```
+
+2. **(Optional) Download ML Model Weights for Hybrid NER:**
+   ```bash
+   ./scripts/setup_models.sh
+   # (If omitted, IronWarden runs in lightweight Heuristic-Only mode)
+   ```
+
+3. **Build the Gateway and CLI Binaries:**
+   ```bash
+   # Build optimized release binaries
+   cargo build --release --bin app --bin iw-cli
+   ```
+   * **Main Gateway Binary:** `target/release/app`
+   * **Audit & Inspection CLI:** `target/release/iw-cli`
+
+4. **Run the Gateway:**
+   ```bash
+   # Run directly with Cargo
+   cargo run --release --bin app
+
+   # OR execute the compiled binary directly
+   ./target/release/app
+   ```
+
+### 📦 Standalone Pre-Built Binaries
 Pre-compiled standalone binaries with cryptographic SHA-256 checksums are available for Linux (`x86_64`) and macOS (`ARM64` / `Intel`):
 * 📥 Download from [GitHub Releases](https://github.com/Somnerd/IronWarden/releases)
 * 📖 Verification instructions: [`RELEASE.md`](RELEASE.md)
-
-### Full AI Protection (Hybrid NER Mode)
-To enable deep contextual named entity recognition (names, locations, organizations):
-1. **Fetch Weights:** Run `./scripts/setup_models.sh` (Downloads Apache 2.0 DistilBERT ONNX weights with SHA-256 validation).
-2. **Details & Licensing:** See [`MODELS.md`](MODELS.md) for full asset licensing and checksum details.
-3. **Configure & Run:** Set your environment variables in `.env` and start `./ironwarden`.
 
 ---
 
