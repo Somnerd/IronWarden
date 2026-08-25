@@ -122,8 +122,13 @@ Installation instructions for major platforms:
 
 ## 🚀 Deployment
 
-### Quick Demo (Heuristic-Only Mode — Zero Downloads)
-IronWarden runs instantly out of the box without downloading any ML model weights:
+### ⚡ 10-Second Quickstart Demo (Zero Dependencies)
+Run the interactive terminal demo without Docker, Tesseract, or ML downloads:
+```bash
+./scripts/demo.sh
+```
+
+### 🐳 Docker Compose Deployment
 ```bash
 cp example.env .env
 docker-compose up -d

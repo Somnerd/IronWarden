@@ -114,3 +114,11 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
   - `config.yml` (Security vulnerability redirection & GitHub Discussions link)
 - **Script Alignment**: Verified that `scripts/create_github_issues.py` and `scripts/compare_issues.py` continue to target `.github/issues/` cleanly.
 
+---
+
+## ⚡ 8. Zero-Dependency Quickstart & Demo Mode
+
+- **Demo Script**: [`scripts/demo.sh`](scripts/demo.sh) provides a self-contained one-liner demo with zero external dependencies (no Docker, no Tesseract, no ML weight downloads).
+- **Automated Workflow**: Generates ephemeral RSA-2048 keypair for zero-trust JWT auth, launches gateway in Heuristic-Only mode, intercepts a simulated PII payload (SSN, Email, IBAN, Phone), and demonstrates real-time redaction and cryptographic HMAC audit chaining.
+- **Documentation**: Updated in [`README.md`](README.md) and [`QUICKSTART.md`](QUICKSTART.md).
+

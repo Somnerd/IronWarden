@@ -1,6 +1,24 @@
 # ⚡ Quickstart Guide — IronWarden AI Gateway
 
-Welcome to IronWarden! This guide gets you up and running with the **IronWarden Universal AI Gateway** in under 60 seconds using Docker Compose.
+Welcome to IronWarden! Get up and running in seconds with either our **zero-dependency interactive demo** or the **production Docker Compose stack**.
+
+---
+
+## ⚡ 10-Second Instant Demo (Zero Dependencies)
+
+Try IronWarden immediately without installing Docker, Tesseract OCR, or downloading ML weights:
+
+```bash
+git clone https://github.com/Somnerd/IronWarden.git
+cd IronWarden
+./scripts/demo.sh
+```
+
+**What the demo does:**
+1. Generates ephemeral in-memory RSA keypairs for zero-trust JWT authentication.
+2. Boots IronWarden in **Heuristic-Only mode** on `http://localhost:8080`.
+3. Intercepts a test payload with simulated SSNs, emails, IBANs, and phone numbers.
+4. Performs real-time dual-track PII redaction and SHA-256 HMAC audit chaining before your eyes.
 
 ---
 
