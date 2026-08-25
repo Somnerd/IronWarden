@@ -4,6 +4,8 @@ Thank you for your interest in contributing to **IronWarden**! IronWarden is a h
 
 By contributing to this project, you agree that your contributions will be licensed under the project's [AGPLv3 License](LICENSE) (the "inbound=outbound" principle), unless covered by a separate [Commercial Agreement](LICENSE-COMMERCIAL.md). You retain copyright to your own contributions, but grant the project the right to use and distribute them under these terms.
 
+All participants are expected to uphold our [Code of Conduct](CODE_OF_CONDUCT.md). For potential security vulnerabilities or invariant failures, please follow our [Security Policy](SECURITY.md) and report privately via [GitHub Security Advisories](https://github.com/Somnerd/IronWarden/security/advisories/new).
+
 We welcome community contributions, bug fixes, documentation improvements, and security enhancements.
 
 ---

@@ -177,6 +177,12 @@ Pre-compiled standalone binaries with cryptographic SHA-256 checksums are availa
 IronWarden is the **Shield**. It focuses on **Security, Redaction, and Auditing**.
 For advanced semantic search, multi-format PDF ingestion, and high-dimensional vector retrieval, use the **SearchBoost** extension.
 
+## 🤝 Community & Security
+
+* **Code of Conduct:** We are committed to providing a welcoming community for everyone. See [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+* **Security & Vulnerability Disclosure:** Security invariants are enforced fail-closed. To report vulnerabilities privately, see [`SECURITY.md`](SECURITY.md) or submit a report via [GitHub Security Advisories](https://github.com/Somnerd/IronWarden/security/advisories/new).
+* **Contributing:** Ready to build with us? Check [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## 📜 License
 
 IronWarden is dual-licensed under:
