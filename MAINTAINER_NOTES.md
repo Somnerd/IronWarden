@@ -92,3 +92,15 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
 - **Distribution Policy**: Model binaries are NOT bundled in repository releases. Users fetch them via `./scripts/setup_models.sh` with SHA-256 integrity validation.
 - **Zero-Dependency Demo Mode**: If model weights are omitted, the gateway defaults to Heuristic-Only mode without network calls or external downloads.
 
+---
+
+## 🤝 7. Community Standards & Issue/PR Templates
+
+- **Code of Conduct**: Standard Contributor Covenant v2.1 added in [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+- **Pull Request Template**: Added in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) with security invariant verification checklists.
+- **Issue Templates**: Added structured GitHub issue forms in [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/):
+  - `bug_report.yml` (Bug reporting form)
+  - `feature_request.yml` (Feature proposal form)
+  - `config.yml` (Security vulnerability redirection & GitHub Discussions link)
+- **Script Alignment**: Verified that `scripts/create_github_issues.py` and `scripts/compare_issues.py` continue to target `.github/issues/` cleanly.
+
