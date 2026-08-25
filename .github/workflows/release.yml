@@ -1,0 +1,123 @@
+name: Release & Binary Packaging
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-package:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: ironwarden-x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: ironwarden-aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact_name: ironwarden-x86_64-apple-darwin
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Install Protoc (Linux)
+        if: runner.os == 'Linux'
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Build Release Binaries
+        run: |
+          cargo build --release --target ${{ matrix.target }} --bin app --bin iw-cli
+
+      - name: Package Artifacts
+        shell: bash
+        run: |
+          RELEASE_DIR="${{ matrix.artifact_name }}"
+          mkdir -p "$RELEASE_DIR"
+          
+          # Copy binaries
+          cp "target/${{ matrix.target }}/release/app" "$RELEASE_DIR/ironwarden"
+          cp "target/${{ matrix.target }}/release/iw-cli" "$RELEASE_DIR/iw-cli"
+          
+          # Copy configuration templates & documentation
+          cp example.env "$RELEASE_DIR/example.env"
+          cp LICENSE "$RELEASE_DIR/LICENSE"
+          cp README.md "$RELEASE_DIR/README.md"
+          
+          # Create compressed archive
+          tar -czvf "${{ matrix.artifact_name }}.tar.gz" "$RELEASE_DIR"
+          
+          # Generate SHA-256 Checksum
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.artifact_name }}.tar.gz" > "${{ matrix.artifact_name }}.tar.gz.sha256"
+          else
+            shasum -a 256 "${{ matrix.artifact_name }}.tar.gz" > "${{ matrix.artifact_name }}.tar.gz.sha256"
+          fi
+
+      - name: Upload Artifacts to Workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}.tar.gz
+            ${{ matrix.artifact_name }}.tar.gz.sha256
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-and-package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Aggregate Checksums
+        shell: bash
+        run: |
+          mkdir -p dist
+          find release-artifacts -type f -name "*.tar.gz" -exec cp {} dist/ \;
+          find release-artifacts -type f -name "*.sha256" -exec cat {} + > dist/SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}

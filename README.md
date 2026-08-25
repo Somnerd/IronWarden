@@ -129,6 +129,11 @@ cp example.env .env
 docker-compose up -d
 ```
 
+### Standalone Binary Releases
+Pre-compiled standalone binaries with cryptographic SHA-256 checksums are available for Linux (`x86_64`) and macOS (`ARM64` / `Intel`):
+* 📥 Download from [GitHub Releases](https://github.com/Somnerd/IronWarden/releases)
+* 📖 Verification instructions: [`RELEASE.md`](RELEASE.md)
+
 ### Full AI Protection (Hybrid NER Mode)
 To enable deep contextual named entity recognition (names, locations, organizations):
 1. **Fetch Weights:** Run `./scripts/setup_models.sh` (Downloads Apache 2.0 DistilBERT ONNX weights with SHA-256 validation).

@@ -59,10 +59,20 @@ This document tracks all manual tasks, security procedures, and pre-launch steps
 
 ---
 
-## 🚀 4. Final v1.0.0 Release Tagging
+## 🚀 4. Final v1.0.0 Release Tagging & Packaging
 
 - [ ] Merge `dev` $\rightarrow$ `main` via Pull Request (direct merges strictly forbidden per `GEMINI.md`).
-- [ ] Create signed GitHub Release `v1.0.0` with release notes and attach standalone binary artifacts if needed.
+- [ ] Push Git Version Tag:
+  ```bash
+  git tag -s v1.0.0 -m "Release v1.0.0 — Universal AI Privacy Firewall"
+  git push origin v1.0.0
+  ```
+- [ ] Automated Release Pipeline ([`.github/workflows/release.yml`](.github/workflows/release.yml)):
+  - Compiles cross-platform binaries: Linux (`x86_64`), macOS Apple Silicon (`aarch64`), and macOS Intel (`x86_64`).
+  - Bundles `ironwarden`, `iw-cli`, `example.env`, and `LICENSE`.
+  - Calculates `SHA256SUMS.txt` cryptographic hashes.
+  - Automatically publishes the official GitHub Release with downloadable tarballs and release notes.
+- [ ] Verification Documentation: Refer to [`RELEASE.md`](RELEASE.md).
 
 ---
 
