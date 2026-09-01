@@ -406,6 +406,14 @@ async fn handle_grafana_dashboard() -> impl IntoResponse {
     )
 }
 
+fn get_proxy_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .unwrap_or_default()
+}
+
 async fn handle_openai_chat_completions(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
@@ -422,7 +430,7 @@ async fn handle_openai_chat_completions(
         Err((status, msg)) => return (status, msg).into_response(),
     };
 
-    // 2. Sanitize all messages — fail-closed
+    // 2. Pre-flight scrub all messages
     let mut combined_token_map = TokenMap::new();
     for msg in payload.messages.iter_mut() {
         if let Some(text) = msg.content.as_str() {
@@ -474,10 +482,7 @@ async fn handle_openai_chat_completions(
     let is_stream = payload.stream.unwrap_or(false);
 
     // 4. Build client
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .unwrap_or_default();
+    let client = get_proxy_http_client();
 
     // 5. Forward scrubbed request
     let upstream_resp = match client
@@ -627,7 +632,7 @@ async fn handle_openai_legacy_completions(
         resolve_upstream_url(&headers, &payload.model).replace("/chat/completions", "/completions");
     let api_key = resolve_upstream_key(&headers);
 
-    let client = reqwest::Client::new();
+    let client = get_proxy_http_client();
     let upstream_resp = match client
         .post(&target_url)
         .bearer_auth(&api_key)
@@ -687,7 +692,7 @@ async fn handle_openai_models(
         .replace("/completions", "");
     let models_url = format!("{}/models", models_url.trim_end_matches('/'));
     let api_key = resolve_upstream_key(&headers);
-    let client = reqwest::Client::new();
+    let client = get_proxy_http_client();
     match client.get(&models_url).bearer_auth(&api_key).send().await {
         Ok(resp) => {
             let body = resp.text().await.unwrap_or_default();
@@ -840,7 +845,7 @@ async fn handle_anthropic_messages(
         .unwrap_or("2023-06-01");
     let is_stream = payload.stream.unwrap_or(false);
 
-    let client = reqwest::Client::new();
+    let client = get_proxy_http_client();
     let upstream_resp = match client
         .post(&target_url)
         .header("x-api-key", &api_key)
