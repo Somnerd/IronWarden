@@ -1021,3 +1021,18 @@ def test_enhanced_health_json_endpoint(proxy_url):
     assert "subsystems" in data
     assert data["subsystems"].get("storage") == "ok"
 
+
+def test_grafana_dashboard_endpoint(proxy_url):
+    """
+    GET /grafana/dashboard and GET /monitoring/dashboard.json should return the pre-configured Grafana dashboard JSON.
+    """
+    for path in ["/grafana/dashboard", "/monitoring/dashboard.json"]:
+        r = requests.get(f"{proxy_url}{path}", timeout=5)
+        assert r.status_code == 200
+        assert "application/json" in r.headers.get("content-type", "")
+        data = r.json()
+        assert data.get("uid") == "ironwarden-main"
+        assert "panels" in data
+        assert len(data["panels"]) > 0
+
+

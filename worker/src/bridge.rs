@@ -72,6 +72,8 @@ pub fn create_bridge_router(state: Arc<BridgeState>) -> Router {
     Router::new()
         .route("/health", get(handle_health))
         .route("/metrics", get(handle_metrics))
+        .route("/grafana/dashboard", get(handle_grafana_dashboard))
+        .route("/monitoring/dashboard.json", get(handle_grafana_dashboard))
         .route("/enqueue", post(handle_enqueue))
         .route("/results/:job_id", get(handle_get_result))
         .route("/v1/chat/completions", post(handle_openai_chat_completions))
@@ -390,6 +392,17 @@ async fn handle_metrics(State(state): State<Arc<BridgeState>>) -> impl IntoRespo
         StatusCode::OK,
         [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
         body,
+    )
+}
+
+const GRAFANA_DASHBOARD_JSON: &str =
+    include_str!("../../monitoring/grafana/dashboards/ironwarden_dashboard.json");
+
+async fn handle_grafana_dashboard() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [("content-type", "application/json; charset=utf-8")],
+        GRAFANA_DASHBOARD_JSON,
     )
 }
 
@@ -1138,7 +1151,7 @@ mod tests {
             ))))
             .body(Body::empty())
             .unwrap();
-        let metrics_res = app.oneshot(metrics_req).await.unwrap();
+        let metrics_res = app.clone().oneshot(metrics_req).await.unwrap();
         assert_eq!(metrics_res.status(), StatusCode::OK);
         let metrics_body = axum::body::to_bytes(metrics_res.into_body(), 4096)
             .await
@@ -1147,5 +1160,24 @@ mod tests {
         assert!(metrics_str.contains("ironwarden_uptime_seconds"));
         assert!(metrics_str.contains("ironwarden_requests_total"));
         assert!(metrics_str.contains("ironwarden_injections_blocked_total"));
+
+        // 4. Grafana dashboard JSON endpoint
+        let grafana_req = Request::builder()
+            .method("GET")
+            .uri("/grafana/dashboard")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                8080,
+            ))))
+            .body(Body::empty())
+            .unwrap();
+        let grafana_res = app.oneshot(grafana_req).await.unwrap();
+        assert_eq!(grafana_res.status(), StatusCode::OK);
+        let grafana_body = axum::body::to_bytes(grafana_res.into_body(), 16384)
+            .await
+            .unwrap();
+        let grafana_str = String::from_utf8_lossy(&grafana_body);
+        assert!(grafana_str.contains("ironwarden-main"));
+        assert!(grafana_str.contains("IronWarden Universal Gateway Dashboard"));
     }
 }
