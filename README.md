@@ -1,11 +1,6 @@
 # 🏰 IronWarden v1.0.0-rc.1
 ### Universal AI Privacy Firewall & Security Gateway
 
-[![CI Status](https://github.com/Somnerd/IronWarden/actions/workflows/rust_ci.yml/badge.svg)](https://github.com/Somnerd/IronWarden/actions)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
-[![Security: Fail-Closed](https://img.shields.io/badge/Security-Fail--Closed-green.svg)](SECURITY.md)
-[![Rust: 1.80+](https://img.shields.io/badge/Rust-1.80%2B-orange.svg)](https://www.rust-lang.org/)
-
 IronWarden is a high-performance, single-binary **AI security proxy**. Point any OpenAI, Anthropic, or locally hosted LLM (via OpenAI-compatible API) SDK client at it and get automatic PII redaction, cryptographic audit logging, and rate limiting — with **zero code changes** in your application.
 
 ---
@@ -122,54 +117,13 @@ Installation instructions for major platforms:
 
 ## 🚀 Deployment
 
-### ⚡ 10-Second Quickstart Demo (Zero Dependencies)
-Run the interactive terminal demo without Docker, Tesseract, or ML downloads:
-```bash
-./scripts/demo.sh
-```
+### Installation & Run
 
-### 🐳 Docker Compose Deployment
-```bash
-cp .env.example .env
-docker-compose up -d
-```
-
-### 🦀 Build & Run from Source (Cargo)
-To compile and launch the gateway natively using Cargo:
-
-1. **Configure Environment:**
-   ```bash
-   cp .env.example .env
-   # Edit .env to set WARDEN_PEPPER and JWT_PUBLIC_KEY
-   ```
-
-2. **(Optional) Download ML Model Weights for Hybrid NER:**
-   ```bash
-   ./scripts/setup_models.sh
-   # (If omitted, IronWarden runs in lightweight Heuristic-Only mode)
-   ```
-
-3. **Build the Gateway and CLI Binaries:**
-   ```bash
-   # Build optimized release binaries
-   cargo build --release --bin app --bin iw-cli
-   ```
-   * **Main Gateway Binary:** `target/release/app`
-   * **Audit & Inspection CLI:** `target/release/iw-cli`
-
-4. **Run the Gateway:**
-   ```bash
-   # Run directly with Cargo
-   cargo run --release --bin app
-
-   # OR execute the compiled binary directly
-   ./target/release/app
-   ```
-
-### 📦 Standalone Pre-Built Binaries
-Pre-compiled standalone binaries with cryptographic SHA-256 checksums are available for Linux (`x86_64`) and macOS (`ARM64` / `Intel`):
-* 📥 Download from [GitHub Releases](https://github.com/Somnerd/IronWarden/releases)
-* 📖 Verification instructions: [`RELEASE.md`](RELEASE.md)
+1.  **Model Setup:** Run `./scripts/setup_models.sh` to download ONNX weights. These weights are required for Hybrid NER mode. Note that IronWarden falls back to Heuristic-Only mode if weights are missing.
+2.  **Configure:** Set your 32-byte `WARDEN_PEPPER` in the environment (`export WARDEN_PEPPER=$(openssl rand -hex 16)`).
+3.  **Rules:** Drop your regional rules into `config/rules/`.
+4.  **Policies:** Drop your policy files into `policies/`.
+5.  **Run:** `./ironwarden`
 
 ---
 
@@ -177,16 +131,6 @@ Pre-compiled standalone binaries with cryptographic SHA-256 checksums are availa
 IronWarden is the **Shield**. It focuses on **Security, Redaction, and Auditing**.
 For advanced semantic search, multi-format PDF ingestion, and high-dimensional vector retrieval, use the **SearchBoost** extension.
 
-## 🤝 Community & Security
-
-* **Code of Conduct:** We are committed to providing a welcoming community for everyone. See [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
-* **Security & Vulnerability Disclosure:** Security invariants are enforced fail-closed. To report vulnerabilities privately, see [`SECURITY.md`](SECURITY.md) or submit a report via [GitHub Security Advisories](https://github.com/Somnerd/IronWarden/security/advisories/new).
-* **Contributing:** Ready to build with us? Check [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-## 📜 License
-
-IronWarden is dual-licensed under:
-* **Open Source:** [GNU Affero General Public License v3 (AGPLv3)](LICENSE). Free for open source use, research, and non-commercial community projects.
-* **Commercial Enterprise:** [Commercial License](LICENSE-COMMERCIAL.md) for organizations requiring proprietary embedding, custom SLAs, FIPS compliance support, or exemption from AGPLv3 copyleft terms.
-
-For commercial inquiries, please see [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md).
+---
+**Status:** v1.0.0-rc.1 — Universal AI Gateway Proxy.
+**License:** AGPLv3 / Commercial.

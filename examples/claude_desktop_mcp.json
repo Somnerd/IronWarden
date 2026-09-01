@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ironwarden": {
+      "command": "ironwarden",
+      "args": [],
+      "env": {
+        "WARDEN_ENV": "development",
+        "WARDEN_MODE": "mcp",
+        "WARDEN_MCP_SECRET": "default_mcp_secret_change_in_production",
+        "WARDEN_PEPPER": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  }
+}
