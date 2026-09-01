@@ -386,6 +386,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             session_manager,
             jwt_public_key,
             ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
+            metrics: Arc::new(worker::GatewayMetrics::new()),
         });
 
         let bridge_port = global_config.bridge_port.clone();
