@@ -1,0 +1,59 @@
+# IronWarden Turnkey Preset: GDPR (General Data Protection Regulation - EU 2016/679)
+# Covers Personally Identifiable Information (PII), Financial Identifiers, and Network Identifiers.
+
+rules:
+  # 1. International Bank Account Number (IBAN)
+  - id: "gdpr_iban"
+    type: "Regex"
+    pattern: '\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b'
+    category: "Financial"
+    action: Redact
+
+  # 2. EU / UK Passport Numbers
+  - id: "gdpr_passport"
+    type: "Regex"
+    pattern: '(?i)\b(?:Passport[.:\-\s]*)?[A-Z0-9]{8,9}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  # 3. EU National Tax / Identity IDs
+  - id: "gdpr_national_id"
+    type: "Regex"
+    pattern: '\b\d{2,3}[.\-\s]*\d{2,3}[.\-\s]*\d{2,4}[.\-\s]*[A-Z0-9]?\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  # 4. Email Addresses
+  - id: "gdpr_email"
+    type: "Regex"
+    pattern: '\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+    category: "PersonalData"
+    action: Redact
+
+  # 5. International Phone Numbers (E.164 and localized EU formats)
+  - id: "gdpr_phone"
+    type: "Regex"
+    pattern: '\b(?:\+\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}\b'
+    category: "PersonalData"
+    action: Redact
+
+  # 6. IPv4 and IPv6 Addresses
+  - id: "gdpr_ipv4"
+    type: "Regex"
+    pattern: '\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b'
+    category: "Network"
+    action: Redact
+
+heuristics:
+  - label: "POTENTIAL_PERSON_NAME"
+    pattern: '\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b'
+    category: "PersonalData"
+    action: Redact
+
+  - label: "POTENTIAL_POSTAL_ADDRESS"
+    pattern: '(?i)\b\d{1,5}\s+(?:[A-Z][a-z]+\s+)+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Weg|Str|Strasse|Rue)\b'
+    category: "PersonalData"
+    action: Redact
+
+ai_enabled: true
+ai_confidence_threshold: 0.85
