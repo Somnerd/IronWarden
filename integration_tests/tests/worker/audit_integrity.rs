@@ -13,6 +13,7 @@ use worker::audit::AsyncAuditor;
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[allow(deprecated)]
 fn derive_keys(pepper: &[u8]) -> (Key<Aes256Gcm>, [u8; 32], [u8; 32]) {
     let hk = Hkdf::<Sha256>::new(None, pepper);
     let mut enc_key = [0u8; 32];
@@ -139,6 +140,7 @@ async fn test_hmac_chain_integrity() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn test_encryption_roundtrip() {
     let tmp_file = NamedTempFile::new().unwrap();
     let db_path = tmp_file.path().to_str().unwrap();
