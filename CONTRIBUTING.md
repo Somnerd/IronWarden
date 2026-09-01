@@ -2,7 +2,9 @@
 
 Thank you for your interest in contributing to **IronWarden**! IronWarden is a high-performance, security-focused Sovereign AI Data Protection Gateway written in Rust.
 
-By contributing to this project, you agree that your contributions will be licensed under the project's AGPLv3 license (the "inbound=outbound" principle). You retain copyright to your own contributions, but grant the project the right to use and distribute them under these terms.
+By contributing to this project, you agree that your contributions will be licensed under the project's [AGPLv3 License](LICENSE) (the "inbound=outbound" principle), unless covered by a separate [Commercial Agreement](LICENSE-COMMERCIAL.md). You retain copyright to your own contributions, but grant the project the right to use and distribute them under these terms.
+
+All participants are expected to uphold our [Code of Conduct](CODE_OF_CONDUCT.md). For potential security vulnerabilities or invariant failures, please follow our [Security Policy](SECURITY.md) and report privately via [GitHub Security Advisories](https://github.com/Somnerd/IronWarden/security/advisories/new).
 
 We welcome community contributions, bug fixes, documentation improvements, and security enhancements.
 
@@ -36,6 +38,14 @@ Before running the application or test suites, set the required cryptographic en
 export WARDEN_PEPPER="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 export WARDEN_MCP_SECRET="test_secret"
 export WARDEN_ENV="development"
+```
+
+### 4. Install Pre-Commit Secret Scanning Hooks
+To prevent accidental secret leaks and enforce code formatting before every commit:
+
+```bash
+pip install pre-commit
+pre-commit install
 ```
 
 ---

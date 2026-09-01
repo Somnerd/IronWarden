@@ -4,11 +4,15 @@ import urllib.request
 import urllib.error
 import re
 
-TOKEN = "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"
+TOKEN = os.environ.get("GITHUB_TOKEN")
 REPO = "Somnerd/IronWarden"
 ISSUES_DIR = ".github/issues"
 
 def get_existing_issues():
+    if not TOKEN:
+        print("❌ Error: GITHUB_TOKEN environment variable is not set.")
+        return []
+
     url = f"https://api.github.com/repos/{REPO}/issues?state=all&per_page=100"
     headers = {
         "Authorization": f"Bearer {TOKEN}",

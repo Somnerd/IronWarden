@@ -1,0 +1,60 @@
+name: 🐛 Bug Report
+description: Report a reproducible bug or unexpected behavior in IronWarden.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue!
+        **Note:** If this is a **security vulnerability or PII leak**, please follow our [Security Policy](../../SECURITY.md) and report privately instead of opening a public issue.
+  - type: input
+    id: version
+    attributes:
+      label: IronWarden Version
+      description: What version of IronWarden are you running? (e.g. v1.0.0-rc.1, commit hash, docker image tag)
+      placeholder: "v1.0.0-rc.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Deployment Mode
+      description: Which deployment profile/mode are you using?
+      options:
+        - Docker Compose Stack
+        - Standalone Binary (Native)
+        - Universal Proxy (Bridge Mode)
+        - Standalone / Hybrid Mode
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Provide steps or curl commands to reproduce the issue.
+      placeholder: |
+        1. Start IronWarden with configuration ...
+        2. Send request: curl http://localhost:8080/v1/chat/completions ...
+        3. Observe error ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs & Output
+      description: Please paste any relevant logs from IronWarden (ensure no real PII or secrets are included in logs).
+      render: shell
