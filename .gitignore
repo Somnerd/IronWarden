@@ -57,5 +57,6 @@ test_audit*
 # Scratch & Logs
 scratch/
 *.logs
+.venv/
 
 

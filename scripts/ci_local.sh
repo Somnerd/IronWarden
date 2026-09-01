@@ -127,7 +127,7 @@ if $RUN_QUALITY; then
 
   step "Run Clippy (per-package, 2 jobs to manage memory pressure)"
   CLIPPY_FAILED=false
-  for pkg in iw_core iw-warden worker mcp iw-cli app; do
+  for pkg in iw_core iw-warden iw_worker iw_mcp iw-cli app; do
     echo "    • clippy: $pkg"
     if ! CARGO_BUILD_JOBS=2 cargo clippy --package "$pkg" --all-targets 2>&1; then
       CLIPPY_FAILED=true
@@ -167,13 +167,13 @@ if $RUN_WARDEN; then
 fi
 
 # =============================================================================
-# JOB 4 — Worker Core — package: worker
+# JOB 4 — Worker Core — package: iw_worker
 # =============================================================================
 if $RUN_WORKER; then
   job_header "Worker Core (Storage/Queue)"
-  step "cargo test --package worker"
+  step "cargo test --package iw_worker"
   # Run in a subshell and capture exit code to avoid old bash's _job artifact on SIGKILL
-  (cargo test --package worker)
+  (cargo test --package iw_worker)
   _worker_exit=$?
   if [ $_worker_exit -eq 0 ]; then
     pass_job "Worker Core"
