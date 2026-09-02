@@ -59,6 +59,8 @@ mod worker {
     mod tamper_test;
     #[path = "tandem_grounding_test.rs"]
     mod tandem_grounding_test;
+    #[path = "streaming_rehydration_fuzz.rs"]
+    mod streaming_rehydration_fuzz;
 }
 
 mod app {
@@ -70,4 +72,7 @@ mod app {
     mod mcp_integration_test;
     #[path = "sentinel_e2e.rs"]
     mod sentinel_e2e;
+    #[path = "compliance_presets_e2e.rs"]
+    mod compliance_presets_e2e;
 }
+

@@ -14,7 +14,7 @@ members = [
 version = "1.0.0"
 edition = "2021"
 authors = ["Nikolas Alexandrakis <nikolasalexandrakis@Jos.home>"]
-license = "AGPL-3.0-only"
+license = "MIT"
 
 [workspace.dependencies]
 # Internal workspace crates
