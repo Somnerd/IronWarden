@@ -1,9 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use secrecy::SecretVec;
-use std::collections::HashMap;
-
-use tempfile::NamedTempFile;
-use worker::grounding::GroundingQueue;
+use criterion::{criterion_group, criterion_main, Criterion};
 
 fn bench_enqueue(c: &mut Criterion) {
     let mut group = c.benchmark_group("grounding_queue");

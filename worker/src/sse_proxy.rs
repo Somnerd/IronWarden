@@ -174,10 +174,8 @@ pub async fn stream_proxy_response(
                 }
             }
 
-            if !output.is_empty() {
-                if tx.send(Ok(Bytes::from(output))).await.is_err() {
-                    break; // Client disconnected
-                }
+            if !output.is_empty() && tx.send(Ok(Bytes::from(output))).await.is_err() {
+                break; // Client disconnected
             }
         }
     });

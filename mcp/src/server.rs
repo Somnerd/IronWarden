@@ -130,6 +130,7 @@ impl StdioMcpServer {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_request_internal(
     request: String,
     shield: Arc<dyn PiiShield>,
@@ -275,8 +276,6 @@ async fn handle_request_internal(
         use sha2::Sha256;
         type HmacSha256 = Hmac<Sha256>;
 
-        // Ensure KeyInit is in scope for new_from_slice
-        use hmac::digest::KeyInit;
         let mut mac = HmacSha256::new_from_slice(mcp_secret.as_bytes())
             .map_err(|_| SovereignError::InternalError("Failed to initialize HMAC".into()))?;
         mac.update(target_string.as_bytes());
@@ -379,7 +378,7 @@ async fn handle_request_internal(
 
         let provider = Box::new(worker::ocr::TesseractOcr);
         let worker_instance = worker::ocr::OcrWorker::new(provider);
-        let text = worker_instance
+        let text: String = worker_instance
             .process_file(&decoded_data, mime_type)
             .await?;
 
@@ -565,7 +564,6 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use iw_core::{ComplianceReport, ScrubbingReport, TokenMap};
-    use serde_json::json;
     use serde_json::json;
     use std::time::Duration;
 
@@ -879,5 +877,87 @@ mod tests {
         .await;
 
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_kill_switch_requires_host_user() {
+        let shield = Arc::new(MockShield);
+        let storage = Arc::new(MockStorage);
+        let router = Arc::new(MockRouter);
+        let sm = LocalSessionManager::new(
+            "file::memory:?cache=shared".into(),
+            &secrecy::SecretVec::new(vec![0u8; 32]),
+        )
+        .unwrap();
+        let sem = Arc::new(Semaphore::new(4));
+
+        let req = json!({
+            "jsonrpc": "2.0",
+            "method": "mcp_halt_system",
+            "params": {
+                "username": "attacker"
+            },
+            "id": "kill-1"
+        });
+
+        let res = handle_request_internal(
+            req.to_string(),
+            shield.clone(),
+            storage.clone(),
+            router.clone(),
+            sm.clone(),
+            sem.clone(),
+            "admin_host".to_string(),
+            "conn1".to_string(),
+            "test_secret".to_string(),
+        )
+        .await;
+
+        assert!(res.is_err());
+        if let Err(SovereignError::UnauthorizedAccess(msg)) = res {
+            assert!(msg.contains("primary host administrator"));
+        } else {
+            panic!("Expected UnauthorizedAccess for non-host kill-switch attempt");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_kill_switch_executes_for_host_user() {
+        let shield = Arc::new(MockShield);
+        let storage = Arc::new(MockStorage);
+        let router = Arc::new(MockRouter);
+        let sm = LocalSessionManager::new(
+            "file::memory:?cache=shared".into(),
+            &secrecy::SecretVec::new(vec![0u8; 32]),
+        )
+        .unwrap();
+        let sem = Arc::new(Semaphore::new(4));
+
+        let req = json!({
+            "jsonrpc": "2.0",
+            "method": "mcp_halt_system",
+            "params": {
+                "username": "admin_host"
+            },
+            "id": "kill-2"
+        });
+
+        let res = handle_request_internal(
+            req.to_string(),
+            shield.clone(),
+            storage.clone(),
+            router.clone(),
+            sm.clone(),
+            sem.clone(),
+            "admin_host".to_string(),
+            "conn1".to_string(),
+            "test_secret".to_string(),
+        )
+        .await;
+
+        assert!(res.is_ok());
+        let res_str = res.unwrap();
+        assert!(res_str.contains("HALTED"));
+        assert!(res_str.contains("fail-closed"));
     }
 }

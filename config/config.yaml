@@ -1,0 +1,8 @@
+allow_fallback: true
+warden_mode: "hybrid"
+openai_base_url: "https://api.openai.com/v1/chat/completions"
+rules_dir: "config/rules"
+audit_db_path: "data/audit.db"
+knowledge_path: "data/knowledge"
+mcp_port: 14141
+bridge_port: 8080

@@ -86,10 +86,10 @@ class MockUpstreamHandler(BaseHTTPRequestHandler):
     def _extract_placeholder(self, parsed):
         import re
         s = json.dumps(parsed)
-        m = re.search(r'\[(PERSON_\d+|TOKEN_\d+|EMAIL_\d+)\]', s)
+        m = re.search(r'\[([A-Z0-9_]+)\]', s)
         if m:
             return m.group(0)
-        return "[PERSON_1]"
+        return "[NAME_1]"
 
     # ── Response builders ──────────────────────────────────────────────────────
 
@@ -970,7 +970,7 @@ def test_proxy_session_token_map_persists_across_calls(proxy_url, auth_headers, 
 
     def extract_placeholder(payload):
         body = json.dumps(payload)
-        m = re.search(r"\[EMAIL_\d+\]|\[TOKEN_\d+\]|\[PERSON_\d+\]", body)
+        m = re.search(r"\[[A-Z0-9_]+\]", body)
         return m.group(0) if m else None
 
     placeholder_1 = extract_placeholder(payload_1)
@@ -985,3 +985,54 @@ def test_proxy_session_token_map_persists_across_calls(proxy_url, auth_headers, 
     # Also verify the raw PII never reached upstream in either call
     assert pii_value not in json.dumps(payload_1), "PII leaked to upstream in call 1"
     assert pii_value not in json.dumps(payload_2), "PII leaked to upstream in call 2"
+
+
+def test_metrics_prometheus_endpoint(proxy_url):
+    """
+    GET /metrics should return standard Prometheus text exposition format (text/plain).
+    Should contain process uptime, requests_total counters, and injection stats.
+    """
+    r = requests.get(f"{proxy_url}/metrics", timeout=5)
+    assert r.status_code == 200
+    assert "text/plain" in r.headers.get("content-type", "")
+    text = r.text
+    assert "ironwarden_uptime_seconds" in text
+    assert "ironwarden_concurrency_available" in text
+    assert "ironwarden_requests_total" in text
+    assert "ironwarden_injections_blocked_total" in text
+    assert "ironwarden_pii_entities_redacted_total" in text
+
+
+def test_enhanced_health_json_endpoint(proxy_url):
+    """
+    GET /health with Accept: application/json should return structured JSON status report.
+    """
+    r = requests.get(
+        f"{proxy_url}/health",
+        headers={"Accept": "application/json"},
+        timeout=5,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get("status") == "HEALTHY"
+    assert "version" in data
+    assert "uptime_seconds" in data
+    assert "concurrency_available" in data
+    assert "subsystems" in data
+    assert data["subsystems"].get("storage") == "ok"
+
+
+def test_grafana_dashboard_endpoint(proxy_url):
+    """
+    GET /grafana/dashboard and GET /monitoring/dashboard.json should return the pre-configured Grafana dashboard JSON.
+    """
+    for path in ["/grafana/dashboard", "/monitoring/dashboard.json"]:
+        r = requests.get(f"{proxy_url}{path}", timeout=5)
+        assert r.status_code == 200
+        assert "application/json" in r.headers.get("content-type", "")
+        data = r.json()
+        assert data.get("uid") == "ironwarden-main"
+        assert "panels" in data
+        assert len(data["panels"]) > 0
+
+

@@ -1,37 +1,37 @@
 [package]
 name = "iw-integration-tests"
-version = "1.0.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 publish = false
 
 [dependencies]
-iw_core = { path = "../core" }
-warden = { package = "iw-warden", path = "../warden" }
-worker = { path = "../worker" }
-mcp = { path = "../mcp" }
-tokio = { version = "1.37", features = ["full"] }
-tempfile = "3.10"
-rusqlite = { version = "0.37", features = ["bundled"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
-async-trait = "0.1"
-proptest = "1.4"
-axum = "0.7"
-jsonwebtoken = "10.3.0"
-uuid = { version = "1.0", features = ["v4", "serde"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["json"] }
-secrecy = "0.8.0"
-bincode = "1.3.3"
-redis = { version = "0.27", features = ["tokio-comp"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-aes-gcm = "0.10"
-hex = "0.4"
-hmac = "0.12"
-sha2 = "0.10"
-hkdf = "0.12"
-chrono = "0.4"
-regex = "1.10"
+iw_core = { workspace = true }
+warden = { workspace = true }
+worker = { workspace = true }
+mcp = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tempfile.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+async-trait.workspace = true
+proptest.workspace = true
+axum.workspace = true
+jsonwebtoken.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+secrecy.workspace = true
+bincode.workspace = true
+redis.workspace = true
+reqwest.workspace = true
+aes-gcm.workspace = true
+hex.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hkdf.workspace = true
+chrono.workspace = true
+regex.workspace = true
 
 [[test]]
 name = "integration_tests"

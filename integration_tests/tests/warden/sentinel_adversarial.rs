@@ -67,7 +67,6 @@ heuristics:
 #[tokio::test]
 async fn test_semantic_cache_homoglyph_collision() {
     use iw_core::SessionContext;
-    use std::sync::Arc;
 
     let yaml = r#"
 rules: []
@@ -75,7 +74,7 @@ confidence_threshold: 0.9
 "#;
     let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
     let pepper = SecretVec::new(vec![0u8; 32]);
-    let engine = config.compile_engine(&pepper).unwrap();
+    let _engine = config.compile_engine(&pepper).unwrap();
 
     let session = SessionContext::new();
 

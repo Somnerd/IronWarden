@@ -3,7 +3,6 @@ use axum::http::StatusCode;
 use iw_core::crypto::Claims;
 use iw_warden::WardenConfig;
 use jsonwebtoken::{encode, EncodingKey, Header};
-use secrecy::SecretVec;
 use std::fs;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -104,6 +103,7 @@ cwIDAQAB
         storage: storage.clone(),
         session_manager: session_manager.clone(),
         jwt_public_key,
+        metrics: Arc::new(worker::GatewayMetrics::new()),
     });
 
     let router = create_bridge_router(state);

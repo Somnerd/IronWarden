@@ -160,6 +160,61 @@ impl JwtVerifier {
 
         Ok(claims)
     }
+
+    /// Generates an ephemeral 2048-bit RSA keypair and a pre-signed demo JWT token
+    /// for zero-config local testing and quickstart demos.
+    pub fn generate_ephemeral_demo_keypair(
+        audience: &str,
+        issuer: &str,
+    ) -> Result<(Vec<u8>, String), SovereignError> {
+        let rsa = openssl::rsa::Rsa::generate(2048).map_err(|e| {
+            SovereignError::InternalError(format!(
+                "Failed to generate ephemeral RSA keypair: {}",
+                e
+            ))
+        })?;
+        let priv_pem = rsa.private_key_to_pem().map_err(|e| {
+            SovereignError::InternalError(format!("Failed to serialize RSA private key: {}", e))
+        })?;
+        let pub_pem = rsa.public_key_to_pem().map_err(|e| {
+            SovereignError::InternalError(format!("Failed to serialize RSA public key: {}", e))
+        })?;
+
+        let encoding_key = jsonwebtoken::EncodingKey::from_rsa_pem(&priv_pem).map_err(|e| {
+            SovereignError::InternalError(format!("Failed to load encoding key: {}", e))
+        })?;
+
+        #[derive(Serialize)]
+        struct DemoClaims<'a> {
+            sub: &'a str,
+            aud: &'a str,
+            iss: &'a str,
+            exp: usize,
+            roles: Vec<&'a str>,
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as usize;
+
+        let claims = DemoClaims {
+            sub: "demo_admin",
+            aud: audience,
+            iss: issuer,
+            exp: now + 365 * 24 * 3600, // Valid for 1 year in demo mode
+            roles: vec!["admin", "privileged_search"],
+        };
+
+        let mut header = jsonwebtoken::Header::new(Algorithm::RS256);
+        header.kid = None;
+
+        let token = jsonwebtoken::encode(&header, &claims, &encoding_key).map_err(|e| {
+            SovereignError::InternalError(format!("Failed to generate demo JWT token: {}", e))
+        })?;
+
+        Ok((pub_pem, token))
+    }
 }
 
 pub fn build_hkdf_info(info: &[u8], aad: &str) -> Vec<u8> {

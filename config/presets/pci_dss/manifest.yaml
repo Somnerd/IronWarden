@@ -1,0 +1,3 @@
+rules_dir: '.'
+active_rules:
+  - rules.yaml

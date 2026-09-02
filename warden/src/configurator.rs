@@ -93,27 +93,41 @@ impl Default for GlobalConfig {
 
 impl GlobalConfig {
     pub fn resolve() -> Result<Self, SovereignError> {
+        Self::resolve_with_path(None)
+    }
+
+    pub fn resolve_with_path(custom_config_path: Option<&Path>) -> Result<Self, SovereignError> {
         let env_allow_fallback = std::env::var("ALLOW_FALLBACK")
             .map(|v| v.trim().to_lowercase() == "true")
             .unwrap_or(false)
             || std::env::var("WARDEN_ENV")
                 .map(|v| v == "test" || v == "ephemeral")
-                .unwrap_or(false)
-            || std::env::var("CARGO_MANIFEST_DIR").is_ok();
+                .unwrap_or(false);
 
-        let mut config: GlobalConfig = if Path::new("config/config.yaml").exists() {
-            let content = fs::read_to_string("config/config.yaml").map_err(|e| {
-                SovereignError::ConfigError(format!("Failed to read config/config.yaml: {}", e))
+        let default_path = Path::new("config/config.yaml");
+        let config_file = custom_config_path.unwrap_or(default_path);
+
+        let mut config: GlobalConfig = if config_file.exists() {
+            let content = fs::read_to_string(config_file).map_err(|e| {
+                SovereignError::ConfigError(format!(
+                    "Failed to read {}: {}",
+                    config_file.display(),
+                    e
+                ))
             })?;
             serde_yaml::from_str(&content).map_err(|e| {
-                SovereignError::ConfigError(format!("Failed to parse config/config.yaml: {}", e))
+                SovereignError::ConfigError(format!(
+                    "Failed to parse {}: {}",
+                    config_file.display(),
+                    e
+                ))
             })?
         } else {
             if !env_allow_fallback {
-                return Err(SovereignError::ConfigError(
-                    "Strict mode violation: config/config.yaml is missing and fallback is not allowed."
-                        .into(),
-                ));
+                return Err(SovereignError::ConfigError(format!(
+                    "Strict mode violation: {} is missing and fallback is not allowed.",
+                    config_file.display()
+                )));
             }
             GlobalConfig::default()
         };
@@ -218,32 +232,26 @@ mod tests {
     // A helper to run tests sequentially when modifying environment variables
     fn run_with_env<F>(setup: F)
     where
-        F: FnOnce() -> (),
+        F: FnOnce(),
     {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = match ENV_MUTEX.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
         // Clear variables that affect `allow_fallback`
-        let orig_cargo = env::var("CARGO_MANIFEST_DIR");
         let orig_warden = env::var("WARDEN_ENV");
         let orig_allow = env::var("ALLOW_FALLBACK");
         let orig_pepper = env::var("WARDEN_PEPPER");
         let orig_manifest = env::var("WARDEN_MANIFEST_PATH");
 
-        env::remove_var("CARGO_MANIFEST_DIR");
         env::remove_var("WARDEN_ENV");
         env::remove_var("ALLOW_FALLBACK");
         env::remove_var("WARDEN_PEPPER");
         env::remove_var("WARDEN_MANIFEST_PATH");
 
-        // We also want to trick the `Path::new("config/config.yaml").exists()` check
-        // if we are running in a different dir, but wait: if `config.yaml` doesn't exist,
-        // it should error in strict mode! That's exactly what we want to test first.
-
-        setup();
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(setup));
 
         // Restore
-        if let Ok(val) = orig_cargo {
-            env::set_var("CARGO_MANIFEST_DIR", val);
-        }
         if let Ok(val) = orig_warden {
             env::set_var("WARDEN_ENV", val);
         }
@@ -256,72 +264,65 @@ mod tests {
         if let Ok(val) = orig_manifest {
             env::set_var("WARDEN_MANIFEST_PATH", val);
         }
+
+        if let Err(e) = res {
+            std::panic::resume_unwind(e);
+        }
     }
 
     #[test]
     fn test_strict_mode_missing_config_yaml() {
         run_with_env(|| {
-            // Make sure we are not running from a directory where config/config.yaml exists
-            // Or if it does, this test might fail. Assuming we run from workspace root:
-            let old_dir = env::current_dir().unwrap();
-            env::set_current_dir(env::temp_dir()).unwrap();
-
             env::set_var(
                 "WARDEN_PEPPER",
                 "this-is-a-valid-32-byte-test-pepper-string!",
             );
 
-            let res = GlobalConfig::resolve();
+            let res =
+                GlobalConfig::resolve_with_path(Some(Path::new("non_existent_path_config.yaml")));
             assert!(
                 res.is_err(),
                 "Must reject when config/config.yaml is missing in strict mode"
             );
-            assert!(res
-                .unwrap_err()
-                .to_string()
-                .contains("config/config.yaml is missing"));
-
-            env::set_current_dir(old_dir).unwrap();
+            assert!(res.unwrap_err().to_string().contains("is missing"));
         });
     }
 
     #[test]
     fn test_strict_mode_pepper_too_short() {
         run_with_env(|| {
-            // To pass the config.yaml check without a real file, we can't easily fake Path::exists.
-            // But we can create a temporary file.
             let temp_dir = tempfile::tempdir().unwrap();
-            let config_dir = temp_dir.path().join("config");
-            fs::create_dir(&config_dir).unwrap();
-            fs::write(config_dir.join("config.yaml"), "warden_mode: test").unwrap();
+            let config_yaml = temp_dir.path().join("config.yaml");
+            let manifest_yaml = temp_dir.path().join("manifest.yaml");
+            let rules_dir = temp_dir.path().join("rules");
+
+            fs::create_dir(&rules_dir).unwrap();
+            fs::write(&config_yaml, "warden_mode: test").unwrap();
             fs::write(
-                config_dir.join("manifest.yaml"),
-                "rules_dir: \"rules\"\nrule_categories: []",
+                &manifest_yaml,
+                format!(
+                    "rules_dir: \"{}\"\nrule_categories: []",
+                    rules_dir.display()
+                ),
             )
             .unwrap();
-            fs::create_dir(temp_dir.path().join("rules")).unwrap();
 
-            let old_dir = env::current_dir().unwrap();
-            env::set_current_dir(temp_dir.path()).unwrap();
-
-            env::set_var("WARDEN_MANIFEST_PATH", "config/manifest.yaml");
+            env::set_var("WARDEN_MANIFEST_PATH", manifest_yaml.to_str().unwrap());
 
             // Pepper < 32 bytes
             env::set_var("WARDEN_PEPPER", "short_pepper");
-            let res = GlobalConfig::resolve();
+            let res = GlobalConfig::resolve_with_path(Some(&config_yaml));
             assert!(res.is_err(), "Must reject pepper < 32 bytes in strict mode");
             assert!(res.unwrap_err().to_string().contains("at least 32 bytes"));
 
             // Pepper >= 32 bytes
             env::set_var("WARDEN_PEPPER", "12345678901234567890123456789012");
-            let res_ok = GlobalConfig::resolve();
+            let res_ok = GlobalConfig::resolve_with_path(Some(&config_yaml));
             assert!(
                 res_ok.is_ok(),
                 "Must accept pepper >= 32 bytes: {:?}",
                 res_ok.err()
             );
-
-            env::set_current_dir(old_dir).unwrap();
         });
     }
 
@@ -329,50 +330,39 @@ mod tests {
     fn test_strict_mode_missing_manifest() {
         run_with_env(|| {
             let temp_dir = tempfile::tempdir().unwrap();
-            let config_dir = temp_dir.path().join("config");
-            fs::create_dir(&config_dir).unwrap();
-            fs::write(config_dir.join("config.yaml"), "warden_mode: test").unwrap();
-
-            let old_dir = env::current_dir().unwrap();
-            env::set_current_dir(temp_dir.path()).unwrap();
+            let config_yaml = temp_dir.path().join("config.yaml");
+            fs::write(&config_yaml, "warden_mode: test").unwrap();
 
             env::set_var("WARDEN_PEPPER", "12345678901234567890123456789012");
             env::set_var("WARDEN_MANIFEST_PATH", "non_existent_manifest.yaml");
 
-            let res = GlobalConfig::resolve();
+            let res = GlobalConfig::resolve_with_path(Some(&config_yaml));
             assert!(
                 res.is_err(),
                 "Must reject missing manifest file in strict mode"
             );
             assert!(res.unwrap_err().to_string().contains("manifest file"));
-
-            env::set_current_dir(old_dir).unwrap();
         });
     }
+
     #[test]
     fn test_memory_safe_openai_api_key() {
         run_with_env(|| {
             let temp_dir = tempfile::tempdir().unwrap();
-            let config_dir = temp_dir.path().join("config");
-            fs::create_dir(&config_dir).unwrap();
-            fs::write(config_dir.join("config.yaml"), "warden_mode: hybrid").unwrap();
-
-            let old_dir = env::current_dir().unwrap();
-            env::set_current_dir(temp_dir.path()).unwrap();
+            let config_yaml = temp_dir.path().join("config.yaml");
+            fs::write(&config_yaml, "warden_mode: hybrid").unwrap();
 
             env::set_var("ALLOW_FALLBACK", "true");
             env::set_var("OPENAI_API_KEY", "sk-proj-test-secret-key-12345");
             env::set_var("WARDEN_PEPPER", "12345678901234567890123456789012");
 
-            let config = GlobalConfig::resolve().unwrap();
+            let config = GlobalConfig::resolve_with_path(Some(&config_yaml)).unwrap();
 
             use secrecy::ExposeSecret;
             assert_eq!(
                 config.openai_api_key.expose_secret(),
                 "sk-proj-test-secret-key-12345"
             );
-
-            env::set_current_dir(old_dir).unwrap();
         });
     }
 }

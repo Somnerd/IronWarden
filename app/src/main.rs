@@ -340,15 +340,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let jwt_public_key = match global_config.jwt_public_key.clone() {
-        Some(k) => secrecy::SecretVec::new(k),
-        None => {
-            if deployment_profile == "hybrid" || deployment_profile == "bridge" {
-                if !global_config.allow_fallback {
-                    tracing::error!("CRITICAL CONFIGURATION ERROR: Missing JWT_PUBLIC_KEY in bridge/hybrid mode");
-                    std::process::exit(1);
+        Some(k) if !k.is_empty() => secrecy::SecretVec::new(k),
+        _ => {
+            if env_mode == "production" && !global_config.allow_fallback {
+                tracing::error!(
+                    "CRITICAL CONFIGURATION ERROR: Missing JWT_PUBLIC_KEY in production mode"
+                );
+                std::process::exit(1);
+            }
+
+            // Auto-generate ephemeral demo RSA keypair for zero-config quickstart
+            let aud = global_config
+                .warden_jwt_audience
+                .as_deref()
+                .unwrap_or("ironwarden");
+            let iss = global_config
+                .warden_jwt_issuer
+                .as_deref()
+                .unwrap_or("ironwarden");
+            match iw_core::crypto::JwtVerifier::generate_ephemeral_demo_keypair(aud, iss) {
+                Ok((pub_pem, demo_token)) => {
+                    tracing::warn!("⚡ ZERO-CONFIG DEMO MODE: Generated ephemeral RS256 keypair.");
+                    tracing::info!(
+                        "👉 Pre-signed Demo Bearer Token (Roles: admin, privileged_search):"
+                    );
+                    tracing::info!("   Bearer {}", demo_token);
+                    secrecy::SecretVec::new(pub_pem)
+                }
+                Err(e) => {
+                    tracing::error!("Failed to generate ephemeral demo keypair: {}", e);
+                    secrecy::SecretVec::new(Vec::new())
                 }
             }
-            secrecy::SecretVec::new(Vec::new())
         }
     };
 
@@ -363,6 +386,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             session_manager,
             jwt_public_key,
             ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(100)),
+            metrics: Arc::new(worker::GatewayMetrics::new()),
         });
 
         let bridge_port = global_config.bridge_port.clone();

@@ -51,6 +51,21 @@ We adhere to no strict timeline for security reports since this is a free, unpai
 
 ---
 
+## 🧪 Automated Security Invariant Test Verification
+
+All cryptographic, fail-closed, and isolation claims are backed by continuous automated test suites executed in CI (`cargo test -p iw-integration-tests`):
+
+| Security Invariant | Guarantee & Enforcement | Automated Test Suite |
+| :--- | :--- | :--- |
+| **V-12: Overlap Integrity** | A 'Redact' match never masks a 'Block' rule; leftmost-longest match prioritization. | `test_v12_overlap_masking_prevention` (`integration_tests/tests/warden/sentinel_adversarial.rs`) |
+| **V-13: Audit Ledger Tamper Detection** | SQLite audit chain with HMAC-SHA256 linking; aborts on hash mismatch or truncation. | `test_gap_02_boot_handshake_tamper_detection`, `test_v13_anchor_tampering_fail_closed` |
+| **V-14: Leak-Proof Routing** | Upstream LLM queues strictly receive sanitized prompts; raw input never enqueued. | `test_v14_leak_prevention_enforced` (`integration_tests/tests/worker/tandem_grounding_test.rs`) |
+| **V-15: Dual-Track Homoglyph Resiliency** | Homoglyph-resilient ASCII and Unicode buffer normalization for multilingual PII. | `test_v15_homoglyph_evasion`, `test_v15_shadow_ner_greek_homoglyph` |
+| **V-19: AAD Session Isolation** | AES-256-GCM context encryption cryptographically bound to session username via AAD. | `test_v19_session_isolation_aad`, `test_v19_session_swap_integrity` |
+| **Fail-Closed Persistence** | Gateway physically halts traffic if audit database is locked, full, or unreachable. | `test_database_busy_fail_closed`, `test_hard_stop_monitor_anchor_missing` |
+
+---
+
 ## 🤝 Coordinated Disclosure & Credit
 
 * We request an **embargo window of up to 30 days** from initial report before public disclosure to allow downstream users time to update.

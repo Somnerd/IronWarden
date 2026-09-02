@@ -1,0 +1,68 @@
+# IronWarden Turnkey Preset: PCI-DSS (Payment Card Industry Data Security Standard)
+# Covers Primary Account Numbers (PAN), Cardholder Data, and Sensitive Authentication Data (SAD).
+
+rules:
+  # 1. Visa Cards (4xxx xxxx xxxx xxxx)
+  - id: "pci_visa"
+    type: "Regex"
+    pattern: '\b4\d{3}[.\-\s]?\d{4}[.\-\s]?\d{4}[.\-\s]?\d{4}\b'
+    category: "Financial"
+    action: Redact
+
+  # 2. Mastercard (51-55 or 22-27)
+  - id: "pci_mastercard"
+    type: "Regex"
+    pattern: '\b(?:5[1-5]\d{2}|222[1-9]|22[3-9]\d|2[3-6]\d{2}|27[01]\d|2720)[.\-\s]?\d{4}[.\-\s]?\d{4}[.\-\s]?\d{4}\b'
+    category: "Financial"
+    action: Redact
+
+  # 3. American Express (34/37 - 15 digits)
+  - id: "pci_amex"
+    type: "Regex"
+    pattern: '\b3[47]\d{2}[.\-\s]?\d{6}[.\-\s]?\d{5}\b'
+    category: "Financial"
+    action: Redact
+
+  # 4. Discover Card (6011, 622126-622925, 644-649, 65)
+  - id: "pci_discover"
+    type: "Regex"
+    pattern: '\b6(?:011|5\d{2}|4[4-9]\d)[.\-\s]?\d{4}[.\-\s]?\d{4}[.\-\s]?\d{4}\b'
+    category: "Financial"
+    action: Redact
+
+  # 5. Generic 16-Digit PAN / Credit Card
+  - id: "pci_generic_pan"
+    type: "Regex"
+    pattern: '\b(?:\d{4}[.\-\s]?){3}\d{4}\b'
+    category: "Financial"
+    action: Redact
+
+  # 6. CVV / CVC / Security Code
+  - id: "pci_cvv"
+    type: "Regex"
+    pattern: '(?i)\b(?:CVV|CVC|CID|CVV2|CVC2|Security\s*Code)[.:\-\s]*\d{3,4}\b'
+    category: "Financial"
+    action: Redact
+
+  # 7. Card Expiration Date
+  - id: "pci_card_expiry"
+    type: "Regex"
+    pattern: '(?i)\b(?:Exp|Expiry|Expires|VALID\s*THRU)[.:\-\s]*(?:0[1-9]|1[0-2])[\/\-]\d{2,4}\b'
+    category: "Financial"
+    action: Redact
+
+  # 8. Bank Routing Transit Number (ABA RTN)
+  - id: "pci_aba_routing"
+    type: "Regex"
+    pattern: '(?i)\b(?:Routing|ABA|RTN)[.:\-\s]*\d{9}\b'
+    category: "Financial"
+    action: Redact
+
+heuristics:
+  - label: "POTENTIAL_ACCOUNT_NUMBER"
+    pattern: '(?i)\b(?:Acct|Account|Checking|Savings)[.:\-\s#]*\d{8,17}\b'
+    category: "Financial"
+    action: Redact
+
+ai_enabled: true
+ai_confidence_threshold: 0.85

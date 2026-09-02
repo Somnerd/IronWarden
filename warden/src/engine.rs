@@ -242,10 +242,10 @@ impl WardenEngine {
 }
 
 #[derive(Clone, Debug)]
-struct UnifiedMatch<'a> {
+struct UnifiedMatch {
     start: usize,
     end: usize,
-    text: std::borrow::Cow<'a, str>,
+    text: String,
     rule_id: String,
     #[allow(dead_code)]
     is_confirmed: bool,
@@ -377,32 +377,6 @@ impl PiiShield for WardenEngine {
                         action: *action,
                         category: *category,
                     });
-
-                    if !is_duplicate {
-                        all_confirmed.push(UnifiedMatch {
-                            start: unicode_start,
-                            end: unicode_end,
-                            text: std::borrow::Cow::Borrowed(
-                                &normalized[unicode_start..unicode_end],
-                            ),
-                            rule_id: format!("{}_ascii", id),
-                            is_confirmed: true,
-                            action,
-                            category,
-                        });
-                    }
-                    if mat.start() == mat.end() {
-                        if let Some(c) = ascii_str[search_start..].chars().next() {
-                            search_start += c.len_utf8();
-                        } else {
-                            break;
-                        }
-                    } else {
-                        search_start = mat.start()
-                            + ascii_str[mat.start()..].chars().next().unwrap().len_utf8();
-                    }
-                } else {
-                    break;
                 }
             }
 
@@ -652,7 +626,7 @@ impl PiiShield for WardenEngine {
                             all_potentials.push(UnifiedMatch {
                                 start: unicode_start,
                                 end: unicode_end,
-                                text: std::borrow::Cow::Owned(miss.text.clone()),
+                                text: miss.text.clone(),
                                 rule_id: shadow.label.clone(),
                                 is_confirmed: false,
                                 action: shadow.action,
@@ -914,7 +888,7 @@ impl PiiShield for WardenEngine {
                             .entry(key)
                             .or_insert_with(|| {
                                 let id = ctx.next_id.fetch_add(1, Ordering::SeqCst);
-                                let t = format!("[TOKEN_{}]", id);
+                                let t = Self::generate_placeholder(mat.category, &mat.rule_id, id);
                                 ctx.token_to_pii.insert(t.clone(), mat.text.clone());
 
                                 // Register as identity if it's a person or fused name
@@ -934,7 +908,7 @@ impl PiiShield for WardenEngine {
                     local_unique_tokens
                         .entry(mat.text.to_lowercase())
                         .or_insert_with(|| {
-                            let t = format!("[TOKEN_{}]", next_id);
+                            let t = Self::generate_placeholder(mat.category, &mat.rule_id, next_id);
                             token_map.insert(t.clone(), mat.text.clone());
                             t
                         })
@@ -1039,6 +1013,49 @@ impl PiiShield for WardenEngine {
 }
 
 impl WardenEngine {
+    /// Generates a semantic, contextual placeholder token based on the detected PII category and rule (e.g. `[EMAIL_1]`, `[NAME_1]`, `[PHONE_1]`, `[SSN_1]`, `[AFM_1]`).
+    pub fn generate_placeholder(category: PiiCategory, rule_id: &str, id: usize) -> String {
+        let rule_upper = rule_id.to_ascii_uppercase();
+        let prefix = if rule_upper.contains("EMAIL") {
+            "EMAIL"
+        } else if rule_upper.contains("PERSON") || rule_upper.contains("NAME") {
+            "NAME"
+        } else if rule_upper.contains("PHONE") {
+            "PHONE"
+        } else if rule_upper.contains("AFM") {
+            "AFM"
+        } else if rule_upper.contains("AMKA") {
+            "AMKA"
+        } else if rule_upper.contains("IBAN") || rule_upper.contains("BANK") {
+            "IBAN"
+        } else if rule_upper.contains("CREDIT_CARD") || rule_upper.contains("CARD") {
+            "CREDIT_CARD"
+        } else if rule_upper.contains("SSN") {
+            "SSN"
+        } else if rule_upper.contains("PASSPORT") {
+            "PASSPORT"
+        } else if rule_upper.contains("IP_ADDRESS")
+            || rule_upper.contains("IPV4")
+            || rule_upper.contains("IPV6")
+        {
+            "IP"
+        } else {
+            match category {
+                PiiCategory::IndividualName => "NAME",
+                PiiCategory::IdentificationNumber => "ID",
+                PiiCategory::FinancialData => "FINANCIAL",
+                PiiCategory::ContactInfo => "CONTACT",
+                PiiCategory::InternalAsset => "ASSET",
+                PiiCategory::HighConfidenceAi => "AI_REDACTED",
+                PiiCategory::PotentialHeuristic => "HEURISTIC",
+                PiiCategory::Organization => "ORG",
+                PiiCategory::Location => "LOCATION",
+                PiiCategory::Other => "TOKEN",
+            }
+        };
+        format!("[{}_{}]", prefix, id)
+    }
+
     fn check_shannon_entropy_smuggling(input: &str) -> bool {
         let bytes = input.as_bytes();
         let mut i = 0;
@@ -1049,10 +1066,8 @@ impl WardenEngine {
                     i += 1;
                 }
                 let len = i - start;
-                if len > 40 {
-                    if Self::calculate_entropy(&bytes[start..i]) > 5.8 {
-                        return true;
-                    }
+                if len > 40 && Self::calculate_entropy(&bytes[start..i]) > 5.8 {
+                    return true;
                 }
             } else {
                 i += 1;
@@ -1276,8 +1291,8 @@ mod tests {
         );
         let red = &report.redactions[0];
         assert_eq!(red.rule_id, "ai_cache_PERSON");
-        assert_eq!(red.placeholder, "[TOKEN_1]");
-        assert!(report.sanitized_text.contains("[TOKEN_1]"));
+        assert_eq!(red.placeholder, "[NAME_1]");
+        assert!(report.sanitized_text.contains("[NAME_1]"));
         assert_eq!(
             report.potential_misses.len(),
             0,
@@ -1493,7 +1508,7 @@ mod tests {
     #[tokio::test]
     async fn test_native_greek_pii_overlap() {
         let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
-        let engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85, &pepper).unwrap();
+        let _engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85, &pepper).unwrap();
 
         // AMKA is 11 digits. If there's an overlapping rule (like a dictionary match or a smaller regex),
         // we must ensure the AMKA match wins due to overlap integrity (leftmost-longest).
@@ -1677,5 +1692,58 @@ mod tests {
         let report = engine.sanitize_prompt("Hello Àlìcê", None).await.unwrap();
         assert_eq!(report.redactions.len(), 1);
         assert!(report.redactions[0].rule_id.contains("DICT_TEST"));
+    }
+
+    #[tokio::test]
+    async fn test_contextual_typed_placeholders() {
+        let pattern_rules = vec![
+            (
+                "EMAIL_RULE".to_string(),
+                r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}".to_string(),
+                EnforcementAction::Redact,
+                PiiCategory::ContactInfo,
+            ),
+            (
+                "GREEK_AFM".to_string(),
+                r"\b\d{9}\b".to_string(),
+                EnforcementAction::Redact,
+                PiiCategory::IdentificationNumber,
+            ),
+        ];
+        let dict_rules = vec![(
+            "NAME_RULE".to_string(),
+            "Alice Smith".to_string(),
+            EnforcementAction::Redact,
+            PiiCategory::IndividualName,
+        )];
+
+        let pepper = secrecy::SecretVec::from(vec![0u8; 32]);
+        let engine =
+            WardenEngine::new(dict_rules, pattern_rules, vec![], None, 0.85, &pepper).unwrap();
+
+        let prompt = "Contact Alice Smith at alice@example.com with tax ID 123456789.";
+        let report = engine.sanitize_prompt(prompt, None).await.unwrap();
+
+        assert!(
+            report.sanitized_text.contains("[NAME_1]"),
+            "Expected [NAME_1] in {}",
+            report.sanitized_text
+        );
+        assert!(
+            report.sanitized_text.contains("[EMAIL_"),
+            "Expected [EMAIL_N] in {}",
+            report.sanitized_text
+        );
+        assert!(
+            report.sanitized_text.contains("[AFM_"),
+            "Expected [AFM_N] in {}",
+            report.sanitized_text
+        );
+
+        // Verify restoration
+        let restored = engine
+            .restore_prompt(&report.sanitized_text, &report.token_map)
+            .unwrap();
+        assert_eq!(restored, prompt);
     }
 }

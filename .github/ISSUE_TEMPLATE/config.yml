@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Security Vulnerability Report
+    url: https://github.com/Somnerd/IronWarden/security/advisories/new
+    about: Please report potential security vulnerabilities privately via GitHub Security Advisories or direct email per our Security Policy.
+  - name: 💬 GitHub Discussions & Questions
+    url: https://github.com/Somnerd/IronWarden/discussions
+    about: Ask questions, discuss AI security proxy architecture, and connect with other IronWarden users.

@@ -50,6 +50,16 @@ pub struct GroundingQueue {
     results: Arc<DashMap<String, (String, Vec<u8>)>>,
 }
 
+async fn get_redis_con(client: &redis::Client) -> Option<redis::aio::MultiplexedConnection> {
+    tokio::time::timeout(
+        Duration::from_millis(200),
+        client.get_multiplexed_async_connection(),
+    )
+    .await
+    .ok()
+    .and_then(|r| r.ok())
+}
+
 impl GroundingQueue {
     pub fn new(
         db_path: String,
@@ -128,10 +138,7 @@ impl GroundingQueue {
             loop {
                 let item = tokio::select! {
                     res = db_rx_clone.recv_async() => {
-                        match res {
-                            Ok(item) => Some(item),
-                            Err(_) => None,
-                        }
+                        res.ok()
                     }
                     _ = tokio::time::sleep(Duration::from_millis(50)) => None,
                 };
@@ -225,7 +232,7 @@ impl GroundingQueue {
 
         // --- HA FIX (WP 90): Poll Redis first for distributed jobs ---
         if let Some(ref client) = self.redis_client {
-            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+            if let Some(mut con) = get_redis_con(client).await {
                 // RPOP from global queue
                 if let Ok(Some(job_id)) = con.rpop::<_, Option<String>>("iw:sb:queue", None).await {
                     // Fetch job details from Redis hash (to support cross-node processing)
@@ -332,7 +339,7 @@ impl GroundingQueue {
 
             // 4. Update DB (and Redis if HA)
             if let Some(ref client) = self.redis_client {
-                if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+                if let Some(mut con) = get_redis_con(client).await {
                     let redis_key = format!("iw:sb:job:{}", id);
                     let _: Result<(), _> = con.hset(&redis_key, "result", &encrypted_result).await;
                     let _: Result<(), _> = con.hset(&redis_key, "status", "complete").await;
@@ -383,7 +390,7 @@ impl GroundingQueue {
 
         // --- HA FIX (WP 90): Push to Redis for distributed processing ---
         if let Some(ref client) = self.redis_client {
-            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+            if let Some(mut con) = get_redis_con(client).await {
                 let redis_key = format!("iw:sb:job:{}", job_id);
                 let fields = vec![
                     ("username", username.as_bytes().to_vec()),
@@ -424,7 +431,7 @@ impl GroundingQueue {
             "GroundingQueue: Initiating graceful shutdown, flushing {} remaining jobs to DB...",
             self.db_tx.len()
         );
-        while self.db_tx.len() > 0 {
+        while !self.db_tx.is_empty() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -448,7 +455,7 @@ impl GroundingQueue {
         // --- HA FIX (WP 90): Check Redis first for result ---
         if redis_data.is_none() {
             if let Some(ref client) = self.redis_client {
-                if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+                if let Some(mut con) = get_redis_con(client).await {
                     let redis_key = format!("iw:sb:job:{}", job_id);
                     if let Ok(data) = con.hgetall::<_, HashMap<String, Vec<u8>>>(&redis_key).await {
                         if data
@@ -627,7 +634,7 @@ impl LocalSessionManager {
         // --- HA FIX (WP 90): Check Redis if SQLite is missing ---
         if encrypted_data.is_none() {
             if let Some(ref client) = self.redis_client {
-                if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+                if let Some(mut con) = get_redis_con(client).await {
                     let redis_key = format!("iw:session:{}", username);
                     if let Ok(data) = con.get::<_, Vec<u8>>(&redis_key).await {
                         if !data.is_empty() {
@@ -717,7 +724,7 @@ impl LocalSessionManager {
 
         // --- HA FIX (WP 90): Write to Redis for HA Clustered Access ---
         if let Some(ref client) = self.redis_client {
-            if let Ok(mut con) = client.get_multiplexed_async_connection().await {
+            if let Some(mut con) = get_redis_con(client).await {
                 let redis_key = format!("iw:session:{}", username);
                 let _: Result<(), _> = con.set_ex(&redis_key, &combined, 86400).await;
                 // 24h TTL

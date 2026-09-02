@@ -1,0 +1,50 @@
+# ==============================================================================
+# IronWarden Pre-Commit Hook Configuration
+# ==============================================================================
+# To install pre-commit hooks locally:
+#   pip install pre-commit
+#   pre-commit install
+#
+# To run checks manually across all files:
+#   pre-commit run --all-files
+# ==============================================================================
+
+repos:
+  # --- Standard Pre-Commit Security & Hygiene Hooks ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=50000']
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: ['--unsafe']
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      # Strictly blocks committing unencrypted private keys (PEM/RSA/OpenSSH)
+      - id: detect-private-key
+
+  # --- Secret Scanning: Detect Secrets ---
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: |
+          (?x)(
+            Cargo\.lock|
+            example\.env|
+            \.env\.example
+          )
+
+  # --- Secret Scanning: TruffleHog ---
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.88.5
+    hooks:
+      - id: trufflehog
+        name: TruffleHog (Secrets Detection)
+        entry: trufflehog git file://. --since-commit HEAD --only-verified --fail
+        language: system
+        stages: [pre-commit, pre-push]

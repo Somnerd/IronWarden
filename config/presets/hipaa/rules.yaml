@@ -1,0 +1,80 @@
+# IronWarden Turnkey Preset: HIPAA (Health Insurance Portability and Accountability Act)
+# Covers all 18 Safe Harbor Protected Health Information (PHI) identifiers.
+
+rules:
+  # 1. Medical Record Number (MRN)
+  - id: "hipaa_mrn"
+    type: "Regex"
+    pattern: '(?i)\b(?:MRN|MR|Record#|Medical\s*Record)[.:\-\s]*[A-Z0-9]{4,12}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  # 2. National Provider Identifier (NPI)
+  - id: "hipaa_npi"
+    type: "Regex"
+    pattern: '\b[12]\d{9}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  # 3. Medicare Beneficiary Identifier (MBI)
+  - id: "hipaa_medicare_mbi"
+    type: "Regex"
+    pattern: '(?i)\b[1-9][a-z0-9]{2}[0-9][a-z0-9]{2}[0-9][a-z0-9]{2}[0-9]{2}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  # 4. Social Security Number (SSN)
+  - id: "hipaa_ssn"
+    type: "Regex"
+    pattern: '\b\d{3}[.\-\s]*\d{2}[.\-\s]*\d{4}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  # 5. DEA Registration Number
+  - id: "hipaa_dea_number"
+    type: "Regex"
+    pattern: '(?i)\b[A-Z]{2}\d{7}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  # 6. Prescription / Rx Number
+  - id: "hipaa_prescription_number"
+    type: "Regex"
+    pattern: '(?i)\b(?:RX|Rx|Prescription)[.:\-\s]*\d{5,12}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  # 7. Health Plan Beneficiary Number
+  - id: "hipaa_health_plan_id"
+    type: "Regex"
+    pattern: '(?i)\b(?:HMO|PPO|INS|PLAN|POL)[.:\-\s]*[A-Z0-9]{6,16}\b'
+    category: "IdentificationNumber"
+    action: Redact
+
+  # 8. Email Address
+  - id: "hipaa_email"
+    type: "Regex"
+    pattern: '\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+    category: "PersonalData"
+    action: Redact
+
+  # 9. Telephone / Fax Number
+  - id: "hipaa_phone"
+    type: "Regex"
+    pattern: '\b(?:\+?1[-.\s]?)?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'
+    category: "PersonalData"
+    action: Redact
+
+heuristics:
+  - label: "POTENTIAL_DIAGNOSIS_ICD"
+    pattern: '(?i)\b[A-TV-Z][0-9][0-9AB](?:\.[0-9A-KXZ]{1,4})?\b'
+    category: "Medical"
+    action: Redact
+
+  - label: "POTENTIAL_MEDICATION"
+    pattern: '(?i)\b(?:Lipitor|Synthroid|Humira|Keytruda|Eliquis|Imbruvica|Stelara|Biktarvy|Xarelto|Opdivo|Adalimumab|Atorvastatin|Levothyroxine|Metformin|Lisinopril|Amlodipine|Albuterol|Gabapentin|Sertraline|Omeprazole|Oxycodone|Fentanyl|Morphine|Hydrocodone|Adderall|Xanax)\b'
+    category: "Medical"
+    action: Redact
+
+ai_enabled: true
+ai_confidence_threshold: 0.85

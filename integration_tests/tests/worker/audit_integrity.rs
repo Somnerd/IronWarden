@@ -13,6 +13,7 @@ use worker::audit::AsyncAuditor;
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[allow(deprecated)]
 fn derive_keys(pepper: &[u8]) -> (Key<Aes256Gcm>, [u8; 32], [u8; 32]) {
     let hk = Hkdf::<Sha256>::new(None, pepper);
     let mut enc_key = [0u8; 32];
@@ -22,7 +23,7 @@ fn derive_keys(pepper: &[u8]) -> (Key<Aes256Gcm>, [u8; 32], [u8; 32]) {
     let mut genesis_hash = [0u8; 32];
     hk.expand(KDF_SALT_GENESIS, &mut genesis_hash).unwrap();
     (
-        Key::<Aes256Gcm>::from_slice(&enc_key).clone(),
+        *Key::<Aes256Gcm>::from_slice(&enc_key),
         hmac_key,
         genesis_hash,
     )
@@ -39,7 +40,7 @@ async fn test_audit_db_creation() {
         .unwrap();
 
     // Trigger initialization by sending a no-op message
-    auditor
+    let _ = auditor
         .log_report(
             ScrubbingReport {
                 sanitized_text: "".into(),
@@ -109,7 +110,7 @@ async fn test_hmac_chain_integrity() {
         potential_misses: vec![],
     };
 
-    auditor
+    let _ = auditor
         .log_report(report.clone(), "Hello Alice".to_string(), "Alice".into())
         .await;
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
@@ -139,6 +140,7 @@ async fn test_hmac_chain_integrity() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn test_encryption_roundtrip() {
     let tmp_file = NamedTempFile::new().unwrap();
     let db_path = tmp_file.path().to_str().unwrap();
@@ -159,7 +161,7 @@ async fn test_encryption_roundtrip() {
         potential_misses: vec![],
     };
 
-    auditor
+    let _ = auditor
         .log_report(report, raw_input.to_string(), "user_1".into())
         .await;
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
@@ -173,7 +175,7 @@ async fn test_encryption_roundtrip() {
 
     let nonce = Nonce::from_slice(&nonce_bytes);
     let mut composite_aad = String::new();
-    composite_aad.push_str(&hex::encode(&genesis_hash));
+    composite_aad.push_str(&hex::encode(genesis_hash));
     composite_aad.push_str("user_1");
 
     let bound_info = iw_core::crypto::build_hkdf_info(KDF_SALT_ENCRYPTION, &composite_aad);

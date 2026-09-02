@@ -8,6 +8,7 @@
 .env
 .env.local
 .env.*
+!.env.example
 
 # OS
 .DS_Store
@@ -52,4 +53,10 @@ venv/
 test_suites/__pycache__/
 test_env/
 test_audit*
+
+# Scratch & Logs
+scratch/
+*.logs
+.venv/
+
 

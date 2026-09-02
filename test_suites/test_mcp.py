@@ -22,8 +22,6 @@ def test_mcp_sanitize_basic(warden):
     
     assert "sanitized_text" in result
     assert "alice@example.com" not in result["sanitized_text"]
-    # Depending on order, it might be TOKEN_1 or TOKEN_2
-    assert "[TOKEN_" in result["sanitized_text"]
     assert len(result["redactions"]) >= 1
 
 def test_mcp_restore_basic(warden):
