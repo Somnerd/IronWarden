@@ -1,27 +1,27 @@
-# 💼 IronWarden Commercial Licensing
+# 💼 IronWarden Enterprise Support & Commercial Services
 
-IronWarden is dual-licensed under the **GNU Affero General Public License v3 (AGPLv3)** and a **Commercial License**.
-
----
-
-## 🌐 Open Source License (AGPLv3)
-
-IronWarden's core codebase is free software released under the [AGPLv3](LICENSE). Under this license:
-* You are free to run, inspect, modify, and redistribute the software.
-* If you modify IronWarden and run it as a network service or integrate it into SaaS products, you **must make your modified source code available** to all network users under the AGPLv3.
+IronWarden is free and open-source software licensed under the [MIT License](LICENSE).
 
 ---
 
-## 🏢 Commercial License (Enterprise)
+## 🌐 Open Source Community (MIT)
 
-For organizations that wish to:
-1. **Embed IronWarden** into proprietary commercial products, closed-source cloud platforms, or on-premise appliances without triggering the AGPLv3 copyleft provisions.
-2. Receive dedicated **enterprise support**, custom SLA guarantees, FIPS 140-3 compliance certification assistance, or tailored PII models and vector groundings.
-3. Access proprietary enterprise add-ons (such as SearchBoost Multi-Format Document Vector Ingestion).
+Under the MIT License, developers, researchers, and companies are free to run, modify, inspect, fork, and embed IronWarden in production and commercial environments at zero cost.
 
-A **Commercial Enterprise License** is available.
+---
 
-### Contact Information
-To inquire about commercial licensing, enterprise support tiers, or custom security audits:
-* **Repository:** [https://github.com/Somnerd/IronWarden](https://github.com/Somnerd/IronWarden)
-* **Inquiries:** Contact the project maintainers via GitHub or official enterprise channels.
+## 🏢 Enterprise Services & Custom Solutions
+
+For organizations requiring specialized support, compliance validation, or custom infrastructure extensions, the maintainers offer:
+
+1. **Custom PII Rules & Model Fine-Tuning**: Development of specialized regex, contextual tokenizers, and high-accuracy ONNX/BERT NER models tailored to your industry (healthcare, legal, defense, fintech).
+2. **Architecture & Security Audits**: On-premise infrastructure review, Kubernetes Helm deployment support, and high-throughput tuning.
+3. **Compliance Readiness Assistance**: FIPS 140-3, HIPAA, GDPR, and SOC2 audit preparation.
+4. **SearchBoost Enterprise Grounding Integration**: Multi-engine web search, large-scale document vector ingestion, and circuit-breaker sidecar deployment.
+
+---
+
+### Inquiries & Support
+To discuss enterprise consulting, custom deployments, or support agreements:
+* **GitHub Repository:** [https://github.com/Somnerd/IronWarden](https://github.com/Somnerd/IronWarden)
+* **Maintainer:** Nikolas Alexandrakis ([@Somnerd](https://github.com/Somnerd))

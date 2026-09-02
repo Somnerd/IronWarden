@@ -1,40 +1,117 @@
-# 🏰 IronWarden v1.0.0-rc.1
-### Universal AI Privacy Firewall & Security Gateway
+# 🏰 IronWarden
+### High-Performance Sovereign AI Reverse Proxy & Privacy Firewall
 
-IronWarden is a high-performance, single-binary **AI security proxy**. Point any OpenAI, Anthropic, or locally hosted LLM (via OpenAI-compatible API) SDK client at it and get automatic PII redaction, cryptographic audit logging, and rate limiting — with **zero code changes** in your application.
+[![Rust CI](https://github.com/Somnerd/IronWarden/actions/workflows/rust_ci.yml/badge.svg)](https://github.com/Somnerd/IronWarden/actions/workflows/rust_ci.yml)
+[![Release](https://img.shields.io/github/v/release/Somnerd/IronWarden?label=Release&color=blue)](https://github.com/Somnerd/IronWarden/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fsomnerd%2Fironwarden-blue?logo=docker)](https://github.com/Somnerd/IronWarden/pkgs/container/ironwarden)
+[![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?logo=rust)](Cargo.toml)
+[![Latency](https://img.shields.io/badge/Overhead-%3C1.8ms%20p95-brightgreen)](BENCHMARKS.md)
+
+**IronWarden** is a sovereign, high-throughput AI security proxy written in safe, high-performance Rust. 
+
+Point any **OpenAI**, **Anthropic**, or **Ollama/vLLM** SDK client at IronWarden to get **real-time PII redaction**, **prompt injection protection**, **streaming SSE token rehydration**, and **cryptographic audit logging** — with **zero code changes** in your application.
 
 ---
 
-## 🚀 Universal Proxy Quickstart
+## 🏗️ Architecture
 
-> **Designed with EU AI Act alignment principles in mind.** IronWarden acts as a transparent firewall between your app and any LLM provider.
+```
+                                 THE IRONWARDEN PROXY PIPELINE
+                                 
+    ┌──────────────┐                                                     ┌──────────────────┐
+    │  Client App  │ ── (1) User Prompt with Sensitive PII ───────────▶ │   IronWarden     │
+    │ (OpenAI SDK /│                                                     │ AI Gateway Proxy │
+    │  Anthropic)  │ ◀─ (6) Clear Streaming Response with PII Restored ─ │ (Rust, Axum, ML) │
+    └──────────────┘                                                     └─────────┬────────┘
+                                                                                   │
+                 ┌─────────────────────────────────────────────────────────────────┴─┐
+                 │  [INGRESS]                                                        │
+                 │   • Aho-Corasick & Entropy Smuggling Pattern Normalization        │
+                 │   • Local DistilBERT ONNX Hybrid NER Entity Extraction            │
+                 │   • PII Tokenization: "John Doe" ➔ "[PII_NAME_1]"                 │
+                 │   • Prompt Injection & Jailbreak Firewall                         │
+                 │   • AES-256-GCM + HMAC-SHA256 Tamper-Evident Audit Ledger         │
+                 └─────────────────────────────────┬─────────────────────────────────┘
+                                                   │
+                                                   ▼ (2) Scrubbed Anonymized Prompt
+                                        ┌──────────────────────┐
+                                        │ Upstream LLM Server  │
+                                        │ • OpenAI (GPT-4o)    │
+                                        │ • Anthropic (Claude) │
+                                        │ • Ollama / vLLM      │
+                                        └──────────┬───────────┘
+                                                   │
+                 ┌─────────────────────────────────┴─────────────────────────────────┐
+                 │  [EGRESS]                                                         │
+                 │   • Real-Time SSE Streaming Chunk Processor                       │
+                 │   • Sliding-Window Rehydration Buffer (Zero Partial Chunk Leaks)  │
+                 │   • Deterministic Restorer: "[PII_NAME_1]" ➔ "John Doe"           │
+                 └───────────────────────────────────────────────────────────────────┘
+```
 
-### OpenAI & Locally Hosted LLMs (Python)
+---
+
+## ⚡ Quickstart
+
+### 1. Run with Docker (Recommended)
+```bash
+docker run -d \
+  -p 14141:14141 \
+  -e WARDEN_PEPPER="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" \
+  -e OPENAI_API_KEY="sk-..." \
+  --name ironwarden \
+  ghcr.io/somnerd/ironwarden:latest
+```
+
+### 2. Build & Run from Source
+```bash
+git clone https://github.com/Somnerd/IronWarden.git
+cd IronWarden
+
+# Optional: Download ONNX NER weights (falls back to high-speed heuristic mode if omitted)
+./scripts/setup_models.sh
+
+# Run the gateway
+export WARDEN_PEPPER=$(openssl rand -hex 16)
+cargo run --release -p app
+```
+
+---
+
+## 🔌 Universal Drop-in SDK Compatibility
+
+### OpenAI Python SDK
+Simply set `base_url` to IronWarden's gateway endpoint:
 
 ```python
-# Before: direct OpenAI call
 from openai import OpenAI
-client = OpenAI(api_key="sk-...")
 
-# After: route through IronWarden — zero other changes (works for OpenAI or local vLLM/Ollama)
+# Point client to IronWarden — zero code modifications required
 client = OpenAI(
-    api_key="sk-...",
+    api_key="sk-mock-or-real",
     base_url="http://localhost:14141/v1",
-    default_headers={"Authorization": "Bearer <your-ironwarden-jwt>"}
+    default_headers={"Authorization": "Bearer <your-jwt-or-key>"}
 )
 
 response = client.chat.completions.create(
     model="gpt-4o",
-    messages=[{"role": "user", "content": "My email is john@example.com — summarize my account."}]
+    messages=[
+        {"role": "user", "content": "Patient John Doe (SSN: 123-45-6789) shows elevated blood pressure."}
+    ],
+    stream=True # Streaming supported natively with real-time SSE token rehydration
 )
-# ✅ PII scrubbed before reaching OpenAI / Local LLM
-# ✅ HMAC audit log written, fail-closed
-# ✅ PII restored in the response you receive
-print(response.choices[0].message.content)
+
+for chunk in response:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
+
+# ✅ PII scrubbed before reaching upstream LLM
+# ✅ HMAC-chained tamper-evident audit record logged
+# ✅ PII seamlessly restored in the output stream
 ```
 
-### Anthropic SDK (Python)
-
+### Anthropic Claude Python SDK
 ```python
 import anthropic
 
@@ -42,7 +119,7 @@ client = anthropic.Anthropic(
     api_key="sk-ant-...",
     base_url="http://localhost:14141",
     default_headers={
-        "Authorization": "Bearer <your-ironwarden-jwt>",
+        "Authorization": "Bearer <your-jwt-or-key>",
         "X-IronWarden-Upstream-Key": "sk-ant-..."
     }
 )
@@ -50,87 +127,88 @@ client = anthropic.Anthropic(
 message = client.messages.create(
     model="claude-3-5-sonnet-20241022",
     max_tokens=1024,
-    messages=[{"role": "user", "content": "My AMKA is 12345678901. Is this data protected?"}]
+    messages=[{"role": "user", "content": "Customer Jane Smith (Email: jane@enterprise.com) requested a refund."}]
 )
-# ✅ AMKA redacted before Claude sees it
+print(message.content[0].text)
 ```
 
-### Dynamic Upstream Routing
+### Dynamic Upstream Routing Headers
 
-| Header | Effect |
-|--------|--------|
-| `X-IronWarden-Target-URL` | Override upstream per-request (Ollama, vLLM, custom local endpoint) |
-| `X-IronWarden-Upstream-Key` | Per-request API key for upstream |
+| Header | Description | Default |
+| :--- | :--- | :--- |
+| `X-IronWarden-Target-URL` | Explicitly overrides upstream URL per-request (e.g. `http://localhost:11434/v1/chat/completions`) | Inferred from model name |
+| `X-IronWarden-Upstream-Key` | Per-request API key for upstream provider | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` |
 
-**Model-name auto-routing** (no config needed):
-- `claude-*` → Anthropic API
-- `llama*`, `mistral*`, `phi*`, `gemma*`, `qwen*` → Ollama (`localhost:11434`)
-- Everything else → OpenAI API
-
----
-
-## 💎 Core Value Proposition: The "Shield & Vault"
-
-### 1. Hybrid Intelligence PII Shield
-Unlike basic regex-only redactors, IronWarden uses **Hybrid Intelligence**:
-*   **Deterministic Pass:** Lightning-fast pattern matching (Aho-Corasick) combined with **heuristic entropy analysis** for known identifiers like Government Identification numbers, IBANs, and Phone Numbers.
-*   **Probabilistic AI Pass:** A real, local **BERT-NER** model that scans for "Unknown Unknowns" (Names, Locations, Organizations) with configurable confidence thresholds.
-*   **Unicode Accented Support:** Built for international and multilingual data streams (such as Greek or other EU languages) with full support for accented characters and regional name heuristics.
-
-### 2. Immutable Cryptographic Audit Vault
-IronWarden creates a legally-defensible audit trail:
-*   **AES-256-GCM Encryption:** Every prompt and redaction event is encrypted at rest using a 32-byte pepper (generated via `openssl rand -hex 16`).
-*   **HMAC-SHA256 Hash Chaining:** Every log entry is cryptographically linked to the previous one. If a single byte is modified or a log is deleted, the chain breaks and alerts the administrator.
-*   **Fail-Closed Integrity:** The gateway will physically block LLM access if the audit ledger cannot be persisted.
-
-### 3. Sovereign Heuristic Grounding (The Librarian)
-Ground your AI prompts in local policy knowledge without the complexity of external databases:
-*   **Local Librarian:** High-speed keyword-based search over local text/markdown policy files located in `policies/`.
-*   **Leak-Proof Context:** Every retrieved snippet is automatically scrubbed for PII before being sent to the LLM.
-*   **Policy Structure Example:** Drop markdown files into `policies/` (e.g. `policies/company_guidelines.md`). IronWarden automatically indexes paragraphs and headings for zero-ops grounding.
+**Automatic Model Routing:**
+- `claude-*` ➔ Anthropic API (`https://api.anthropic.com/v1/messages`)
+- `llama*`, `mistral*`, `phi*`, `gemma*`, `qwen*` ➔ Local Ollama (`http://localhost:11434/v1/chat/completions`)
+- All other models ➔ OpenAI API (`https://api.openai.com/v1/chat/completions`)
 
 ---
 
-## ⚡ Technical Specifications
+## 🛡️ Core Capabilities & Invariants
 
-*   **Runtime:** Standalone Rust Binary (< 50MB footprint).
-*   **Hardware Requirement:** < 1.5GB RAM (Run it on an AWS t3.micro, a Raspberry Pi, or a Mac Mini).
-*   **Latency:** ~45ms - 60ms end-to-end (Synchronous AI protection).
-*   **Security:** 100% On-Premise. No data ever leaves your network unredacted.
-*   **Persistence:** Unified SQLite ledger for Zero-Ops deployment.
-*   **Protocols:** OpenAI `/v1/chat/completions`, `/v1/completions`, `/v1/models` + Anthropic `/v1/messages` (streaming & non-streaming).
+### 1. Real-Time Streaming SSE Token Rehydration
+Unlike standard proxies that buffer the entire response to replace tokens (introducing massive latency and breaking streaming UI), IronWarden implements an **asynchronous SSE sliding-window state machine** (`SseRehydrator`). It dynamically stitches split tokens across partial HTTP chunks in under **0.04 ms** per chunk.
 
----
+### 2. Hybrid Intelligence PII Shield
+- **Deterministic Layer (Aho-Corasick + Entropy Smuggling Protection)**: Ultra-fast regex and entropy heuristics for Credit Cards, SSNs, Emails, Phone Numbers, IBANs, and International IDs (including Greek AMKA/AFM and EU identifiers).
+- **Probabilistic Layer (Local ONNX NER)**: In-process DistilBERT Named Entity Recognition for contextual Names, Organizations, and Locations.
 
-## 💻 System Requirements
+### 3. Cryptographic Audit Vault & Strict Fail-Closed Invariants
+- **AES-256-GCM Encryption**: Prompt and redaction records are encrypted at rest using your cryptographic pepper.
+- **HMAC-SHA256 Hash Chaining**: Every log entry is cryptographically linked to the previous record with continuous full-chain integrity walk verification.
+- **Fail-Closed Security**: If storage fills up or audit logging fails, IronWarden physically halts upstream egress to prevent un-audited data leakage.
 
-**Tesseract OCR** is a mandatory host-level dependency for document and image parsing.
+### 4. Turnkey Compliance Presets
+Pre-configured, zero-touch regulatory rule sets ready to deploy:
+- **HIPAA** (`config/presets/hipaa/`): Medical records, Patient IDs, MRNs, SSNs.
+- **GDPR** (`config/presets/gdpr/`): EU national identifiers, emails, phone numbers, passport numbers.
+- **PCI-DSS** (`config/presets/pci_dss/`): Primary Account Numbers (PANs), CVVs, track data.
 
-Without Tesseract installed, document OCR falls back to a mock mode which is unsafe for production. In production environments, missing this dependency will cause parsing to fail-closed.
-
-Installation instructions for major platforms:
-*   **macOS:** `brew install tesseract`
-*   **Ubuntu/Debian:** `sudo apt-get install tesseract-ocr`
-*   **RedHat/CentOS:** `sudo dnf install tesseract`
-
----
-
-## 🚀 Deployment
-
-### Installation & Run
-
-1.  **Model Setup:** Run `./scripts/setup_models.sh` to download ONNX weights. These weights are required for Hybrid NER mode. Note that IronWarden falls back to Heuristic-Only mode if weights are missing.
-2.  **Configure:** Set your 32-byte `WARDEN_PEPPER` in the environment (`export WARDEN_PEPPER=$(openssl rand -hex 16)`).
-3.  **Rules:** Drop your regional rules into `config/rules/`.
-4.  **Policies:** Drop your policy files into `policies/`.
-5.  **Run:** `./ironwarden`
+### 5. Model Context Protocol (MCP) Server
+IronWarden includes a native JSON-RPC 2.0 stdio MCP server for agentic AI architectures (Claude Desktop, Cursor, AI agents) with session isolation and prompt sanitization tools:
+- `mcp_sanitize_prompt`
+- `mcp_restore_prompt`
+- `mcp_get_compliance_report`
 
 ---
 
-## 🏛️ Product Boundary
-IronWarden is the **Shield**. It focuses on **Security, Redaction, and Auditing**.
-For advanced semantic search, multi-format PDF ingestion, and high-dimensional vector retrieval, use the **SearchBoost** extension.
+## 📊 Performance Benchmarks
+
+Measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) with 1,000+ iterations per sample. See [BENCHMARKS.md](BENCHMARKS.md) for full methodology.
+
+| Metric | Measured Value | Real-World Impact |
+| :--- | :--- | :--- |
+| **Ingress PII Scrubbing + Shield** | **0.38 ms** (p50) / **1.12 ms** (p95) | <0.1% of standard LLM TTFT |
+| **Streaming SSE Rehydration (per chunk)** | **0.04 ms** (p50) / **0.12 ms** (p95) | Zero perceived token streaming stutter |
+| **AES-256-GCM + HMAC Audit Persistence** | **0.15 ms** (p50) / **0.42 ms** (p95) | Fully offloaded & asynchronous |
+| **Total Added Gateway Overhead** | **< 1.8 ms** (p95) | **< 1.2% total added latency** |
+| **Throughput (Single Process)** | **14,200+ req/s** | Scales linearly with CPU cores |
+| **Base Memory Footprint** | **~28.4 MB RSS** | Ultra-lightweight edge deployment |
 
 ---
-**Status:** v1.0.0-rc.1 — Universal AI Gateway Proxy.
-**License:** AGPLv3 / Commercial.
+
+## 📈 Observability & Grafana Dashboard
+
+IronWarden includes native, production-grade observability:
+
+* **Prometheus Metrics**: `GET /metrics` exposes request counts, blocked prompt injections, redacted PII entities, and available concurrency permits.
+* **Turnkey Grafana Dashboard**: `GET /grafana/dashboard` exports the pre-configured Grafana dashboard JSON.
+* **Structured Health Inspection**: `GET /health` returns JSON uptime, permit availability, and system status.
+
+### 1-Command Monitoring Stack
+Launch IronWarden + Prometheus + Grafana together:
+```bash
+docker compose -f monitoring/docker-compose.monitoring.yml up -d
+```
+Visit **`http://localhost:3000`** (admin/admin) to view real-time gateway traffic, blocked prompt injection attacks, and redacted PII statistics.
+
+---
+
+## 🤝 Open Source & Community
+
+* **Contributing:** Please read our [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+* **Security Disclosures:** For vulnerability reporting, please see [SECURITY.md](SECURITY.md).
+* **Maintainer Notes:** See [MAINTAINER_NOTES.md](MAINTAINER_NOTES.md).
+* **License:** Licensed under the [MIT License](LICENSE). Copyright (c) 2026 Nikolas Alexandrakis.
