@@ -92,14 +92,15 @@ class IronWardenRunner:
 
         base_env = {
             **os.environ,
+            "WARDEN_ENV": "test",
             "WARDEN_MODE": "ephemeral",
             "WARDEN_PEPPER": "this-is-a-valid-32-byte-test-pepper-string!",
             "OPENAI_API_KEY": "sk-mock-key",
             "JWT_SECRET": "another_very_secret_key_32_bytes_long",
             "JWT_PRIVATE_KEY": pem_private,
             "JWT_PUBLIC_KEY": pem_public,
-            "DATABASE_URL": "postgres://somnerd:postgres@localhost:5432/ironwarden",
-            "REDIS_URL": "redis://localhost:6379",
+            "DATABASE_URL": "",
+            "REDIS_URL": "",
             "AUDIT_DB_PATH": os.path.join(project_root, f"test_audit_{unique_id}.db"),
             "LANCEDB_PATH": os.path.join(project_root, f"test_lancedb_{unique_id}"),
             "WARDEN_CONFIG_PATH": os.path.join(project_root, "config/rules"),
