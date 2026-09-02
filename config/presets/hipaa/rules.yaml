@@ -55,25 +55,25 @@ rules:
   - id: "hipaa_email"
     type: "Regex"
     pattern: '\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
-    category: "PersonalData"
+    category: "ContactInfo"
     action: Redact
 
   # 9. Telephone / Fax Number
   - id: "hipaa_phone"
     type: "Regex"
     pattern: '\b(?:\+?1[-.\s]?)?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'
-    category: "PersonalData"
+    category: "ContactInfo"
     action: Redact
 
 heuristics:
   - label: "POTENTIAL_DIAGNOSIS_ICD"
     pattern: '(?i)\b[A-TV-Z][0-9][0-9AB](?:\.[0-9A-KXZ]{1,4})?\b'
-    category: "Medical"
+    category: "Other"
     action: Redact
 
   - label: "POTENTIAL_MEDICATION"
     pattern: '(?i)\b(?:Lipitor|Synthroid|Humira|Keytruda|Eliquis|Imbruvica|Stelara|Biktarvy|Xarelto|Opdivo|Adalimumab|Atorvastatin|Levothyroxine|Metformin|Lisinopril|Amlodipine|Albuterol|Gabapentin|Sertraline|Omeprazole|Oxycodone|Fentanyl|Morphine|Hydrocodone|Adderall|Xanax)\b'
-    category: "Medical"
+    category: "Other"
     action: Redact
 
 ai_enabled: true
