@@ -58,7 +58,7 @@ async fn test_concurrent_multi_session_streaming_rehydration() {
             token_map.insert(placeholder.clone(), secret.clone());
 
             let mut rehydrator = SseRehydrator::new(&token_map);
-            let chunk1 = format!("Hello, your code is [PII_SECRET_");
+            let chunk1 = "Hello, your code is [PII_SECRET_".to_string();
             let chunk2 = format!("{}] - do not share.", user_idx);
 
             let out1 = rehydrator.feed(&chunk1);
