@@ -53,17 +53,19 @@ mod worker {
     mod security_invariant_test;
     #[path = "session_security_test.rs"]
     mod session_security_test;
+    #[path = "streaming_rehydration_fuzz.rs"]
+    mod streaming_rehydration_fuzz;
     #[path = "stress_fuzzer.rs"]
     mod stress_fuzzer;
     #[path = "tamper_test.rs"]
     mod tamper_test;
     #[path = "tandem_grounding_test.rs"]
     mod tandem_grounding_test;
-    #[path = "streaming_rehydration_fuzz.rs"]
-    mod streaming_rehydration_fuzz;
 }
 
 mod app {
+    #[path = "compliance_presets_e2e.rs"]
+    mod compliance_presets_e2e;
     #[path = "hardened_integration.rs"]
     mod hardened_integration;
     #[path = "legal_e2e_test.rs"]
@@ -72,7 +74,4 @@ mod app {
     mod mcp_integration_test;
     #[path = "sentinel_e2e.rs"]
     mod sentinel_e2e;
-    #[path = "compliance_presets_e2e.rs"]
-    mod compliance_presets_e2e;
 }
-

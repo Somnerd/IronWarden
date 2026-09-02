@@ -4,7 +4,10 @@ use worker::sse_proxy::SseRehydrator;
 #[test]
 fn test_streaming_rehydration_fuzz_arbitrary_chunk_splits() {
     let mut token_map = HashMap::new();
-    token_map.insert("[PII_EMAIL_1]".to_string(), "ceo@enterprise.org".to_string());
+    token_map.insert(
+        "[PII_EMAIL_1]".to_string(),
+        "ceo@enterprise.org".to_string(),
+    );
     token_map.insert("[PII_SSN_1]".to_string(), "987-65-4321".to_string());
     token_map.insert("[PII_PHONE_1]".to_string(), "+1-555-867-5309".to_string());
 
@@ -23,7 +26,9 @@ fn test_streaming_rehydration_fuzz_arbitrary_chunk_splits() {
             let end = (offset + chunk_size).min(bytes.len());
             // Ensure valid UTF-8 boundary slice
             let mut valid_end = end;
-            while valid_end <= bytes.len() && std::str::from_utf8(&bytes[offset..valid_end]).is_err() {
+            while valid_end <= bytes.len()
+                && std::str::from_utf8(&bytes[offset..valid_end]).is_err()
+            {
                 valid_end += 1;
             }
             let chunk_str = std::str::from_utf8(&bytes[offset..valid_end]).unwrap();
