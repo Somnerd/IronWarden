@@ -1,8 +1,5 @@
 # Rust
 /target
-/Cargo.lock
-# Actually Cargo.lock is often committed for binary crates, but for enterprise/gw it depends. 
-# I'll keep it for now unless requested otherwise.
 
 # Environment
 .env
