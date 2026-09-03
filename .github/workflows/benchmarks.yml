@@ -1,0 +1,60 @@
+name: Benchmarks & Coverage
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  WARDEN_MCP_SECRET: "dummy_mcp_secret_value_for_testing_purposes"
+
+jobs:
+  benchmarks:
+    name: Criterion Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Benchmarks
+        run: cargo bench --workspace
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Generate Code Coverage Report
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        continue-on-error: true
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
