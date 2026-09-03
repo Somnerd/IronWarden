@@ -25,10 +25,6 @@ jobs:
           components: clippy, rustfmt
           cache: true
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check Code Formatting
         run: cargo fmt --check
@@ -49,10 +45,6 @@ jobs:
         with:
           cache: true
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
