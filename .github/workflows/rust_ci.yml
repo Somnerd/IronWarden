@@ -14,7 +14,7 @@ env:
 jobs:
   lint:
     name: Format & Clippy
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
   test:
     name: Test Suite (Unit & Integration)
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
