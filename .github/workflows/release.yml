@@ -31,9 +31,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: ironwarden-aarch64-apple-darwin
-          - os: macos-13
-            target: x86_64-apple-darwin
-            artifact_name: ironwarden-x86_64-apple-darwin
 
     steps:
       - name: Checkout Code
