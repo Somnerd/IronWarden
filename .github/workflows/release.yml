@@ -108,13 +108,21 @@ jobs:
           find release-artifacts -type f -name "*.tar.gz" -exec cp {} dist/ \;
           find release-artifacts -type f -name "*.sha256" -exec cat {} + > dist/SHA256SUMS.txt
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            dist/*.tar.gz
-            dist/SHA256SUMS.txt
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          PRERELEASE_FLAG=""
+          if [[ "$TAG" == *"-rc"* || "$TAG" == *"-beta"* || "$TAG" == *"-alpha"* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" dist/*.tar.gz dist/SHA256SUMS.txt \
+              --title "$TAG" \
+              --generate-notes \
+              $PRERELEASE_FLAG
+          else
+            gh release upload "$TAG" dist/*.tar.gz dist/SHA256SUMS.txt --clobber
+          fi
