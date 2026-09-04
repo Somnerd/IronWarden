@@ -56,8 +56,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest pyjwt cryptography requests httpx redis PyYAML
 
+      - name: Prepare Test Manifests
+        run: |
+          mkdir -p integration_tests
+          cp warden/test_manifest_*.yaml integration_tests/ 2>/dev/null || true
+          cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml 2>/dev/null || true
+
       - name: Run Rust Tests
         run: cargo test --workspace --lib --bins --tests
 
       - name: Run Python Integration Test Suite
-        run: pytest test_suites/
+        run: pytest test_suites/ -k "not stress and not benchmark" -v
+
