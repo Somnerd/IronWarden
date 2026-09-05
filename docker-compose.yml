@@ -40,6 +40,9 @@ services:
       - ./config:/app/config
       - ./logs:/app/logs
       - ./data:/app/data
+    networks:
+      - default
+      - searchboost_net
     restart: unless-stopped
     depends_on:
       - redis
@@ -57,3 +60,9 @@ services:
 
 volumes:
   redis_data:
+
+networks:
+  default:
+  searchboost_net:
+    external: true
+    name: searchboost_default

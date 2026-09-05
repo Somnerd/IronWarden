@@ -4,3 +4,7 @@ active_rules:
   - rules_legal.yaml
   - rules_medical.yaml
   - rules_shipping.yaml
+  - in.yaml
+  - eu.yaml
+  - me.yaml
+  - east_asia.yaml

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ironwarden"
+version = "1.0.0"
+authors = [
+  { name="Nikolas Alexandrakis", email="somnerd@github.com" },
+]
+description = "Official Python Client Helper for IronWarden Sovereign AI Privacy Gateway"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "openai>=1.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Somnerd/IronWarden"
+"Bug Tracker" = "https://github.com/Somnerd/IronWarden/issues"

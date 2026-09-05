@@ -26,6 +26,7 @@ COPY cli ./cli
 COPY integration_tests ./integration_tests
 COPY config ./config
 COPY scripts ./scripts
+COPY monitoring ./monitoring
 
 
 

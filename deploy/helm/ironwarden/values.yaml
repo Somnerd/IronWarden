@@ -1,0 +1,97 @@
+# Default values for ironwarden.
+# This is a YAML-formatted file.
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/somnerd/ironwarden
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "14141"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  fsGroup: 10001
+
+securityContext:
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 14141
+  targetPort: 14141
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  hosts:
+    - host: ironwarden.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# IronWarden Gateway Configuration
+config:
+  port: 14141
+  environment: "production"
+  mode: "heuristic" # "heuristic" or "hybrid"
+  rulesProfile: "core,eu,gr,in"
+  logFormat: "json"
+  maxConcurrentPermits: 10000
+
+# Secrets (inject via existingSecret or directly)
+secrets:
+  existingSecret: ""
+  wardenPepper: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  openaiApiKey: ""
+  anthropicApiKey: ""
+
+# Persistence for Cryptographic Audit Ledger
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  mountPath: /data

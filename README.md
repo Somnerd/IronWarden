@@ -64,7 +64,14 @@ docker run -d \
   ghcr.io/somnerd/ironwarden:latest
 ```
 
-### 2. Build & Run from Source
+### 2. Deploy to Kubernetes with Helm
+```bash
+helm install ironwarden ./deploy/helm/ironwarden \
+  --set secrets.wardenPepper="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" \
+  --set secrets.openaiApiKey="sk-..."
+```
+
+### 3. Build & Run from Source
 ```bash
 git clone https://github.com/Somnerd/IronWarden.git
 cd IronWarden
@@ -162,9 +169,12 @@ Unlike standard proxies that buffer the entire response to replace tokens (intro
 
 ### 4. Turnkey Compliance Presets
 Pre-configured, zero-touch regulatory rule sets ready to deploy:
-- **HIPAA** (`config/presets/hipaa/`): Medical records, Patient IDs, MRNs, SSNs.
-- **GDPR** (`config/presets/gdpr/`): EU national identifiers, emails, phone numbers, passport numbers.
-- **PCI-DSS** (`config/presets/pci_dss/`): Primary Account Numbers (PANs), CVVs, track data.
+- **Middle East & GCC Sovereignty** (`config/rules/me.yaml`): Saudi Arabia PDPL (SDAIA), UAE Federal Decree-Law No. 45/2021, Qatar. Emirates ID, Saudi National ID/Iqama, Saudi & UAE IBANs, GCC mobile numbers, Arabic name heuristics.
+- **East Asia Sovereignty** (`config/rules/east_asia.yaml`): China PIPL / CSL, Japan APPI, South Korea PIPA, Singapore PDPA. China Resident ID, USCC, China Mobile, Japan My Number, Korea RRN, Singapore NRIC.
+- **India DPDP Act 2023** (`config/rules/in.yaml`): PAN cards, Aadhaar numbers, GSTIN, Voter ID (EPIC), Indian Passports, Indian Mobile.
+- **GDPR & European Sovereignty** (`config/rules/eu.yaml`, `config/rules/gr.yaml`): EU & Greek national IDs (AMKA, AFM), EU IBANs, Passports, Driving Licenses.
+- **HIPAA** (`config/rules/rules_medical.yaml`): Medical records, Patient IDs, MRNs, SSNs.
+- **PCI-DSS** (`config/rules/rules.yaml`): Primary Account Numbers (PANs), CVVs, track data.
 
 ### 5. Model Context Protocol (MCP) Server
 IronWarden includes a native JSON-RPC 2.0 stdio MCP server for agentic AI architectures (Claude Desktop, Cursor, AI agents) with session isolation and prompt sanitization tools:
