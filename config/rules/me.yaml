@@ -1,0 +1,45 @@
+# Middle East / GCC Regional Compliance Rule Pack
+# Covers Saudi Arabia (PDPL/SDAIA), UAE (Federal Decree-Law No. 45/2021), and Qatar.
+
+rules:
+  # UAE Emirates ID (15 digits, starting with 784, e.g. 784-1990-1234567-1)
+  - id: "uae_emirates_id"
+    pattern: '\b784[-\s]?[0-9]{4}[-\s]?[0-9]{7}[-\s]?[0-9]\b'
+    type: "Regex"
+    category: "IdentificationNumber"
+
+  # Saudi Arabia National ID (starts with 1) / Resident Iqama (starts with 2) - 10 digits
+  - id: "saudi_national_id"
+    pattern: '\b[12][0-9]{9}\b'
+    type: "Regex"
+    category: "IdentificationNumber"
+
+  # Saudi Arabia IBAN (SA + 2 check digits + 20 alphanumeric chars)
+  - id: "saudi_iban"
+    pattern: '\bSA[0-9]{2}[0-9A-Z]{20}\b'
+    type: "Regex"
+    category: "FinancialData"
+
+  # UAE IBAN (AE + 2 check digits + 19 alphanumeric chars)
+  - id: "uae_iban"
+    pattern: '\bAE[0-9]{2}[0-9A-Z]{19}\b'
+    type: "Regex"
+    category: "FinancialData"
+
+  # Qatar National ID (QID - 11 digits starting with 2 or 3)
+  - id: "qatar_id"
+    pattern: '\b[23][0-9]{10}\b'
+    type: "Regex"
+    category: "IdentificationNumber"
+
+  # GCC Mobile Numbers (Saudi +966 5..., UAE +971 5..., Qatar +974...)
+  - id: "gcc_phone"
+    pattern: '(?:\+966|00966)[\s\-]?[5]\d{8}|(?:\+971|00971)[\s\-]?[5]\d{8}|(?:\+974|00974)[\s\-]?[3567]\d{7}|\b05\d{8}\b'
+    type: "Regex"
+    category: "ContactInfo"
+
+heuristics:
+  - label: "POTENTIAL_ARABIC_NAME"
+    pattern: '\b(?:عبد\s*|بن\s+|ابن\s+|آل\s+)[\u0621-\u064A\u0671-\u06D3]+\b'
+    skip_sentence_start: false
+    category: "PotentialHeuristic"

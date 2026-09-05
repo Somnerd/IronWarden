@@ -1,0 +1,29 @@
+# European Union Compliance Rule Pack (GDPR)
+# Covers EU identifiers, financial IBANs, and common European document patterns.
+
+rules:
+  - id: "eu_iban"
+    pattern: '\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b'
+    type: "Regex"
+    category: "FinancialData"
+
+  - id: "eu_vat"
+    pattern: '\b[A-Z]{2}[0-9A-Z]{8,12}\b'
+    type: "Regex"
+    category: "FinancialData"
+
+  - id: "eu_passport"
+    pattern: '\b[A-Z0-9]{9}\b'
+    type: "Regex"
+    category: "IdentificationNumber"
+
+  - id: "eu_driving_license"
+    pattern: '\b[A-Z0-9]{8,12}\b'
+    type: "Regex"
+    category: "IdentificationNumber"
+
+heuristics:
+  - label: "POTENTIAL_EU_NAME"
+    pattern: '\b[A-Z\u00C0-\u017E][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017E][a-z\u00E0-\u017F]+)+\b'
+    skip_sentence_start: true
+    category: "PotentialHeuristic"

@@ -1,0 +1,19 @@
+apiVersion: v2
+name: ironwarden
+description: Universal Sovereign AI Privacy Gateway and Security Proxy Helm Chart
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - privacy
+  - security
+  - llm-gateway
+  - pii
+  - proxy
+  - sovereign-ai
+maintainers:
+  - name: Nikolas Alexandrakis
+    email: somnerd@github.com
+home: https://github.com/Somnerd/IronWarden
+sources:
+  - https://github.com/Somnerd/IronWarden

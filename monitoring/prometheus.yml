@@ -9,3 +9,7 @@ scrape_configs:
       - targets: ["ironwarden:8080"]
         labels:
           service: "ironwarden-gateway"
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
