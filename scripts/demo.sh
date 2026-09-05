@@ -77,7 +77,7 @@ export JWT_PUBLIC_KEY="$JWT_PUBLIC_KEY"
 export WARDEN_JWT_AUDIENCE="ironwarden"
 export WARDEN_JWT_ISSUER="ironwarden"
 export AUDIT_DB_PATH="$DEMO_DIR/audit.db"
-export KNOWLEDGE_PATH="$DEMO_DIR/knowledge"
+export KNOWLEDGE_PATH="${KNOWLEDGE_PATH:-data/knowledge}"
 export WARDEN_NER_POOL_SIZE="1"
 export RUST_LOG="warn,iw_warden=info,app=info"
 
