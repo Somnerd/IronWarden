@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.0.0)"
+        description: "Release tag (e.g. v1.1.0)"
         required: true
-        default: "v1.0.0"
+        default: "v1.1.0"
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,51 +19,28 @@ permissions:
 
 jobs:
   build-and-package:
-    name: Build (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: ironwarden-x86_64-unknown-linux-gnu
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact_name: ironwarden-aarch64-apple-darwin
-
+    name: Build (x86_64-unknown-linux-gnu)
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Set up Rust Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: ${{ matrix.target }}
-
-      - name: Install Protoc (Linux)
-        if: runner.os == 'Linux'
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Protoc (macOS)
-        if: runner.os == 'macOS'
-        run: brew install protobuf
 
       - name: Build Release Binaries
         run: |
-          cargo build --release --target ${{ matrix.target }} --bin app --bin iw-cli
+          cargo build --release --bin app --bin iw-cli
 
       - name: Package Artifacts
         shell: bash
         run: |
-          RELEASE_DIR="${{ matrix.artifact_name }}"
+          RELEASE_DIR="ironwarden-x86_64-unknown-linux-gnu"
           mkdir -p "$RELEASE_DIR"
           
           # Copy binaries
-          cp "target/${{ matrix.target }}/release/app" "$RELEASE_DIR/ironwarden"
-          cp "target/${{ matrix.target }}/release/iw-cli" "$RELEASE_DIR/iw-cli"
+          cp "target/release/app" "$RELEASE_DIR/ironwarden"
+          cp "target/release/iw-cli" "$RELEASE_DIR/iw-cli"
           
           # Copy configuration templates & documentation
           cp example.env "$RELEASE_DIR/example.env"
@@ -71,27 +48,23 @@ jobs:
           cp README.md "$RELEASE_DIR/README.md"
           
           # Create compressed archive
-          tar -czvf "${{ matrix.artifact_name }}.tar.gz" "$RELEASE_DIR"
+          tar -czvf "ironwarden-x86_64-unknown-linux-gnu.tar.gz" "$RELEASE_DIR"
           
           # Generate SHA-256 Checksum
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "${{ matrix.artifact_name }}.tar.gz" > "${{ matrix.artifact_name }}.tar.gz.sha256"
-          else
-            shasum -a 256 "${{ matrix.artifact_name }}.tar.gz" > "${{ matrix.artifact_name }}.tar.gz.sha256"
-          fi
+          sha256sum "ironwarden-x86_64-unknown-linux-gnu.tar.gz" > "ironwarden-x86_64-unknown-linux-gnu.tar.gz.sha256"
 
       - name: Upload Artifacts to Workflow
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ironwarden-x86_64-unknown-linux-gnu
           path: |
-            ${{ matrix.artifact_name }}.tar.gz
-            ${{ matrix.artifact_name }}.tar.gz.sha256
+            ironwarden-x86_64-unknown-linux-gnu.tar.gz
+            ironwarden-x86_64-unknown-linux-gnu.tar.gz.sha256
 
   publish-release:
     name: Publish GitHub Release
     needs: build-and-package
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -113,6 +86,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
+          if [ -z "$TAG" ] || [[ "$TAG" == *"main"* ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          fi
           PRERELEASE_FLAG=""
           if [[ "$TAG" == *"-rc"* || "$TAG" == *"-beta"* || "$TAG" == *"-alpha"* ]]; then
             PRERELEASE_FLAG="--prerelease"
