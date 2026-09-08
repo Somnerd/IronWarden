@@ -217,6 +217,18 @@ pub struct HybridNer {
 
 impl HybridNer {
     pub fn new(threshold: f64) -> Result<Self, String> {
+        let disable_onnx = std::env::var("WARDEN_DISABLE_ONNX").is_ok()
+            || (std::env::var("WARDEN_ENV").as_deref() == Ok("test")
+                && std::env::var("WARDEN_ENABLE_ONNX_TEST").is_err());
+
+        if disable_onnx {
+            info!("ONNX inference disabled for test environment. Using Heuristic-Only mode.");
+            return Ok(Self {
+                backend: NerBackend::None,
+                threshold,
+            });
+        }
+
         // Attempt ONNX (the only supported path post-V1.3)
         let model_path = Path::new("data/models/distilbert-ner/model_quantized.onnx");
         let tokenizer_path = Path::new("data/models/distilbert-ner/tokenizer.json");
@@ -370,6 +382,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires dedicated ONNX runtime container environment"]
     fn test_onnx_model_load_direct() {
         let model_path = Path::new("../data/models/distilbert-ner/model_quantized.onnx");
         let tokenizer_path = Path::new("../data/models/distilbert-ner/tokenizer.json");

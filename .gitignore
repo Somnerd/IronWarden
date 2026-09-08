@@ -57,6 +57,12 @@ scratch/
 .venv/
 
 
-/dist
+# Python & Build artifacts
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
 certs/
 *.pem
+
