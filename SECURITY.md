@@ -21,7 +21,7 @@ If you discover a security vulnerability or security invariant breach in IronWar
 
 ### How to Privately Disclose:
 1. **GitHub Private Advisory (Preferred)**: Submit a report via [GitHub Security Advisories](https://github.com/Somnerd/IronWarden/security/advisories/new).
-2. **Direct Email**: Send a report to **nikolasalexandrakis.work@gmail.com** or contact **Somnerd**.
+2. **Direct Email**: Send a report to **security@ironwarden.dev** or contact **Somnerd**.
 
 ### What to Include in Your Report:
 * Description of the vulnerability or security invariant failure (e.g. PII leak, side-channel, MAC forgery).

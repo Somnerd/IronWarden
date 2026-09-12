@@ -12,8 +12,8 @@ keywords:
   - proxy
   - sovereign-ai
 maintainers:
-  - name: Nikolas Alexandrakis
-    email: somnerd@github.com
+  - name: IronWarden Maintainers
+    email: maintainers@ironwarden.dev
 home: https://github.com/Somnerd/IronWarden
 sources:
   - https://github.com/Somnerd/IronWarden

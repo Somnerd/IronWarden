@@ -21,14 +21,14 @@
 set -euo pipefail
 
 MODEL_DIR="data/models/distilbert-ner"
-MODEL_URL="https://huggingface.co/optimum/distilbert-base-uncased-finetuned-ner/resolve/main/model_quantized.onnx"
-TOKENIZER_URL="https://huggingface.co/distilbert-base-uncased/resolve/main/tokenizer.json"
+MODEL_URL="https://huggingface.co/onnx-community/distilbert-NER-ONNX/resolve/main/onnx/model_quantized.onnx"
+TOKENIZER_URL="https://huggingface.co/onnx-community/distilbert-NER-ONNX/resolve/main/tokenizer.json"
 
 MODEL_FILE="$MODEL_DIR/model_quantized.onnx"
 TOKENIZER_FILE="$MODEL_DIR/tokenizer.json"
 
-MODEL_SHA256="2ff638639abe90e83ea079443393df9d2d2e1e04b0904946c4578c0cabd0f7c4"
-TOKENIZER_SHA256="343989712a36cd8b253efeaf8baf6a08b9d2583f78e395e83832e8ee9f8d8ee1"
+MODEL_SHA256="9419a876387ff2bbe5f21ab7429c7bef93eac86c50353390d4d8fca6e4a210d8"
+TOKENIZER_SHA256="cb26b43c98e8266ae3e99c2a583cf8315d73b33a17e6b20b4df7ff1f22392d34"
 
 echo "=========================================================="
 echo "🏰 IronWarden Model Setup (DistilBERT-NER INT8 Quantized)"

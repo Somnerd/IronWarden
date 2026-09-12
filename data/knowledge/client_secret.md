@@ -1,5 +1,5 @@
 # TOP SECRET: Case Omega Summary
-Client: Nikolas Papadopoulos
+Client: Dimitrios Papadopoulos
 Primary Contact: Maria Garcia de la Cruz
 AFM: 987654321
 Bank Account: GR4411002200330044005500667

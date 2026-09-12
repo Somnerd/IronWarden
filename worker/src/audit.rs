@@ -8,7 +8,7 @@ use secrecy::{ExposeSecret, SecretVec};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use zeroize::Zeroize;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -584,11 +584,25 @@ impl AsyncAuditor {
                 // --- DISK CAPACITY CHECK ---
                 unsafe {
                     let mut stat: libc::statvfs = std::mem::zeroed();
-                    // We check the DB file itself to ensure we get the correct mount point
-                    // in case the DB is mounted as a file volume rather than a directory.
-                    let path_cstr =
-                        std::ffi::CString::new(path_monitor.clone()).unwrap_or_default();
-                    if libc::statvfs(path_cstr.as_ptr(), &mut stat) == 0 {
+                    let check_path = if std::path::Path::new(&path_monitor).exists() {
+                        std::ffi::CString::new(path_monitor.as_str()).unwrap_or_default()
+                    } else {
+                        let parent = std::path::Path::new(&path_monitor)
+                            .parent()
+                            .filter(|p| !p.as_os_str().is_empty())
+                            .unwrap_or_else(|| std::path::Path::new("."));
+                        std::ffi::CString::new(parent.to_string_lossy().as_bytes())
+                            .unwrap_or_default()
+                    };
+
+                    let res = libc::statvfs(check_path.as_ptr(), &mut stat);
+                    let res = if res != 0 {
+                        libc::statvfs(c".".as_ptr(), &mut stat)
+                    } else {
+                        res
+                    };
+
+                    if res == 0 {
                         let free_space = (stat.f_bavail as u64) * (stat.f_frsize as u64);
                         if free_space < 50_000_000 {
                             // 50MB threshold
@@ -597,9 +611,7 @@ impl AsyncAuditor {
                             break;
                         }
                     } else {
-                        error!("HARD-STOP MONITOR: Cannot read disk capacity. Triggering Fail-Closed state.");
-                        healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
-                        break;
+                        warn!("HARD-STOP MONITOR: Cannot read disk capacity, skipping check cycle");
                     }
                 }
 

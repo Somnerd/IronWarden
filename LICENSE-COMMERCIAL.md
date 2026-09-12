@@ -24,4 +24,4 @@ For organizations requiring specialized support, compliance validation, or custo
 ### Inquiries & Support
 To discuss enterprise consulting, custom deployments, or support agreements:
 * **GitHub Repository:** [https://github.com/Somnerd/IronWarden](https://github.com/Somnerd/IronWarden)
-* **Maintainer:** Nikolas Alexandrakis ([@Somnerd](https://github.com/Somnerd))
+* **Maintainer:** IronWarden Maintainers ([@Somnerd](https://github.com/Somnerd))

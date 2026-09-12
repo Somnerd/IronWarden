@@ -22,6 +22,53 @@ pub enum NerBackend {
     None,
 }
 
+static ORT_INIT: std::sync::Once = std::sync::Once::new();
+
+#[repr(C)]
+struct OrtApiBase {
+    get_api: unsafe extern "C" fn(u32) -> *const ort_sys::OrtApi,
+    get_version_string: unsafe extern "C" fn() -> *const std::ffi::c_char,
+}
+
+fn ensure_ort_initialized() {
+    ORT_INIT.call_once(|| {
+        let home_lib = std::env::var("HOME")
+            .map(|h| format!("{}/lib/libonnxruntime.so", h))
+            .unwrap_or_default();
+        let candidates = [
+            std::env::var("ORT_DYLIB_PATH").unwrap_or_default(),
+            home_lib,
+            "/usr/lib/libonnxruntime.so".to_string(),
+            "/usr/local/lib/libonnxruntime.so".to_string(),
+            "libonnxruntime.so".to_string(),
+        ];
+        for cand in &candidates {
+            if !cand.is_empty() && (Path::new(cand).exists() || cand == "libonnxruntime.so") {
+                if let Ok(c_path) = std::ffi::CString::new(cand.as_str()) {
+                    let handle = unsafe {
+                        libc::dlopen(
+                            c_path.as_ptr(),
+                            libc::RTLD_NOW | libc::RTLD_GLOBAL | libc::RTLD_NODELETE,
+                        )
+                    };
+                    if !handle.is_null() {
+                        let sym = unsafe { libc::dlsym(handle, c"OrtGetApiBase".as_ptr()) };
+                        if !sym.is_null() {
+                            let get_api_base: unsafe extern "C" fn() -> *const OrtApiBase =
+                                unsafe { std::mem::transmute(sym) };
+                            let base = unsafe { &*get_api_base() };
+                            let api = unsafe { &*(base.get_api)(20) };
+                            let _ = ort::set_api(api.clone());
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        let _ = ort::init().commit();
+    });
+}
+
 pub struct OnnxNer {
     session: Mutex<Session>,
     tokenizer: Tokenizer,
@@ -29,18 +76,11 @@ pub struct OnnxNer {
 }
 impl OnnxNer {
     pub fn new(model_path: &Path, tokenizer_path: &Path, threshold: f64) -> Result<Self, String> {
-        info!("Loading ONNX NER Model from {:?}...", model_path);
+        ensure_ort_initialized();
 
-        let model_bytes = std::fs::read(model_path)
-            .map_err(|e| format!("Failed to read ONNX model from {:?}: {}", model_path, e))?;
-
-        let session = Session::builder()
-            .map_err(|e| format!("Failed to create ONNX builder: {}", e))?
-            // Force fully single-threaded ORT execution.
-            // Under emulated/constrained environments, ORT's internal thread pools
-            // (both intra-op Eigen pool and inter-op scheduler) deadlock in futex_wait_queue
-            // when more than 1 thread is created. Setting both to 1 and disabling spin-loops
-            // ensures the session init completes without hanging.
+        let builder =
+            Session::builder().map_err(|e| format!("Failed to create ONNX builder: {}", e))?;
+        let mut builder = builder
             .with_intra_threads(1)
             .map_err(|e| format!("Failed to set intra_threads: {}", e))?
             .with_inter_threads(1)
@@ -48,8 +88,10 @@ impl OnnxNer {
             .with_intra_op_spinning(false)
             .map_err(|e| format!("Failed to disable intra_op_spinning: {}", e))?
             .with_inter_op_spinning(false)
-            .map_err(|e| format!("Failed to disable inter_op_spinning: {}", e))?
-            .commit_from_memory(&model_bytes)
+            .map_err(|e| format!("Failed to disable inter_op_spinning: {}", e))?;
+
+        let session = builder
+            .commit_from_file(model_path)
             .map_err(|e| format!("Failed to load ONNX model: {}", e))?;
 
         let tokenizer = Tokenizer::from_file(tokenizer_path)
@@ -230,8 +272,16 @@ impl HybridNer {
         }
 
         // Attempt ONNX (the only supported path post-V1.3)
-        let model_path = Path::new("data/models/distilbert-ner/model_quantized.onnx");
-        let tokenizer_path = Path::new("data/models/distilbert-ner/tokenizer.json");
+        let model_path = if Path::new("data/models/distilbert-ner/model_quantized.onnx").exists() {
+            Path::new("data/models/distilbert-ner/model_quantized.onnx")
+        } else {
+            Path::new("../data/models/distilbert-ner/model_quantized.onnx")
+        };
+        let tokenizer_path = if Path::new("data/models/distilbert-ner/tokenizer.json").exists() {
+            Path::new("data/models/distilbert-ner/tokenizer.json")
+        } else {
+            Path::new("../data/models/distilbert-ner/tokenizer.json")
+        };
 
         if model_path.exists() && tokenizer_path.exists() {
             match OnnxNer::new(model_path, tokenizer_path, threshold) {
@@ -384,21 +434,29 @@ mod tests {
     #[test]
     #[ignore = "requires dedicated ONNX runtime container environment"]
     fn test_onnx_model_load_direct() {
-        let model_path = Path::new("../data/models/distilbert-ner/model_quantized.onnx");
-        let tokenizer_path = Path::new("../data/models/distilbert-ner/tokenizer.json");
-        if model_path.exists() && tokenizer_path.exists() {
-            println!("Testing direct ONNX model load...");
-            let res = OnnxNer::new(model_path, tokenizer_path, 0.85);
-            match res {
-                Ok(ner) => {
-                    println!("Model loaded successfully!");
-                    let entities = ner.predict("John Doe works at Apple in London");
-                    println!("Predicted {} entities", entities.len());
-                    assert!(!entities.is_empty(), "Expected entities detected");
-                }
-                Err(e) => {
-                    panic!("Direct ONNX load failed: {}", e);
-                }
+        let model_path = if Path::new("data/models/distilbert-ner/model_quantized.onnx").exists() {
+            Path::new("data/models/distilbert-ner/model_quantized.onnx")
+        } else {
+            Path::new("../data/models/distilbert-ner/model_quantized.onnx")
+        };
+        let tokenizer_path = if Path::new("data/models/distilbert-ner/tokenizer.json").exists() {
+            Path::new("data/models/distilbert-ner/tokenizer.json")
+        } else {
+            Path::new("../data/models/distilbert-ner/tokenizer.json")
+        };
+        println!("Testing direct ONNX model load from {:?}...", model_path);
+        assert!(model_path.exists(), "Model file must exist");
+        assert!(tokenizer_path.exists(), "Tokenizer file must exist");
+        let res = OnnxNer::new(model_path, tokenizer_path, 0.85);
+        match res {
+            Ok(ner) => {
+                println!("Model loaded successfully!");
+                let entities = ner.predict("John Doe works at Apple in London");
+                println!("Predicted {} entities", entities.len());
+                assert!(!entities.is_empty(), "Expected entities detected");
+            }
+            Err(e) => {
+                panic!("Direct ONNX load failed: {}", e);
             }
         }
     }

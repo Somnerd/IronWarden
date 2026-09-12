@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ironwarden"
 version = "1.1.0"
 authors = [
-  { name="Nikolas Alexandrakis", email="somnerd@github.com" },
+  { name="IronWarden Maintainers", email="maintainers@ironwarden.dev" },
 ]
 description = "Official Python Client Helper for IronWarden Sovereign AI Privacy Gateway"
 readme = "README.md"

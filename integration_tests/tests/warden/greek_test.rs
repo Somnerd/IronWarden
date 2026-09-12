@@ -15,7 +15,7 @@ rules:
     let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
     let engine = config.compile_engine(&pepper).unwrap();
 
-    let prompt = "Ο χρήστης Nikolas Papadopoulos με ΑΦΜ 123456789.";
+    let prompt = "Ο χρήστης Georgios Papadopoulos με ΑΦΜ 123456789.";
 
     let report = engine.sanitize_prompt(prompt, None).await.unwrap();
 

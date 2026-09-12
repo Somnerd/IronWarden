@@ -221,4 +221,4 @@ Visit **`http://localhost:3000`** (admin/admin) to view real-time gateway traffi
 * **Contributing:** Please read our [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 * **Security Disclosures:** For vulnerability reporting, please see [SECURITY.md](SECURITY.md).
 * **Maintainer Notes:** See [MAINTAINER_NOTES.md](MAINTAINER_NOTES.md).
-* **License:** Licensed under the [MIT License](LICENSE). Copyright (c) 2026 Nikolas Alexandrakis.
+* **License:** Licensed under the [MIT License](LICENSE). Copyright (c) 2026 IronWarden Maintainers.

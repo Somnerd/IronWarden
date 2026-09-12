@@ -91,7 +91,7 @@ client = OpenAI(
 response = client.chat.completions.create(
     model="gpt-4o",
     messages=[
-        {"role": "user", "content": "Contact Nikolas at +30 6912345678 or AMKA 01019012345."}
+        {"role": "user", "content": "Contact John at +30 6912345678 or AMKA 01019012345."}
     ]
 )
 

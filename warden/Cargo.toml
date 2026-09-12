@@ -30,6 +30,8 @@ zeroize.workspace = true
 rand.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
 flume.workspace = true
+libc.workspace = true
+ort-sys = { version = "2.0.0-rc.12", features = ["disable-linking"] }
 
 [dev-dependencies]
 tempfile.workspace = true

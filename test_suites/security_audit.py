@@ -8,6 +8,9 @@ import json
 import sqlite3
 import time
 import os
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def run_test_case(name, prompt):
     print(f"\n🚀 Running Test: {name}")
@@ -16,20 +19,21 @@ def run_test_case(name, prompt):
     env["OPENAI_API_KEY"] = "sk-mock"
     env["WARDEN_PEPPER"] = "this-is-a-valid-32-byte-test-pepper-string!"
 
+    app_bin = str(REPO_ROOT / "target" / "debug" / "app")
     process = subprocess.Popen(
-        ["/home/somnerd/Documents/IronWarden/target/debug/app"],
+        [app_bin],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
     )
     stdout, stderr = process.communicate(input=json.dumps(request) + "\n")
     return stdout
 
 def verify_redaction(test_name, expected_token):
-    db_path = "/home/somnerd/Documents/IronWarden/audit.db"
-    if not os.path.exists(db_path):
-        db_path = "/home/somnerd/Documents/IronWarden/app/audit.db"
+    db_path = REPO_ROOT / "audit.db"
+    if not db_path.exists():
+        db_path = REPO_ROOT / "app" / "audit.db"
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
         cursor.execute("SELECT redactions_json FROM audit_reports ORDER BY id DESC LIMIT 1")
         row = cursor.fetchone()
@@ -43,14 +47,10 @@ def verify_redaction(test_name, expected_token):
         print(f"❌ {test_name}: DB Check failed: {e}")
 
 if __name__ == "__main__":
-    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db"):
-        os.remove("/home/somnerd/Documents/IronWarden/audit.db")
-    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db-shm"):
-        os.remove("/home/somnerd/Documents/IronWarden/audit.db-shm")
-    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db-wal"):
-        os.remove("/home/somnerd/Documents/IronWarden/audit.db-wal")
-    if os.path.exists("/home/somnerd/Documents/IronWarden/audit.db.anchor"):
-        os.remove("/home/somnerd/Documents/IronWarden/audit.db.anchor")
+    for ext in ["", "-shm", "-wal", ".anchor"]:
+        f = REPO_ROOT / f"audit.db{ext}"
+        if f.exists():
+            f.unlink()
 
     run_test_case("Standard", "Hello Alice.")
     time.sleep(1)

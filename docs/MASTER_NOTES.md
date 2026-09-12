@@ -2,7 +2,7 @@
 
 **Project Name:** IronWarden  
 **Repository:** `Somnerd/IronWarden`  
-**License:** MIT License (*Copyright (c) 2026 Nikolas Alexandrakis*)  
+**License:** MIT License (*Copyright (c) 2026 IronWarden Maintainers*)  
 **Core Technology:** Safe Systems Rust (Edition 2021, Rust 1.80+), Tokio, Axum, LanceDB, ONNX Runtime  
 **Target Release:** `v1.0.0-beta.2`  
 
@@ -154,7 +154,7 @@ Sliding-Window State Machine (SseRehydrator):
 
 ## 7. Performance Benchmarks Summary
 
-All benchmarks measured on dedicated hardware using Criterion.rs with 1,000+ samples per test (see [`BENCHMARKS.md`](file:///home/somnerd/Documents/Projects/IronWarden/BENCHMARKS.md)):
+All benchmarks measured on dedicated hardware using Criterion.rs with 1,000+ samples per test (see [`BENCHMARKS.md`](../BENCHMARKS.md)):
 
 | Subsystem / Metric | p50 Latency | p95 Latency | Real-World Impact |
 | :--- | :---: | :---: | :--- |

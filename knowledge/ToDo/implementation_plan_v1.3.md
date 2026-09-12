@@ -17,11 +17,11 @@ This plan outlines the steps to resolve the critical vulnerabilities identified 
 
 ### Security / Cryptography Layer
 
-#### [MODIFY] [audit.rs](file:///home/somnerd/Projects/IronWarden/worker/src/audit.rs)
+#### [MODIFY] [audit.rs](../../worker/src/audit.rs)
 - Remove `Aes256Gcm` instance from the `AsyncAuditor` state and closure.
 - Derive the encryption key locally inside the thread loop right before `aes_gcm::Aes256Gcm::new(...)` using the stored `pepper`, perform the encryption, and rely on standard Rust drop/zeroize to clear the stack (Finding 1).
 
-#### [MODIFY] [searchboost.rs](file:///home/somnerd/Projects/IronWarden/worker/src/searchboost.rs)
+#### [MODIFY] [searchboost.rs](../../worker/src/searchboost.rs)
 - Remove `cipher: Aes256Gcm` from `SearchBoostQueue` and `LocalSessionManager`.
 - Store the `pepper` (wrapped in `SecretVec`) within the structs instead.
 - Refactor the encryption and decryption blocks to instantiate `Aes256Gcm` dynamically using HKDF, execute the operation, and drop the key buffers to ensure true transient key usage (Finding 1).
@@ -30,11 +30,11 @@ This plan outlines the steps to resolve the critical vulnerabilities identified 
 
 ### Storage / Grounding Layer
 
-#### [MODIFY] [librarian.rs](file:///home/somnerd/Projects/IronWarden/worker/src/librarian.rs)
+#### [MODIFY] [librarian.rs](../../worker/src/librarian.rs)
 - Update `delete_user_documents` to sanitize the `username` string before inserting it into the LanceDB predicate.
 - Replace single quotes (`'`) with double single quotes (`''`) to neutralize SQL injection attempts that could bypass the right-to-erasure filters (Finding 2).
 
-#### [MODIFY] [storage.rs](file:///home/somnerd/Projects/IronWarden/worker/src/storage.rs)
+#### [MODIFY] [storage.rs](../../worker/src/storage.rs)
 - Implement a disk space monitoring thread in `WorkerStorage::new()`.
 - Use `std::fs::metadata` or a lightweight `statvfs` wrapper to check the available space on the partition hosting `audit.db`.
 - Trigger automatic cleanup of the `ephemeral_raw_logs` table and log `WARN` messages if disk space drops below a 10% threshold to prevent `DatabaseFull` hard-stops (Finding 5).
@@ -43,11 +43,11 @@ This plan outlines the steps to resolve the critical vulnerabilities identified 
 
 ### AI Inference / Pipeline Layer
 
-#### [MODIFY] [ai.rs](file:///home/somnerd/Projects/IronWarden/warden/src/ai.rs)
+#### [MODIFY] [ai.rs](../../warden/src/ai.rs)
 - Isolate the `HybridNer` logic.
 - We will refactor `HybridNerPool` to proxy requests to an external local microservice/sidecar instead of running `rust-bert` directly in the main thread. This prevents C++ LibTorch crashes from bringing down the gateway (Finding 3).
 
-#### [MODIFY] [engine.rs](file:///home/somnerd/Projects/IronWarden/warden/src/engine.rs)
+#### [MODIFY] [engine.rs](../../warden/src/engine.rs)
 - Introduce a new Pre-Flight check in `sanitize_prompt`.
 - Add a lightweight heuristic-based prompt injection detection mechanism (or hook it to the new AI sidecar) to reject commands like "System Override" or "Ignore previous instructions" (Finding 4).
 
