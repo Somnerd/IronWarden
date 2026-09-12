@@ -97,12 +97,12 @@ impl GlobalConfig {
     }
 
     pub fn resolve_with_path(custom_config_path: Option<&Path>) -> Result<Self, SovereignError> {
-        let env_allow_fallback = std::env::var("ALLOW_FALLBACK")
-            .map(|v| v.trim().to_lowercase() == "true")
-            .unwrap_or(false)
-            || std::env::var("WARDEN_ENV")
+        let env_allow_fallback = match std::env::var("ALLOW_FALLBACK") {
+            Ok(v) => v.trim().to_lowercase() == "true",
+            Err(_) => std::env::var("WARDEN_ENV")
                 .map(|v| v == "test" || v == "ephemeral")
-                .unwrap_or(false);
+                .unwrap_or(false),
+        };
 
         let default_path = Path::new("config/config.yaml");
         let config_file = custom_config_path.unwrap_or(default_path);
@@ -243,26 +243,41 @@ mod tests {
         let orig_allow = env::var("ALLOW_FALLBACK");
         let orig_pepper = env::var("WARDEN_PEPPER");
         let orig_manifest = env::var("WARDEN_MANIFEST_PATH");
+        let orig_key = env::var("OPENAI_API_KEY");
 
         env::remove_var("WARDEN_ENV");
-        env::remove_var("ALLOW_FALLBACK");
+        env::set_var("ALLOW_FALLBACK", "false");
         env::remove_var("WARDEN_PEPPER");
         env::remove_var("WARDEN_MANIFEST_PATH");
+        env::remove_var("OPENAI_API_KEY");
 
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(setup));
 
         // Restore
         if let Ok(val) = orig_warden {
             env::set_var("WARDEN_ENV", val);
+        } else {
+            env::remove_var("WARDEN_ENV");
         }
         if let Ok(val) = orig_allow {
             env::set_var("ALLOW_FALLBACK", val);
+        } else {
+            env::remove_var("ALLOW_FALLBACK");
         }
         if let Ok(val) = orig_pepper {
             env::set_var("WARDEN_PEPPER", val);
+        } else {
+            env::remove_var("WARDEN_PEPPER");
         }
         if let Ok(val) = orig_manifest {
             env::set_var("WARDEN_MANIFEST_PATH", val);
+        } else {
+            env::remove_var("WARDEN_MANIFEST_PATH");
+        }
+        if let Ok(val) = orig_key {
+            env::set_var("OPENAI_API_KEY", val);
+        } else {
+            env::remove_var("OPENAI_API_KEY");
         }
 
         if let Err(e) = res {
@@ -273,6 +288,7 @@ mod tests {
     #[test]
     fn test_strict_mode_missing_config_yaml() {
         run_with_env(|| {
+            env::set_var("ALLOW_FALLBACK", "false");
             env::set_var(
                 "WARDEN_PEPPER",
                 "this-is-a-valid-32-byte-test-pepper-string!",
@@ -297,7 +313,7 @@ mod tests {
             let rules_dir = temp_dir.path().join("rules");
 
             fs::create_dir(&rules_dir).unwrap();
-            fs::write(&config_yaml, "warden_mode: test").unwrap();
+            fs::write(&config_yaml, "warden_mode: test\nallow_fallback: false\n").unwrap();
             fs::write(
                 &manifest_yaml,
                 format!(
@@ -307,6 +323,7 @@ mod tests {
             )
             .unwrap();
 
+            env::set_var("ALLOW_FALLBACK", "false");
             env::set_var("WARDEN_MANIFEST_PATH", manifest_yaml.to_str().unwrap());
 
             // Pepper < 32 bytes
@@ -331,8 +348,9 @@ mod tests {
         run_with_env(|| {
             let temp_dir = tempfile::tempdir().unwrap();
             let config_yaml = temp_dir.path().join("config.yaml");
-            fs::write(&config_yaml, "warden_mode: test").unwrap();
+            fs::write(&config_yaml, "warden_mode: test\nallow_fallback: false\n").unwrap();
 
+            env::set_var("ALLOW_FALLBACK", "false");
             env::set_var("WARDEN_PEPPER", "12345678901234567890123456789012");
             env::set_var("WARDEN_MANIFEST_PATH", "non_existent_manifest.yaml");
 
@@ -350,7 +368,7 @@ mod tests {
         run_with_env(|| {
             let temp_dir = tempfile::tempdir().unwrap();
             let config_yaml = temp_dir.path().join("config.yaml");
-            fs::write(&config_yaml, "warden_mode: hybrid").unwrap();
+            fs::write(&config_yaml, "warden_mode: hybrid\nallow_fallback: true\n").unwrap();
 
             env::set_var("ALLOW_FALLBACK", "true");
             env::set_var("OPENAI_API_KEY", "sk-proj-test-secret-key-12345");

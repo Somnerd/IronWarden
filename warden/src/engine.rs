@@ -1431,10 +1431,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_layer2_ml_sidecar_fallback_v14() {
-        // Setup mock config for test environment
-        std::env::set_var("WARDEN_ENV", "test");
-        std::env::set_var("ALLOW_FALLBACK", "true");
-
         // Point sidecar to a dead port to force connection failure
         std::env::set_var("SIDECAR_ENDPOINT", "http://127.0.0.1:9999");
 
@@ -1457,15 +1453,11 @@ mod tests {
         // Ensure it doesn't just error out
         assert!(!report.is_blocked);
 
-        std::env::remove_var("WARDEN_ENV");
-        std::env::remove_var("ALLOW_FALLBACK");
         std::env::remove_var("SIDECAR_ENDPOINT");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_thread_local_normalization_concurrency() {
-        std::env::set_var("WARDEN_ENV", "test");
-        std::env::set_var("ALLOW_FALLBACK", "true");
         use std::sync::Arc;
         let yaml = r#"
             name: "Test"
@@ -1500,9 +1492,6 @@ mod tests {
         }
 
         assert_eq!(results.len(), 100);
-
-        std::env::remove_var("WARDEN_ENV");
-        std::env::remove_var("ALLOW_FALLBACK");
     }
 
     #[tokio::test]
