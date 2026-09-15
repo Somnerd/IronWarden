@@ -54,7 +54,7 @@ jobs:
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pyjwt cryptography requests httpx redis PyYAML
+          pip install pytest pytest-timeout pyjwt cryptography requests httpx redis PyYAML
 
       - name: Prepare Test Manifests
         run: |
@@ -66,5 +66,5 @@ jobs:
         run: cargo test --workspace --lib --bins --tests
 
       - name: Run Python Integration Test Suite
-        run: pytest test_suites/ -k "not stress and not benchmark" -v
+        run: pytest test_suites/ --timeout=60 -k "not stress and not benchmark" -v
 
