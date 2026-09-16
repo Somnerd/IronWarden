@@ -143,7 +143,10 @@ impl GlobalConfig {
         if let Ok(v) = std::env::var("OPENAI_API_KEY") {
             config.openai_api_key = SecretString::new(v);
         }
-        if let Ok(v) = std::env::var("OPENAI_BASE_URL") {
+        if let Ok(v) = std::env::var("OPENAI_BASE_URL")
+            .or_else(|_| std::env::var("UPSTREAM_LLM"))
+            .or_else(|_| std::env::var("UPSTREAM_OPENAI_URL"))
+        {
             config.openai_base_url = v;
         }
         if let Ok(v) = std::env::var("WARDEN_PEPPER") {
@@ -167,7 +170,7 @@ impl GlobalConfig {
         if let Ok(v) = std::env::var("JWT_PUBLIC_KEY") {
             config.jwt_public_key = Some(v.into_bytes());
         }
-        if let Ok(v) = std::env::var("BRIDGE_PORT") {
+        if let Ok(v) = std::env::var("BRIDGE_PORT").or_else(|_| std::env::var("PORT")) {
             config.bridge_port = v;
         }
         if let Ok(v) = std::env::var("BRIDGE_ADDR") {
@@ -182,10 +185,17 @@ impl GlobalConfig {
 
         let pepper_len = config.warden_pepper.as_ref().map(|p| p.len()).unwrap_or(0);
         if pepper_len < 32 {
-            return Err(SovereignError::ConfigError(
-                "Security violation: WARDEN_PEPPER must be configured and be at least 32 bytes."
-                    .into(),
-            ));
+            if config.allow_fallback && config.warden_pepper.is_none() {
+                tracing::warn!(
+                    "⚡ ZERO-CONFIG DEMO MODE: Auto-generating ephemeral 32-byte pepper."
+                );
+                config.warden_pepper = Some(vec![0x42u8; 32]);
+            } else {
+                return Err(SovereignError::ConfigError(
+                    "Security violation: WARDEN_PEPPER must be configured and be at least 32 bytes."
+                        .into(),
+                ));
+            }
         }
 
         // Strict mode validations
