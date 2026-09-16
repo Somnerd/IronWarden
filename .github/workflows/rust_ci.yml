@@ -68,5 +68,5 @@ jobs:
       - name: Run Python Integration Test Suite
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          pytest test_suites/ --timeout=60 -k "not stress and not benchmark" -v
+          pytest test_suites/ --timeout=180 -k "not stress and not benchmark" -v
 

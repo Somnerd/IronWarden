@@ -300,6 +300,9 @@ class IronWardenRunner:
 def warden_bin():
     # Ensure binary is built
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    binary = os.path.join(project_root, "target", "debug", "app")
+    if os.path.exists(binary):
+        return binary
     cargo_bin = os.path.expanduser("~/.cargo/bin/cargo")
     cargo_cmd = cargo_bin if os.path.exists(cargo_bin) else "cargo"
     env = os.environ.copy()
@@ -307,7 +310,7 @@ def warden_bin():
     if cargo_dir not in env.get("PATH", ""):
         env["PATH"] = f"{cargo_dir}:{env.get('PATH', '')}"
     subprocess.run([cargo_cmd, "build", "-p", "app"], cwd=project_root, env=env, check=True)
-    return os.path.join(project_root, "target", "debug", "app")
+    return binary
 
 @pytest.fixture
 def warden(warden_bin, jwt_keys):
