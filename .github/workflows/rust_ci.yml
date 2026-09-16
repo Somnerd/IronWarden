@@ -65,6 +65,9 @@ jobs:
       - name: Run Rust Tests
         run: cargo test --workspace --lib --bins --tests
 
+      - name: Build App Binary
+        run: cargo build -p app
+
       - name: Run Python Integration Test Suite
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
