@@ -63,10 +63,12 @@ COPY --from=builder /usr/src/ironwarden/config /app/config
 # Default configuration mounts & data directories
 RUN mkdir -p /app/data/models /app/logs
 
-EXPOSE 8080 14141
+EXPOSE 14141 8080
 
 ENV WARDEN_ENV=production \
-    PORT=8080 \
+    WARDEN_MODE=bridge \
+    PORT=14141 \
+    ALLOW_FALLBACK=true \
     RUST_LOG=info \
     WARDEN_MCP_SECRET=default_mcp_secret_change_in_production
 

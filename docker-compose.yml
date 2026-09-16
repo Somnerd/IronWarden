@@ -6,10 +6,10 @@ services:
       dockerfile: Dockerfile
     container_name: ironwarden
     ports:
-      - "8080:8080"   # Universal AI Gateway Proxy (/v1/chat/completions, /v1/messages)
-      - "14141:14141" # Stdio/HTTP MCP Control Plane
+      - "14141:14141" # Universal AI Gateway Proxy (/v1/chat/completions, /v1/messages)
+      - "8080:8080"   # Secondary HTTP Port
     environment:
-      - PORT=8080
+      - PORT=14141
       - WARDEN_ENV=production
       - WARDEN_MODE=bridge
       - RUST_LOG=info
