@@ -56,16 +56,18 @@ RUN curl -fsSL \
 
 WORKDIR /app
 
-# Copy binary from builder
+# Copy binary and default configuration from builder
 COPY --from=builder /usr/src/ironwarden/target/release/app /usr/local/bin/ironwarden
+COPY --from=builder /usr/src/ironwarden/config /app/config
 
 # Default configuration mounts & data directories
-RUN mkdir -p /app/config/rules /app/data/models /app/logs
+RUN mkdir -p /app/data/models /app/logs
 
 EXPOSE 8080 14141
 
 ENV WARDEN_ENV=production \
     PORT=8080 \
-    RUST_LOG=info
+    RUST_LOG=info \
+    WARDEN_MCP_SECRET=default_mcp_secret_change_in_production
 
 CMD ["ironwarden"]
