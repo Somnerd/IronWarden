@@ -41,8 +41,9 @@ impl StdioMcpServer {
             let allow_fallback = std::env::var("ALLOW_FALLBACK")
                 .map(|v| v.trim().to_lowercase() == "true")
                 .unwrap_or(false);
-            if cfg!(debug_assertions)
-                || env == "test"
+            if env == "test" || (cfg!(debug_assertions) && !allow_fallback) {
+                "dummy_mcp_secret_value_for_testing_purposes".to_string()
+            } else if cfg!(debug_assertions)
                 || env == "development"
                 || env == "demo"
                 || allow_fallback
