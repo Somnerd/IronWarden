@@ -34,7 +34,7 @@ def bridge_url(warden):
     return f"http://localhost:{port}"
 
 def test_bridge_health(bridge_url):
-    response = requests.get(f"{bridge_url}/health")
+    response = requests.get(f"{bridge_url}/health", timeout=5.0)
     assert response.status_code == 200
     assert "IronWarden Bridge" in response.text
 
@@ -43,7 +43,7 @@ def test_bridge_enqueue_unauthorized(bridge_url):
         "query": "Hello",
         "thread_id": "thread_123"
     }
-    response = requests.post(f"{bridge_url}/enqueue", json=payload)
+    response = requests.post(f"{bridge_url}/enqueue", json=payload, timeout=5.0)
     assert response.status_code == 401
 
 def test_bridge_enqueue_forbidden(bridge_url, jwt_token_unprivileged):
@@ -52,7 +52,7 @@ def test_bridge_enqueue_forbidden(bridge_url, jwt_token_unprivileged):
         "thread_id": "thread_123"
     }
     headers = {"Authorization": f"Bearer {jwt_token_unprivileged}"}
-    response = requests.post(f"{bridge_url}/enqueue", json=payload, headers=headers)
+    response = requests.post(f"{bridge_url}/enqueue", json=payload, headers=headers, timeout=5.0)
     assert response.status_code == 403
 
 def test_bridge_enqueue_authorized(bridge_url, jwt_token):
@@ -61,7 +61,7 @@ def test_bridge_enqueue_authorized(bridge_url, jwt_token):
         "thread_id": "thread_123"
     }
     headers = {"Authorization": f"Bearer {jwt_token}"}
-    response = requests.post(f"{bridge_url}/enqueue", json=payload, headers=headers)
+    response = requests.post(f"{bridge_url}/enqueue", json=payload, headers=headers, timeout=5.0)
     
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
@@ -89,17 +89,17 @@ def test_bridge_rate_limiting(bridge_url, jwt_token):
     assert 429 in codes
 
 def test_bridge_get_result_unauthorized(bridge_url):
-    response = requests.get(f"{bridge_url}/results/some_job_id")
+    response = requests.get(f"{bridge_url}/results/some_job_id", timeout=5.0)
     assert response.status_code == 401
 
 def test_bridge_get_result_forbidden(bridge_url, jwt_token_unprivileged):
     headers = {"Authorization": f"Bearer {jwt_token_unprivileged}"}
-    response = requests.get(f"{bridge_url}/results/some_job_id", headers=headers)
+    response = requests.get(f"{bridge_url}/results/some_job_id", headers=headers, timeout=5.0)
     assert response.status_code == 403
 
 def test_bridge_get_result_authorized(bridge_url, jwt_token):
     headers = {"Authorization": f"Bearer {jwt_token}"}
-    response = requests.get(f"{bridge_url}/results/some_job_id", headers=headers)
+    response = requests.get(f"{bridge_url}/results/some_job_id", headers=headers, timeout=5.0)
     # We might get 200 (if we found it), 202 (processing), or some other mapped error if it is not found.
     # What we are testing is that we don't get 401 or 403.
     assert response.status_code in [200, 202, 400, 404, 500]
