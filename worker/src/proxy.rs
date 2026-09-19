@@ -142,6 +142,8 @@ pub fn resolve_upstream_url(headers: &HeaderMap, model: &str) -> String {
             .unwrap_or_else(|_| "http://localhost:11434/v1/chat/completions".to_string());
     }
     std::env::var("OPENAI_BASE_URL")
+        .or_else(|_| std::env::var("UPSTREAM_LLM"))
+        .or_else(|_| std::env::var("UPSTREAM_OPENAI_URL"))
         .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string())
 }
 

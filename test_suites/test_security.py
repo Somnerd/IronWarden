@@ -113,7 +113,8 @@ def test_security_jwt_identity_spoofing(warden):
     response = requests.post(
         f"{bridge_url}/enqueue",
         json={"query": "test", "thread_id": "t1"},
-        headers={"Authorization": f"Bearer {spoofed_token}"}
+        headers={"Authorization": f"Bearer {spoofed_token}"},
+        timeout=5.0,
     )
     
     assert response.status_code == 401

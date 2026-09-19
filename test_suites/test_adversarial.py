@@ -63,12 +63,12 @@ def test_scaling_payload_limits(warden, jwt_factory):
     
     # 2MB should be rejected (413)
     large_query = "A" * (2 * 1024 * 1024)
-    response = requests.post(f"{bridge_url}/enqueue", json={"query": large_query, "thread_id": "h"}, headers=headers)
+    response = requests.post(f"{bridge_url}/enqueue", json={"query": large_query, "thread_id": "h"}, headers=headers, timeout=5.0)
     assert response.status_code == 413
 
     # 500KB should be accepted
     medium_query = "A" * (512 * 1024)
-    response = requests.post(f"{bridge_url}/enqueue", json={"query": medium_query, "thread_id": "m"}, headers=headers)
+    response = requests.post(f"{bridge_url}/enqueue", json={"query": medium_query, "thread_id": "m"}, headers=headers, timeout=5.0)
     assert response.status_code == 200
 
 def test_scaling_ai_mutex_contention(warden, jwt_factory):
@@ -83,7 +83,7 @@ def test_scaling_ai_mutex_contention(warden, jwt_factory):
     headers = {"Authorization": f"Bearer {token}"}
     
     def send():
-        return requests.post(f"{bridge_url}/enqueue", json={"query": "Alice " * 10, "thread_id": "t"}, headers=headers)
+        return requests.post(f"{bridge_url}/enqueue", json={"query": "Alice " * 10, "thread_id": "t"}, headers=headers, timeout=15.0)
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(send) for _ in range(10)]

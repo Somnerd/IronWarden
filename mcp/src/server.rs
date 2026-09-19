@@ -37,8 +37,18 @@ impl StdioMcpServer {
 
         // Enforce the secret presence at boot time
         let mcp_secret = std::env::var("WARDEN_MCP_SECRET").unwrap_or_else(|_| {
-            if cfg!(debug_assertions) || std::env::var("WARDEN_ENV").unwrap_or_default() == "test" {
+            let env = std::env::var("WARDEN_ENV").unwrap_or_default();
+            let allow_fallback = std::env::var("ALLOW_FALLBACK")
+                .map(|v| v.trim().to_lowercase() == "true")
+                .unwrap_or(false);
+            if env == "test" || (cfg!(debug_assertions) && !allow_fallback) {
                 "dummy_mcp_secret_value_for_testing_purposes".to_string()
+            } else if cfg!(debug_assertions)
+                || env == "development"
+                || env == "demo"
+                || allow_fallback
+            {
+                "default_mcp_secret_change_in_production".to_string()
             } else {
                 panic!("CRITICAL: WARDEN_MCP_SECRET must be set in production to secure the MCP Gateway.");
             }
