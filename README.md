@@ -269,4 +269,6 @@ I partner with engineering teams and startups on fractional consulting and dedic
 * **Contributing:** Please read our [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 * **Security Disclosures:** For vulnerability reporting, please see [SECURITY.md](SECURITY.md).
 * **Maintainer Notes:** See [MAINTAINER_NOTES.md](MAINTAINER_NOTES.md).
-* **License:** Licensed under the [MIT License](LICENSE). Copyright (c) 2026 IronWarden Maintainers.
+* **License:** Licensed under the [MIT License](LICENSE). 100% free and open-source software for commercial and private use.
+* **Enterprise Services & Support:** For custom PII rule modeling, compliance readiness, or dedicated architecture sprints, see [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md).
+* **Copyright:** Copyright (c) 2026 IronWarden Maintainers.
