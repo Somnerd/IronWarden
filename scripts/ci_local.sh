@@ -212,7 +212,7 @@ if $RUN_INTEGRATION; then
   echo "  Done."
 
   step "cargo test --package app"
-  cargo test --package app || true
+  cargo test --package app
 
   step "Verify benchmarks compile"
   if cargo test --benches --no-run 2>/dev/null; then
