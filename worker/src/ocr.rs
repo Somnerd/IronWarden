@@ -55,7 +55,8 @@ impl OcrProvider for TesseractOcr {
                 )))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let env_prod = std::env::var("IRONWARDEN_ENV").unwrap_or_default() == "production"
+                let env_prod = std::env::var("WARDEN_ENV").unwrap_or_default() == "production"
+                    || std::env::var("IRONWARDEN_ENV").unwrap_or_default() == "production"
                     || std::env::var("RUST_ENV").unwrap_or_default() == "production";
 
                 if env_prod {
@@ -211,17 +212,17 @@ impl OcrWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TEST_ENV_MUTEX;
     use std::env;
-
-    // Use a mutex to serialize tests that mutate the global environment
-    static ENV_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[tokio::test]
     async fn test_ocr_fail_closed_production() {
-        let _guard = ENV_MUTEX.lock().await;
+        let _guard = TEST_ENV_MUTEX.lock().await;
 
+        let orig_warden = env::var("WARDEN_ENV");
         let orig_prod = env::var("IRONWARDEN_ENV");
         let orig_rust_env = env::var("RUST_ENV");
+        env::remove_var("WARDEN_ENV");
         env::set_var("IRONWARDEN_ENV", "production");
         env::remove_var("RUST_ENV");
 
@@ -245,6 +246,59 @@ mod tests {
         } else {
             env::remove_var("PATH");
         }
+        if let Ok(val) = orig_warden {
+            env::set_var("WARDEN_ENV", val);
+        } else {
+            env::remove_var("WARDEN_ENV");
+        }
+        if let Ok(val) = orig_prod {
+            env::set_var("IRONWARDEN_ENV", val);
+        } else {
+            env::remove_var("IRONWARDEN_ENV");
+        }
+        if let Ok(val) = orig_rust_env {
+            env::set_var("RUST_ENV", val);
+        } else {
+            env::remove_var("RUST_ENV");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ocr_fail_closed_warden_env_production() {
+        let _guard = TEST_ENV_MUTEX.lock().await;
+
+        let orig_warden = env::var("WARDEN_ENV");
+        let orig_prod = env::var("IRONWARDEN_ENV");
+        let orig_rust_env = env::var("RUST_ENV");
+        env::set_var("WARDEN_ENV", "production");
+        env::remove_var("IRONWARDEN_ENV");
+        env::remove_var("RUST_ENV");
+
+        let orig_path = env::var("PATH");
+        env::set_var("PATH", ""); // Ensure tesseract is not found
+
+        let ocr = TesseractOcr;
+        let res = ocr.extract_text(b"test data", "image/png").await;
+
+        assert!(
+            res.is_err(),
+            "OCR must fail in production via WARDEN_ENV if tesseract is missing"
+        );
+        assert!(res
+            .unwrap_err()
+            .to_string()
+            .contains("dependency missing in production mode"));
+
+        if let Ok(val) = orig_path {
+            env::set_var("PATH", val);
+        } else {
+            env::remove_var("PATH");
+        }
+        if let Ok(val) = orig_warden {
+            env::set_var("WARDEN_ENV", val);
+        } else {
+            env::remove_var("WARDEN_ENV");
+        }
         if let Ok(val) = orig_prod {
             env::set_var("IRONWARDEN_ENV", val);
         } else {
@@ -259,10 +313,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_ocr_fallback_development() {
-        let _guard = ENV_MUTEX.lock().await;
+        let _guard = TEST_ENV_MUTEX.lock().await;
 
+        let orig_warden = env::var("WARDEN_ENV");
         let orig_prod = env::var("IRONWARDEN_ENV");
         let orig_rust_env = env::var("RUST_ENV");
+        env::remove_var("WARDEN_ENV");
         env::set_var("IRONWARDEN_ENV", "development");
         env::set_var("RUST_ENV", "development");
 
@@ -282,6 +338,11 @@ mod tests {
             env::set_var("PATH", val);
         } else {
             env::remove_var("PATH");
+        }
+        if let Ok(val) = orig_warden {
+            env::set_var("WARDEN_ENV", val);
+        } else {
+            env::remove_var("WARDEN_ENV");
         }
         if let Ok(val) = orig_prod {
             env::set_var("IRONWARDEN_ENV", val);
