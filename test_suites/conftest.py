@@ -232,7 +232,7 @@ class IronWardenRunner:
                 self.stderr_output.append(line)
             print(f"DEBUG LOG: {line}")
 
-    def stop(self, cleanup=False):
+    def stop(self, cleanup=True):
         if self.process:
             self.process.send_signal(signal.SIGINT)
             try:
@@ -245,18 +245,32 @@ class IronWardenRunner:
             # Cleanup temporary resources
             try:
                 if hasattr(self, "_temp_manifest_path") and self._temp_manifest_path and os.path.exists(self._temp_manifest_path):
-                    os.remove(self._temp_manifest_path)
+                    try:
+                        os.remove(self._temp_manifest_path)
+                    except Exception:
+                        pass
 
-                if "AUDIT_DB_PATH" in self.env and os.path.exists(self.env["AUDIT_DB_PATH"]):
-                    os.remove(self.env["AUDIT_DB_PATH"])
-                    # Also remove WAL/SHM files
+                if hasattr(self, "env") and "AUDIT_DB_PATH" in self.env:
+                    db_path = self.env["AUDIT_DB_PATH"]
+                    if os.path.exists(db_path):
+                        try:
+                            os.remove(db_path)
+                        except Exception:
+                            pass
+                    # Also remove WAL/SHM and anchor files
                     for ext in ["-shm", "-wal", ".anchor"]:
-                        if os.path.exists(self.env["AUDIT_DB_PATH"] + ext):
-                            os.remove(self.env["AUDIT_DB_PATH"] + ext)
+                        sidecar = db_path + ext
+                        if os.path.exists(sidecar):
+                            try:
+                                os.remove(sidecar)
+                            except Exception:
+                                pass
 
-                if "LANCEDB_PATH" in self.env and os.path.exists(self.env["LANCEDB_PATH"]):
-                    import shutil
-                    shutil.rmtree(self.env["LANCEDB_PATH"], ignore_errors=True)
+                if hasattr(self, "env") and "LANCEDB_PATH" in self.env:
+                    lance_path = self.env["LANCEDB_PATH"]
+                    if os.path.exists(lance_path):
+                        import shutil
+                        shutil.rmtree(lance_path, ignore_errors=True)
             except Exception as e:
                 print(f"DEBUG: Cleanup failed: {e}")
 

@@ -192,7 +192,6 @@ async fn handle_request_internal(
         "mcp_halt_system",
         "mcp_ocr_ingest",
         "mcp_orchestrate",
-        "mcp_ocr_ingest",
     ];
 
     if !valid_methods.contains(&req.method.as_str()) {

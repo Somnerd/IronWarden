@@ -18,6 +18,22 @@ pub struct LocalLibrarian {
     schema: Arc<Schema>,
 }
 
+static STOP_WORDS: std::sync::LazyLock<std::collections::HashSet<&'static str>> =
+    std::sync::LazyLock::new(|| {
+        [
+            "the", "a", "an", "and", "or", "but", "if", "then", "else", "to", "of", "in", "on",
+            "at", "by", "for", "with", "about", "against", "between", "into", "through", "during",
+            "before", "after", "above", "below", "from", "up", "down", "out", "over", "under",
+            "again", "further", "once", "here", "there", "when", "where", "why", "how", "all",
+            "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
+            "not", "only", "own", "same", "so", "than", "too", "very", "can", "will", "just",
+            "should", "now", "me", "tell", "who", "is", "it",
+        ]
+        .iter()
+        .cloned()
+        .collect()
+    });
+
 impl LocalLibrarian {
     pub async fn new(path: &str) -> Result<Self> {
         let base_path = Path::new(path);
@@ -108,25 +124,10 @@ impl LocalLibrarian {
                 let text = text_col.value(i);
                 let text_lower = text.to_lowercase();
 
-                // Define simple stop words to filter out for keyword search
-                let stop_words: std::collections::HashSet<&str> = [
-                    "the", "a", "an", "and", "or", "but", "if", "then", "else", "to", "of", "in",
-                    "on", "at", "by", "for", "with", "about", "against", "between", "into",
-                    "through", "during", "before", "after", "above", "below", "from", "up", "down",
-                    "out", "over", "under", "again", "further", "once", "here", "there", "when",
-                    "where", "why", "how", "all", "any", "both", "each", "few", "more", "most",
-                    "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
-                    "than", "too", "very", "can", "will", "just", "should", "now", "me", "tell",
-                    "who", "is", "it",
-                ]
-                .iter()
-                .cloned()
-                .collect();
-
                 let query_lower = query.to_lowercase();
                 let query_terms: Vec<&str> = query_lower
                     .split(|c: char| !c.is_alphanumeric())
-                    .filter(|s| !s.is_empty() && !stop_words.contains(s))
+                    .filter(|s| !s.is_empty() && !STOP_WORDS.contains(s))
                     .collect();
 
                 let terms_to_use = if query_terms.is_empty() {
