@@ -406,43 +406,48 @@ impl AsyncAuditor {
                                         }
                                     };
 
-                                    let _ = c.execute("BEGIN IMMEDIATE TRANSACTION", []);
-                                    let siem_acked = !has_forwarder;
-                                    let res = c.execute("INSERT INTO ephemeral_raw_logs (username, encrypted_data, nonce, siem_acked) VALUES (?1, ?2, ?3, ?4)", (&username, &ciphertext.to_vec(), &nonce_bytes.to_vec(), &siem_acked));
-                                    let log_id = c.last_insert_rowid();
-                                    if let Err(e) = res {
+                                    let mut log_id = 0i64;
+                                    if let Err(e) = c.execute("BEGIN IMMEDIATE TRANSACTION", []) {
                                         let _ = c.execute("ROLLBACK", []);
                                         result = Err(map_err(e));
                                     } else {
-                                        let res2 = c.execute(
-                                            "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", 
-                                            (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(payload_hash), hex::encode(&current_hash))
-                                        );
-                                        if let Err(e) = res2 {
+                                        let siem_acked = !has_forwarder;
+                                        let res = c.execute("INSERT INTO ephemeral_raw_logs (username, encrypted_data, nonce, siem_acked) VALUES (?1, ?2, ?3, ?4)", (&username, &ciphertext.to_vec(), &nonce_bytes.to_vec(), &siem_acked));
+                                        log_id = c.last_insert_rowid();
+                                        if let Err(e) = res {
                                             let _ = c.execute("ROLLBACK", []);
                                             result = Err(map_err(e));
                                         } else {
-                                            let commit_res = c.execute("COMMIT", []);
-                                            if let Err(e) = commit_res {
+                                            let res2 = c.execute(
+                                                "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", 
+                                                (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(payload_hash), hex::encode(&current_hash))
+                                            );
+                                            if let Err(e) = res2 {
                                                 let _ = c.execute("ROLLBACK", []);
                                                 result = Err(map_err(e));
                                             } else {
-                                                last_hash = current_hash.clone();
-                                                last_id += 1;
-                                                if let Err(e) = Self::update_anchor(
-                                                    &path_thread,
-                                                    last_id,
-                                                    &last_hash,
-                                                ) {
-                                                    error!("CRITICAL: Failed to update audit anchor: {}. Halting system.", e);
-                                                    healthy_thread.store(
-                                                        false,
-                                                        std::sync::atomic::Ordering::SeqCst,
-                                                    );
-                                                    result = Err(e);
+                                                let commit_res = c.execute("COMMIT", []);
+                                                if let Err(e) = commit_res {
+                                                    let _ = c.execute("ROLLBACK", []);
+                                                    result = Err(map_err(e));
                                                 } else {
-                                                    result = Ok(());
-                                                    write_success = true;
+                                                    last_hash = current_hash.clone();
+                                                    last_id += 1;
+                                                    if let Err(e) = Self::update_anchor(
+                                                        &path_thread,
+                                                        last_id,
+                                                        &last_hash,
+                                                    ) {
+                                                        error!("CRITICAL: Failed to update audit anchor: {}. Halting system.", e);
+                                                        healthy_thread.store(
+                                                            false,
+                                                            std::sync::atomic::Ordering::SeqCst,
+                                                        );
+                                                        result = Err(e);
+                                                    } else {
+                                                        result = Ok(());
+                                                        write_success = true;
+                                                    }
                                                 }
                                             }
                                         }
@@ -613,6 +618,10 @@ impl AsyncAuditor {
                     } else {
                         warn!("HARD-STOP MONITOR: Cannot read disk capacity, skipping check cycle");
                     }
+                }
+
+                if path_monitor.contains(":memory:") {
+                    continue;
                 }
 
                 let anchor_path = format!("{}.anchor", path_monitor);
@@ -788,10 +797,17 @@ impl AsyncAuditor {
     }
 
     fn update_anchor(db_path: &str, last_id: i64, last_hash: &[u8]) -> Result<(), SovereignError> {
+        if db_path == ":memory:" || db_path == "file::memory:" || db_path.contains(":memory:") {
+            return Ok(());
+        }
         let anchor_path = format!("{}.anchor", db_path);
+        let tmp_path = format!("{}.tmp.{}", anchor_path, std::process::id());
         let content = format!("{}:{}", last_id, hex::encode(last_hash));
-        std::fs::write(anchor_path, content)
-            .map_err(|e| SovereignError::StorageError(format!("Anchor write failure: {}", e)))
+        std::fs::write(&tmp_path, content)
+            .map_err(|e| SovereignError::StorageError(format!("Anchor write failure: {}", e)))?;
+        std::fs::rename(&tmp_path, &anchor_path)
+            .map_err(|e| SovereignError::StorageError(format!("Anchor rename failure: {}", e)))?;
+        Ok(())
     }
 
     fn check_anchor(
@@ -799,6 +815,9 @@ impl AsyncAuditor {
         current_last_id: i64,
         current_last_hash: &[u8],
     ) -> Result<(), String> {
+        if db_path == ":memory:" || db_path == "file::memory:" || db_path.contains(":memory:") {
+            return Ok(());
+        }
         let anchor_path = format!("{}.anchor", db_path);
         match std::fs::read_to_string(&anchor_path) {
             Ok(content) => {
@@ -975,5 +994,41 @@ mod additional_audit_tests {
 
         std::fs::remove_file(&db_path).ok();
         std::fs::remove_file(format!("{}.anchor", db_path)).ok();
+    }
+
+    #[test]
+    fn test_anchor_in_memory_bypass() {
+        let dummy_hash = [0u8; 32];
+        // :memory:
+        assert!(AsyncAuditor::update_anchor(":memory:", 1, &dummy_hash).is_ok());
+        assert!(AsyncAuditor::check_anchor(":memory:", 1, &dummy_hash).is_ok());
+        assert!(!std::path::Path::new(":memory:.anchor").exists());
+
+        // file::memory:
+        assert!(AsyncAuditor::update_anchor("file::memory:?cache=shared", 1, &dummy_hash).is_ok());
+        assert!(AsyncAuditor::check_anchor("file::memory:?cache=shared", 1, &dummy_hash).is_ok());
+        assert!(!std::path::Path::new("file::memory:?cache=shared.anchor").exists());
+    }
+
+    #[test]
+    fn test_anchor_atomic_disk_write() {
+        let db_path = format!("test_anchor_disk_{}.db", uuid::Uuid::new_v4());
+        let dummy_hash = [42u8; 32];
+        let anchor_path = format!("{}.anchor", db_path);
+        let tmp_pattern = format!("{}.tmp.{}", anchor_path, std::process::id());
+
+        assert!(AsyncAuditor::update_anchor(&db_path, 10, &dummy_hash).is_ok());
+        assert!(std::path::Path::new(&anchor_path).exists());
+        assert!(
+            !std::path::Path::new(&tmp_pattern).exists(),
+            "Temporary anchor file should have been renamed"
+        );
+
+        let content = std::fs::read_to_string(&anchor_path).unwrap();
+        assert_eq!(content, format!("10:{}", hex::encode(dummy_hash)));
+
+        assert!(AsyncAuditor::check_anchor(&db_path, 10, &dummy_hash).is_ok());
+
+        std::fs::remove_file(&anchor_path).ok();
     }
 }

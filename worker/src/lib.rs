@@ -13,7 +13,7 @@ pub mod storage;
 
 pub use audit::AsyncAuditor;
 pub use bridge::{create_bridge_router, BridgeState};
-pub use grounding::{GroundingQueue, LocalSessionManager};
+pub use grounding::{GroundingQueue, LocalSessionManager, SESSION_IDLE_TIMEOUT};
 pub use librarian::LocalLibrarian;
 pub use metrics::GatewayMetrics;
 pub use ocr::{OcrWorker, TesseractOcr};

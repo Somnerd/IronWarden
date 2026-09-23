@@ -6,7 +6,7 @@ use secrecy::{ExposeSecret, SecretVec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -166,10 +166,14 @@ impl GroundingQueue {
                             for cmd in &to_write {
                                 match cmd {
                                     DbCommand::Insert { id, username, thread_id, query } => {
-                                        let _ = stmt_insert.execute((id, username, thread_id, query));
+                                        stmt_insert
+                                            .execute((id, username, thread_id, query))
+                                            .map_err(|e| format!("Execute insert error: {}", e))?;
                                     }
                                     DbCommand::UpdateResult { id, result } => {
-                                        let _ = stmt_update.execute((result, id));
+                                        stmt_update
+                                            .execute((result, id))
+                                            .map_err(|e| format!("Execute update error: {}", e))?;
                                     }
                                 }
                             }
@@ -538,9 +542,12 @@ impl GroundingQueue {
 
 use redis::AsyncCommands;
 
+pub const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(3600);
+
 /// Consolidated Local Session Manager.
 pub struct LocalSessionManager {
     sessions: DashMap<String, Arc<SessionContext>>,
+    flushed_at: DashMap<String, u64>,
     #[allow(dead_code)]
     db_path: String,
     pepper: Arc<SecretVec<u8>>,
@@ -584,6 +591,7 @@ impl LocalSessionManager {
 
         let manager = Arc::new(Self {
             sessions: DashMap::new(),
+            flushed_at: DashMap::new(),
             db_path: db_path.clone(),
             pepper: Arc::new(SecretVec::new(pepper.expose_secret().to_vec())),
             pool,
@@ -598,6 +606,7 @@ impl LocalSessionManager {
                 if let Err(e) = manager_clone.flush_to_db().await {
                     error!("Failed to flush sessions to SQLite: {}", e);
                 }
+                manager_clone.evict_idle_sessions();
             }
         });
 
@@ -731,23 +740,35 @@ impl LocalSessionManager {
             }
         }
 
+        self.flushed_at
+            .insert(username.to_string(), ctx.last_accessed());
+
         Ok(())
     }
 
-    async fn flush_to_db(&self) -> Result<(), SovereignError> {
-        let mut sessions_to_flush: Vec<(String, Vec<u8>)> = Vec::new();
+    pub async fn flush_to_db(&self) -> Result<(), SovereignError> {
+        let mut sessions_to_flush: Vec<(String, Vec<u8>, u64)> = Vec::new();
 
         for item in self.sessions.iter() {
             let username = item.key().clone();
+            let last_accessed = item.value().last_accessed();
+            let last_flushed = self.flushed_at.get(&username).map(|v| *v).unwrap_or(0);
+
+            // Only flush sessions that were modified/active
+            if last_accessed <= last_flushed {
+                continue;
+            }
+
             let state = SessionState::from(item.value().as_ref());
             let json_bytes = serde_json::to_vec(&state).unwrap_or_default();
             let pepper = self.pepper.clone();
+            let username_c = username.clone();
 
             // Encrypt session using centralized AadCipher (WP-98)
             let combined_res = iw_core::executor::BlockingExecutor::spawn_blocking(move || {
                 AadCipher::encrypt(
                     &json_bytes,
-                    &username,
+                    &username_c,
                     pepper.expose_secret(),
                     b"warden-v1-session-encryption",
                 )
@@ -756,13 +777,19 @@ impl LocalSessionManager {
             .map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))?;
 
             if let Ok(combined) = combined_res {
-                sessions_to_flush.push((item.key().clone(), combined));
+                sessions_to_flush.push((username, combined, last_accessed));
             }
         }
 
         if sessions_to_flush.is_empty() {
             return Ok(());
         }
+
+        let db_payload: Vec<(String, Vec<u8>)> = sessions_to_flush
+            .iter()
+            .map(|(u, d, _)| (u.clone(), d.clone()))
+            .collect();
+        let num_flushed = db_payload.len();
 
         let pool = self.pool.clone();
         iw_core::executor::BlockingExecutor::spawn_blocking(move || {
@@ -774,7 +801,7 @@ impl LocalSessionManager {
                     SovereignError::StorageError(e.to_string())
                 }
             })?;
-            for (username, encrypted_data) in sessions_to_flush {
+            for (username, encrypted_data) in db_payload {
                 tx.execute(
                     "INSERT INTO sessions (username, session_data, updated_at) VALUES (?1, ?2, CURRENT_TIMESTAMP)
                      ON CONFLICT(username) DO UPDATE SET session_data = ?2, updated_at = CURRENT_TIMESTAMP",
@@ -785,11 +812,53 @@ impl LocalSessionManager {
             Ok::<(), SovereignError>(())
         }).await.map_err(|e| SovereignError::InternalError(format!("Blocking task failed: {}", e)))??;
 
+        for (username, _, accessed_at) in sessions_to_flush {
+            self.flushed_at
+                .entry(username)
+                .and_modify(|ts| {
+                    if accessed_at > *ts {
+                        *ts = accessed_at;
+                    }
+                })
+                .or_insert(accessed_at);
+        }
+
         info!(
-            "Successfully encrypted and flushed {} sessions to SQLite",
-            self.sessions.len()
+            "Successfully encrypted and flushed {} active/modified sessions to SQLite",
+            num_flushed
         );
         Ok(())
+    }
+
+    pub fn evict_idle_sessions(&self) -> usize {
+        self.evict_idle_sessions_older_than(SESSION_IDLE_TIMEOUT)
+    }
+
+    pub fn evict_idle_sessions_older_than(&self, timeout: Duration) -> usize {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let timeout_secs = timeout.as_secs();
+        let mut evicted = 0;
+        self.sessions.retain(|username, ctx| {
+            let last_accessed = ctx.last_accessed();
+            if now.saturating_sub(last_accessed) >= timeout_secs {
+                self.flushed_at.remove(username);
+                evicted += 1;
+                false
+            } else {
+                true
+            }
+        });
+        if evicted > 0 {
+            info!("Evicted {} idle sessions from memory cache", evicted);
+        }
+        evicted
+    }
+
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
     }
 }
 
@@ -968,6 +1037,97 @@ mod tests {
         );
 
         std::env::remove_var("REDIS_URL");
+        fs::remove_file(&db_path).ok();
+        fs::remove_file(format!("{}-wal", db_path)).ok();
+        fs::remove_file(format!("{}-shm", db_path)).ok();
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_idle_ttl_eviction() {
+        let db_path = format!("session_test_eviction_{}.db", uuid::Uuid::new_v4());
+        let pepper = SecretVec::from(vec![0u8; 32]);
+        let sm = LocalSessionManager::new(db_path.clone(), &pepper).unwrap();
+
+        let ctx_idle = sm.get_session("user_idle").await.unwrap();
+        ctx_idle
+            .pii_to_token
+            .insert("alice".into(), "[PERSON_1]".into());
+
+        let ctx_active = sm.get_session("user_active").await.unwrap();
+        ctx_active
+            .pii_to_token
+            .insert("bob".into(), "[PERSON_2]".into());
+
+        assert_eq!(sm.session_count(), 2);
+
+        // Flush active sessions to SQLite before simulating idle timeout
+        sm.flush_to_db().await.unwrap();
+
+        // Simulate user_idle being idle for > 1 hour (SESSION_IDLE_TIMEOUT)
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        ctx_idle.last_accessed.store(
+            now - SESSION_IDLE_TIMEOUT.as_secs() - 10,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+
+        // Evict idle sessions
+        let evicted = sm.evict_idle_sessions();
+        assert_eq!(evicted, 1, "Expected exactly 1 idle session to be evicted");
+        assert_eq!(
+            sm.session_count(),
+            1,
+            "Only active session should remain in memory"
+        );
+
+        // Verify user_active is still in memory
+        assert!(sm.sessions.contains_key("user_active"));
+        assert!(!sm.sessions.contains_key("user_idle"));
+
+        // Verify lazy reload from SQLite for the evicted session
+        let reloaded_idle = sm.get_session("user_idle").await.unwrap();
+        assert_eq!(
+            reloaded_idle
+                .pii_to_token
+                .get("alice")
+                .map(|v| v.value().clone()),
+            Some("[PERSON_1]".to_string()),
+            "Session state must be preserved across eviction and SQLite reload"
+        );
+        assert_eq!(sm.session_count(), 2);
+
+        fs::remove_file(&db_path).ok();
+        fs::remove_file(format!("{}-wal", db_path)).ok();
+        fs::remove_file(format!("{}-shm", db_path)).ok();
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_flush_only_modified_active() {
+        let db_path = format!("session_test_flush_{}.db", uuid::Uuid::new_v4());
+        let pepper = SecretVec::from(vec![0u8; 32]);
+        let sm = LocalSessionManager::new(db_path.clone(), &pepper).unwrap();
+
+        let ctx = sm.get_session("user1").await.unwrap();
+        ctx.pii_to_token.insert("secret".into(), "[TOKEN_1]".into());
+
+        // First flush flushes the active session
+        sm.flush_to_db().await.unwrap();
+
+        // A second immediate flush without access or modification must not flush anything
+        let second_flush = sm.flush_to_db().await;
+        assert!(second_flush.is_ok());
+
+        // Now touch/modify user1
+        let ctx = sm.get_session("user1").await.unwrap();
+        ctx.pii_to_token
+            .insert("secret2".into(), "[TOKEN_2]".into());
+
+        // Third flush should flush the newly active/modified session
+        let third_flush = sm.flush_to_db().await;
+        assert!(third_flush.is_ok());
+
         fs::remove_file(&db_path).ok();
         fs::remove_file(format!("{}-wal", db_path)).ok();
         fs::remove_file(format!("{}-shm", db_path)).ok();
