@@ -571,6 +571,15 @@ impl McpServer for StdioMcpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::OnceLock;
+    use tokio::sync::Mutex as AsyncMutex;
+
+    // Serializes process-level env mutations across async test tasks.
+    // Must be async-aware (tokio Mutex) since it is held across .await points.
+    fn test_env_mutex() -> &'static AsyncMutex<()> {
+        static M: OnceLock<AsyncMutex<()>> = OnceLock::new();
+        M.get_or_init(|| AsyncMutex::new(()))
+    }
     use async_trait::async_trait;
     use iw_core::{ComplianceReport, ScrubbingReport, TokenMap};
     use serde_json::json;
@@ -824,9 +833,17 @@ mod tests {
             "id": "1"
         });
 
-        // host_user is "attacker"
-        // Since we removed the host_user identity spoofing check, we'll force the test to use MAC validation
-        // by passing a different secret, which will fail the "test_secret" bypass.
+        // Temporarily remove WARDEN_ENV so MAC enforcement is triggered
+        // regardless of whether the test suite was invoked with WARDEN_ENV=test.
+        // This must be serialized under TEST_ENV_MUTEX to prevent races with
+        // other tests that also manipulate process env.
+        let _lock = test_env_mutex().lock().await;
+        let saved_env = std::env::var("WARDEN_ENV").ok();
+        unsafe { std::env::remove_var("WARDEN_ENV") };
+
+        // host_user is "attacker"; mcp_secret is "not_test_secret" (not the bypass value).
+        // With WARDEN_ENV unset and secret != "test_secret", MAC enforcement kicks in
+        // and the missing _auth block causes UnauthorizedAccess.
         let res = handle_request_internal(
             req.to_string(),
             shield.clone(),
@@ -839,6 +856,15 @@ mod tests {
             "not_test_secret".to_string(),
         )
         .await;
+
+        // Restore WARDEN_ENV before any assertions that could panic
+        unsafe {
+            match saved_env {
+                Some(v) => std::env::set_var("WARDEN_ENV", v),
+                None => std::env::remove_var("WARDEN_ENV"),
+            }
+        }
+        drop(_lock);
 
         assert!(res.is_err());
         // Should fail because of missing _auth block since it's now enforcing MAC
