@@ -1,6 +1,7 @@
 use any_ascii::any_ascii_char;
 use unicode_normalization::UnicodeNormalization;
 
+#[derive(Clone)]
 pub struct OffsetMap {
     pub normalized_to_original: Vec<usize>,
 }
@@ -17,6 +18,7 @@ impl OffsetMap {
     }
 }
 
+#[derive(Clone)]
 pub struct NormalizationResult {
     pub normalized_ascii: String,
     pub ascii_to_original: OffsetMap,
@@ -61,6 +63,10 @@ pub struct Normalizer;
 impl Normalizer {
     /// Optimized zero-allocation normalization using thread-local pools.
     /// The buffer is cleared, populated, and then immutably borrowed for the closure.
+    pub fn normalize(input: &str) -> NormalizationResult {
+        Self::with_normalized(input, |norm| norm.clone())
+    }
+
     pub fn with_normalized<F, R>(input: &str, f: F) -> R
     where
         F: FnOnce(&NormalizationResult) -> R,
