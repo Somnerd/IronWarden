@@ -106,7 +106,7 @@ def test_fault_mcp_malformed_session_state(warden):
     time.sleep(1)
     
     # 2. Stop runner to clear memory cache
-    warden.stop()
+    warden.stop(cleanup=False)
 
     # 3. Corrupt the JSON in the database
     conn = sqlite3.connect(db_path)

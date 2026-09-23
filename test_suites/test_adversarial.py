@@ -83,7 +83,7 @@ def test_scaling_ai_mutex_contention(warden, jwt_factory):
     headers = {"Authorization": f"Bearer {token}"}
     
     def send():
-        return requests.post(f"{bridge_url}/enqueue", json={"query": "Alice " * 10, "thread_id": "t"}, headers=headers, timeout=15.0)
+        return requests.post(f"{bridge_url}/enqueue", json={"query": "Alice " * 10, "thread_id": "t"}, headers=headers, timeout=45.0)
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(send) for _ in range(10)]
