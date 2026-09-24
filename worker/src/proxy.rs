@@ -245,6 +245,36 @@ pub fn validate_upstream_url(raw_url: &str) -> Result<String, SovereignError> {
     }
 
     // 5. Environment-based checks: Production vs Development/Test
+    let (is_allowed_list_set, is_host_allowed) =
+        if let Ok(allowed_hosts_val) = std::env::var("IRONWARDEN_ALLOWED_TARGET_HOSTS") {
+            let trimmed_allowed = allowed_hosts_val.trim();
+            if !trimmed_allowed.is_empty() {
+                let host_with_port = match parsed.port() {
+                    Some(p) => format!("{}:{}", host_clean, p),
+                    None => host_clean.to_string(),
+                };
+                let allowed = trimmed_allowed.split(',').any(|item| {
+                    let trimmed_item = item.trim().trim_matches('[').trim_matches(']');
+                    !trimmed_item.is_empty()
+                        && (trimmed_item.eq_ignore_ascii_case(host_clean)
+                            || trimmed_item.eq_ignore_ascii_case(&host_with_port))
+                });
+                (true, allowed)
+            } else {
+                (false, false)
+            }
+        } else {
+            (false, false)
+        };
+
+    // If IRONWARDEN_ALLOWED_TARGET_HOSTS is set, strictly enforce the allowlist across all targets.
+    if is_allowed_list_set && !is_host_allowed {
+        return Err(SovereignError::UnauthorizedAccess(format!(
+            "SSRF protection: target host '{}' is not in IRONWARDEN_ALLOWED_TARGET_HOSTS allowlist",
+            host_str
+        )));
+    }
+
     let is_prod = std::env::var("WARDEN_ENV").unwrap_or_default() == "production"
         || std::env::var("IRONWARDEN_ENV").unwrap_or_default() == "production";
 
@@ -260,22 +290,6 @@ pub fn validate_upstream_url(raw_url: &str) -> Result<String, SovereignError> {
             let allow_private_env = std::env::var("ALLOW_PRIVATE_TARGET_URL")
                 .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
                 .unwrap_or(false);
-
-            let is_host_allowed =
-                if let Ok(allowed_hosts_val) = std::env::var("IRONWARDEN_ALLOWED_TARGET_HOSTS") {
-                    let host_with_port = match parsed.port() {
-                        Some(p) => format!("{}:{}", host_clean, p),
-                        None => host_clean.to_string(),
-                    };
-                    allowed_hosts_val.split(',').any(|item| {
-                        let trimmed_item = item.trim().trim_matches('[').trim_matches(']');
-                        !trimmed_item.is_empty()
-                            && (trimmed_item.eq_ignore_ascii_case(host_clean)
-                                || trimmed_item.eq_ignore_ascii_case(&host_with_port))
-                    })
-                } else {
-                    false
-                };
 
             if !allow_private_env && !is_host_allowed {
                 return Err(SovereignError::UnauthorizedAccess(format!(
@@ -337,14 +351,34 @@ pub fn resolve_upstream_url(headers: &HeaderMap, model: &str) -> String {
         .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string())
 }
 
-/// Upstream API key: `X-IronWarden-Upstream-Key` header → OPENAI_API_KEY env → "ollama" fallback.
+/// Upstream API key resolution:
+/// When routing to a custom target URL, NEVER attach server ambient keys (OPENAI_API_KEY).
+/// An explicit `X-IronWarden-Upstream-Key` must be supplied; otherwise, returns empty string.
+/// For standard default routing: `X-IronWarden-Upstream-Key` header → OPENAI_API_KEY env → "ollama" fallback.
 pub fn resolve_upstream_key(headers: &HeaderMap) -> String {
-    headers
-        .get("X-IronWarden-Upstream-Key")
+    let has_custom_target = headers
+        .get("X-IronWarden-Target-URL")
+        .or_else(|| headers.get("x-ironwarden-target-url"))
         .and_then(|v| v.to_str().ok())
-        .map(str::to_string)
-        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-        .unwrap_or_else(|| "ollama".to_string())
+        .map(|u| validate_upstream_url(u).is_ok())
+        .unwrap_or(false);
+
+    if has_custom_target {
+        headers
+            .get("X-IronWarden-Upstream-Key")
+            .or_else(|| headers.get("x-ironwarden-upstream-key"))
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+            .unwrap_or_default()
+    } else {
+        headers
+            .get("X-IronWarden-Upstream-Key")
+            .or_else(|| headers.get("x-ironwarden-upstream-key"))
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+            .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+            .unwrap_or_else(|| "ollama".to_string())
+    }
 }
 
 // ── Token Map Merge ───────────────────────────────────────────────────────────
@@ -461,6 +495,33 @@ mod tests {
         std::env::remove_var("OPENAI_API_KEY");
         let h = empty_headers();
         assert_eq!(resolve_upstream_key(&h), "ollama");
+    }
+
+    #[test]
+    fn test_upstream_key_custom_target_never_leaks_ambient_key() {
+        std::env::set_var("OPENAI_API_KEY", "sk-production-ambient-secret");
+        let h = headers_with(
+            "X-IronWarden-Target-URL",
+            "http://custom-override.example.com",
+        );
+        // Must NOT leak OPENAI_API_KEY to custom target URL
+        assert_eq!(resolve_upstream_key(&h), "");
+        std::env::remove_var("OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn test_upstream_key_custom_target_with_explicit_key() {
+        std::env::set_var("OPENAI_API_KEY", "sk-production-ambient-secret");
+        let mut h = headers_with(
+            "X-IronWarden-Target-URL",
+            "http://custom-override.example.com",
+        );
+        h.insert(
+            HeaderName::from_bytes(b"X-IronWarden-Upstream-Key").unwrap(),
+            HeaderValue::from_str("sk-user-custom-key").unwrap(),
+        );
+        assert_eq!(resolve_upstream_key(&h), "sk-user-custom-key");
+        std::env::remove_var("OPENAI_API_KEY");
     }
 
     #[test]
@@ -701,9 +762,10 @@ mod tests {
         assert!(validate_upstream_url("http://ollama-internal.corp:11434/v1").is_ok());
         assert!(validate_upstream_url("http://127.0.0.1:9000/v1").is_ok());
 
-        // Non-allowed private hosts blocked
+        // Non-allowed hosts (private and public) blocked
         assert!(validate_upstream_url("http://10.0.0.6:8080/v1").is_err());
         assert!(validate_upstream_url("http://192.168.1.1:8000/").is_err());
+        assert!(validate_upstream_url("http://attacker.com/v1").is_err());
     }
 
     #[tokio::test]
