@@ -439,6 +439,7 @@ async fn handle_grafana_dashboard() -> impl IntoResponse {
 
 fn get_proxy_http_client() -> reqwest::Client {
     reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(3))
         .timeout(std::time::Duration::from_secs(120))
         .build()
