@@ -571,7 +571,7 @@ async fn handle_openai_chat_completions(
     }
 
     // 3. Resolve target
-    let target_url = match resolve_upstream_url(&headers, &payload.model) {
+    let target_url = match resolve_upstream_url(&headers, &payload.model).await {
         Ok(url) => url,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
@@ -678,7 +678,7 @@ async fn handle_openai_legacy_completions(
         return (status, msg_err).into_response();
     }
 
-    let target_url = match resolve_upstream_url(&headers, &payload.model) {
+    let target_url = match resolve_upstream_url(&headers, &payload.model).await {
         Ok(u) => u.replace("/chat/completions", "/completions"),
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
@@ -744,7 +744,7 @@ async fn handle_openai_models(
         return (status, msg).into_response();
     }
 
-    let base = match resolve_upstream_url(&headers, "") {
+    let base = match resolve_upstream_url(&headers, "").await {
         Ok(u) => u,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
@@ -808,7 +808,7 @@ async fn handle_anthropic_messages(
         }
     }
 
-    let target_url = match resolve_upstream_url(&headers, &payload.model) {
+    let target_url = match resolve_upstream_url(&headers, &payload.model).await {
         Ok(u) => u,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
