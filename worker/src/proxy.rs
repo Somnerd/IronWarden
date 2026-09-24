@@ -310,31 +310,23 @@ pub fn validate_upstream_url(raw_url: &str) -> Result<String, SovereignError> {
 /// 2. Model-name auto-routing (claude-* → Anthropic, llama*/mistral*/phi* → Ollama)
 /// 3. Env vars: OPENAI_BASE_URL / ANTHROPIC_BASE_URL / OLLAMA_BASE_URL
 /// 4. Hardcoded defaults
-pub fn resolve_upstream_url(headers: &HeaderMap, model: &str) -> String {
-    if let Some(header_val) = headers.get("X-IronWarden-Target-URL") {
-        match header_val.to_str() {
-            Ok(t) => match validate_upstream_url(t) {
-                Ok(valid_url) => return valid_url,
-                Err(e) => {
-                    tracing::warn!(
-                        "SSRF protection rejected X-IronWarden-Target-URL '{}': {}. Falling back to default routing.",
-                        t,
-                        e
-                    );
-                }
-            },
-            Err(e) => {
-                tracing::warn!(
-                    "Invalid UTF-8 in X-IronWarden-Target-URL header: {}. Falling back to default routing.",
-                    e
-                );
-            }
-        }
+pub fn resolve_upstream_url(headers: &HeaderMap, model: &str) -> Result<String, SovereignError> {
+    if let Some(header_val) = headers
+        .get("X-IronWarden-Target-URL")
+        .or_else(|| headers.get("x-ironwarden-target-url"))
+    {
+        let t = header_val.to_str().map_err(|e| {
+            SovereignError::UnauthorizedAccess(format!(
+                "Invalid UTF-8 in X-IronWarden-Target-URL header: {}",
+                e
+            ))
+        })?;
+        return validate_upstream_url(t);
     }
     let m = model.to_lowercase();
     if m.starts_with("claude") {
-        return std::env::var("ANTHROPIC_BASE_URL")
-            .unwrap_or_else(|_| "https://api.anthropic.com/v1/messages".to_string());
+        return Ok(std::env::var("ANTHROPIC_BASE_URL")
+            .unwrap_or_else(|_| "https://api.anthropic.com/v1/messages".to_string()));
     }
     if m.starts_with("llama")
         || m.starts_with("mistral")
@@ -342,13 +334,13 @@ pub fn resolve_upstream_url(headers: &HeaderMap, model: &str) -> String {
         || m.starts_with("gemma")
         || m.starts_with("qwen")
     {
-        return std::env::var("OLLAMA_BASE_URL")
-            .unwrap_or_else(|_| "http://localhost:11434/v1/chat/completions".to_string());
+        return Ok(std::env::var("OLLAMA_BASE_URL")
+            .unwrap_or_else(|_| "http://localhost:11434/v1/chat/completions".to_string()));
     }
-    std::env::var("OPENAI_BASE_URL")
+    Ok(std::env::var("OPENAI_BASE_URL")
         .or_else(|_| std::env::var("UPSTREAM_LLM"))
         .or_else(|_| std::env::var("UPSTREAM_OPENAI_URL"))
-        .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string())
+        .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string()))
 }
 
 /// Upstream API key resolution:
@@ -359,9 +351,7 @@ pub fn resolve_upstream_key(headers: &HeaderMap) -> String {
     let has_custom_target = headers
         .get("X-IronWarden-Target-URL")
         .or_else(|| headers.get("x-ironwarden-target-url"))
-        .and_then(|v| v.to_str().ok())
-        .map(|u| validate_upstream_url(u).is_ok())
-        .unwrap_or(false);
+        .is_some();
 
     if has_custom_target {
         headers
@@ -415,7 +405,7 @@ mod tests {
             "http://custom-override.example.com",
         );
         assert_eq!(
-            resolve_upstream_url(&h, "claude-3"),
+            resolve_upstream_url(&h, "claude-3").unwrap(),
             "http://custom-override.example.com"
         );
     }
@@ -424,7 +414,7 @@ mod tests {
     fn test_routing_claude_routes_to_anthropic() {
         std::env::remove_var("ANTHROPIC_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "claude-3-5-sonnet-20241022");
+        let url = resolve_upstream_url(&h, "claude-3-5-sonnet-20241022").unwrap();
         assert!(url.contains("anthropic.com"));
     }
 
@@ -432,7 +422,7 @@ mod tests {
     fn test_routing_llama_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "llama3");
+        let url = resolve_upstream_url(&h, "llama3").unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -440,7 +430,7 @@ mod tests {
     fn test_routing_mistral_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "mistral-7b");
+        let url = resolve_upstream_url(&h, "mistral-7b").unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -448,7 +438,7 @@ mod tests {
     fn test_routing_phi_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "phi-3");
+        let url = resolve_upstream_url(&h, "phi-3").unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -456,7 +446,7 @@ mod tests {
     fn test_routing_gemma_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "gemma2");
+        let url = resolve_upstream_url(&h, "gemma2").unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -464,7 +454,7 @@ mod tests {
     fn test_routing_qwen_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "qwen2.5");
+        let url = resolve_upstream_url(&h, "qwen2.5").unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -472,7 +462,7 @@ mod tests {
     fn test_routing_gpt_routes_to_openai_default() {
         std::env::remove_var("OPENAI_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "gpt-4o");
+        let url = resolve_upstream_url(&h, "gpt-4o").unwrap();
         assert!(url.contains("openai.com"));
     }
 
@@ -480,7 +470,7 @@ mod tests {
     fn test_routing_unknown_model_routes_to_openai() {
         std::env::remove_var("OPENAI_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "some-unknown-model");
+        let url = resolve_upstream_url(&h, "some-unknown-model").unwrap();
         assert!(url.contains("openai.com"));
     }
 
@@ -802,7 +792,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_resolve_upstream_url_ssrf_rejected_falls_back() {
+    async fn test_resolve_upstream_url_ssrf_rejected_fails_closed() {
         let _lock = TEST_ENV_MUTEX.lock().await;
         let _guard = TestEnvGuard::new(
             &[],
@@ -814,22 +804,17 @@ mod tests {
             ],
         );
 
-        // Attempting to route to AWS metadata via X-IronWarden-Target-URL falls back to model default
+        // Attempting to route to AWS metadata via X-IronWarden-Target-URL must fail closed with Err
         let h = headers_with(
             "X-IronWarden-Target-URL",
             "http://169.254.169.254/latest/meta-data",
         );
-        let resolved = resolve_upstream_url(&h, "claude-3");
-        assert_eq!(resolved, "https://api.anthropic.com/v1/messages");
+        assert!(resolve_upstream_url(&h, "claude-3").is_err());
 
         let h_openai = headers_with(
             "X-IronWarden-Target-URL",
             "http://169.254.169.254/latest/meta-data",
         );
-        let resolved_openai = resolve_upstream_url(&h_openai, "gpt-4o");
-        assert_eq!(
-            resolved_openai,
-            "https://api.openai.com/v1/chat/completions"
-        );
+        assert!(resolve_upstream_url(&h_openai, "gpt-4o").is_err());
     }
 }

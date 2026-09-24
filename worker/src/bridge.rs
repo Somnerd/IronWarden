@@ -1,8 +1,7 @@
 use crate::grounding::{GroundingQueue, LocalSessionManager};
 use crate::proxy::{
-    authenticate, merge_token_map, resolve_upstream_key, resolve_upstream_url,
-    validate_upstream_url, AnthropicRequest, AuthenticatedUser, ChatCompletionRequest,
-    CompletionRequest,
+    authenticate, merge_token_map, resolve_upstream_key, resolve_upstream_url, AnthropicRequest,
+    AuthenticatedUser, ChatCompletionRequest, CompletionRequest,
 };
 use axum::{
     body::Body,
@@ -497,42 +496,47 @@ async fn process_and_audit_text(
     Ok(report.sanitized_text)
 }
 
-async fn process_and_audit_content_value(
-    state: &Arc<BridgeState>,
-    auth: &AuthenticatedUser,
-    content: &mut serde_json::Value,
-    combined_token_map: &mut TokenMap,
-) -> Result<(), (StatusCode, String)> {
-    match content {
-        serde_json::Value::String(s) => {
-            let sanitized = process_and_audit_text(state, auth, s, combined_token_map).await?;
-            *s = sanitized;
-        }
-        serde_json::Value::Array(items) => {
-            for item in items.iter_mut() {
-                if let serde_json::Value::String(s) = item {
-                    let sanitized =
-                        process_and_audit_text(state, auth, s, combined_token_map).await?;
-                    *s = sanitized;
-                } else if let serde_json::Value::Object(map) = item {
-                    if map.get("type").and_then(|t| t.as_str()) == Some("text")
-                        || map.contains_key("text")
-                    {
-                        if let Some(text_val) =
-                            map.get("text").and_then(|t| t.as_str()).map(str::to_string)
-                        {
-                            let sanitized =
-                                process_and_audit_text(state, auth, &text_val, combined_token_map)
-                                    .await?;
-                            map.insert("text".to_string(), serde_json::Value::String(sanitized));
-                        }
-                    }
+type ProcessContentFuture<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<(), (StatusCode, String)>> + Send + 'a>,
+>;
+
+fn process_and_audit_content_value<'a>(
+    state: &'a Arc<BridgeState>,
+    auth: &'a AuthenticatedUser,
+    content: &'a mut serde_json::Value,
+    combined_token_map: &'a mut TokenMap,
+) -> ProcessContentFuture<'a> {
+    Box::pin(async move {
+        match content {
+            serde_json::Value::String(s) => {
+                let sanitized = process_and_audit_text(state, auth, s, combined_token_map).await?;
+                *s = sanitized;
+            }
+            serde_json::Value::Array(items) => {
+                for item in items.iter_mut() {
+                    process_and_audit_content_value(state, auth, item, combined_token_map).await?;
                 }
             }
+            serde_json::Value::Object(map) => {
+                if let Some(text_val) = map.get_mut("text") {
+                    if let serde_json::Value::String(s) = text_val {
+                        let sanitized =
+                            process_and_audit_text(state, auth, s, combined_token_map).await?;
+                        *s = sanitized;
+                    } else {
+                        process_and_audit_content_value(state, auth, text_val, combined_token_map)
+                            .await?;
+                    }
+                }
+                if let Some(content_val) = map.get_mut("content") {
+                    process_and_audit_content_value(state, auth, content_val, combined_token_map)
+                        .await?;
+                }
+            }
+            _ => {}
         }
-        _ => {}
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 async fn handle_openai_chat_completions(
@@ -567,7 +571,10 @@ async fn handle_openai_chat_completions(
     }
 
     // 3. Resolve target
-    let target_url = resolve_upstream_url(&headers, &payload.model);
+    let target_url = match resolve_upstream_url(&headers, &payload.model) {
+        Ok(url) => url,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
     let api_key = resolve_upstream_key(&headers);
     let is_stream = payload.stream.unwrap_or(false);
 
@@ -671,8 +678,10 @@ async fn handle_openai_legacy_completions(
         return (status, msg_err).into_response();
     }
 
-    let target_url =
-        resolve_upstream_url(&headers, &payload.model).replace("/chat/completions", "/completions");
+    let target_url = match resolve_upstream_url(&headers, &payload.model) {
+        Ok(u) => u.replace("/chat/completions", "/completions"),
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
     let api_key = resolve_upstream_key(&headers);
 
     let client = get_proxy_http_client();
@@ -735,13 +744,19 @@ async fn handle_openai_models(
         return (status, msg).into_response();
     }
 
-    let base = std::env::var("OPENAI_BASE_URL")
-        .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string());
-    let models_url = base
-        .trim_end_matches('/')
-        .replace("/chat/completions", "")
-        .replace("/completions", "");
-    let models_url = format!("{}/models", models_url.trim_end_matches('/'));
+    let base = match resolve_upstream_url(&headers, "") {
+        Ok(u) => u,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+    let models_url = if base.ends_with("/models") {
+        base
+    } else {
+        let trimmed = base
+            .trim_end_matches('/')
+            .replace("/chat/completions", "")
+            .replace("/completions", "");
+        format!("{}/models", trimmed.trim_end_matches('/'))
+    };
     let api_key = resolve_upstream_key(&headers);
     let client = get_proxy_http_client();
     match client.get(&models_url).bearer_auth(&api_key).send().await {
@@ -793,13 +808,14 @@ async fn handle_anthropic_messages(
         }
     }
 
-    let target_url = resolve_upstream_url(&headers, &payload.model);
+    let target_url = match resolve_upstream_url(&headers, &payload.model) {
+        Ok(u) => u,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
     let has_custom_target = headers
         .get("X-IronWarden-Target-URL")
         .or_else(|| headers.get("x-ironwarden-target-url"))
-        .and_then(|v| v.to_str().ok())
-        .map(|u| validate_upstream_url(u).is_ok())
-        .unwrap_or(false);
+        .is_some();
 
     let api_key = headers
         .get("x-api-key")
@@ -1324,5 +1340,96 @@ mod tests {
             .unwrap();
         let enqueue_res = app.oneshot(enqueue_req).await.unwrap();
         assert_eq!(enqueue_res.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn test_target_url_invalid_fails_closed() {
+        let pepper = SecretVec::from(vec![0u8; 32]);
+        let queue = GroundingQueue::new(
+            "file::memory:?cache=shared".to_string(),
+            &pepper,
+            None,
+            None,
+        )
+        .unwrap();
+        let session_manager =
+            LocalSessionManager::new("file::memory:?cache=shared".to_string(), &pepper).unwrap();
+
+        struct DummyStorage;
+        #[async_trait]
+        impl StorageProvider for DummyStorage {
+            async fn fetch_context(&self, _: &str, _: &str) -> Result<Vec<String>, SovereignError> {
+                Ok(vec![])
+            }
+            async fn log_audit_event(
+                &self,
+                _: &ScrubbingReport,
+                _: &str,
+                _: &str,
+            ) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn validate_job_access(&self, _: &str, _: &str) -> Result<bool, SovereignError> {
+                Ok(true)
+            }
+            async fn purge_user_data(&self, _: &str) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn check_health(&self) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn get_compliance_report(&self) -> Result<ComplianceReport, SovereignError> {
+                unimplemented!()
+            }
+        }
+
+        let state = Arc::new(BridgeState {
+            shield: Arc::new(MockPiiShield),
+            grounding_shield: Arc::new(MockGroundingShield),
+            queue: Arc::new(queue),
+            storage: Arc::new(DummyStorage),
+            session_manager,
+            jwt_public_key: SecretVec::from(PUBLIC_KEY_PEM.to_vec()),
+            ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(10)),
+            metrics: Arc::new(crate::metrics::GatewayMetrics::new()),
+        });
+
+        let app = create_bridge_router(state);
+
+        std::env::set_var("WARDEN_JWT_AUDIENCE", "test_aud");
+        std::env::set_var("WARDEN_JWT_ISSUER", "test_iss");
+
+        let claims = CustomClaims {
+            sub: "admin_user".to_string(),
+            exp: 9999999999,
+            iss: "test_iss".to_string(),
+            aud: "test_aud".to_string(),
+            roles: vec!["admin".to_string()],
+        };
+        let key = EncodingKey::from_rsa_pem(PRIVATE_KEY_PEM).unwrap();
+        let token = encode(&Header::new(Algorithm::RS256), &claims, &key).unwrap();
+
+        // Attempt SSRF via cloud metadata target
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .header(
+                "X-IronWarden-Target-URL",
+                "http://169.254.169.254/latest/meta-data",
+            )
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                8080,
+            ))))
+            .body(Body::from(
+                r#"{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}"#,
+            ))
+            .unwrap();
+
+        let res = app.oneshot(req).await.unwrap();
+        // Must fail closed with 400 Bad Request
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 }
