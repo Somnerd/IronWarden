@@ -1,9 +1,10 @@
 use crate::grounding::{GroundingQueue, LocalSessionManager};
 use crate::proxy::{
     authenticate, merge_token_map, resolve_upstream_key, resolve_upstream_url, AnthropicRequest,
-    ChatCompletionRequest, CompletionRequest,
+    AuthenticatedUser, ChatCompletionRequest, CompletionRequest,
 };
 use axum::{
+    body::Body,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
@@ -48,16 +49,43 @@ pub struct BridgeState {
     pub metrics: Arc<crate::metrics::GatewayMetrics>,
 }
 
+struct PermitStream<S> {
+    stream: S,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl<S: futures::Stream<Item = Result<bytes::Bytes, axum::Error>> + Unpin> futures::Stream
+    for PermitStream<S>
+{
+    type Item = Result<bytes::Bytes, axum::Error>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::pin::Pin::new(&mut self.stream).poll_next(cx)
+    }
+}
+
 async fn concurrency_limiter(
     State(state): State<Arc<BridgeState>>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
-    let _permit = state
+    let permit = state
         .ingress_semaphore
-        .try_acquire()
+        .clone()
+        .try_acquire_owned()
         .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
-    Ok(next.run(request).await)
+    let response = next.run(request).await;
+    let (parts, body) = response.into_parts();
+    let stream = body.into_data_stream();
+    let tracked_stream = PermitStream {
+        stream,
+        _permit: permit,
+    };
+    let tracked_body = Body::from_stream(tracked_stream);
+    Ok(axum::response::Response::from_parts(parts, tracked_body))
 }
 
 pub fn create_bridge_router(state: Arc<BridgeState>) -> Router {
@@ -69,11 +97,7 @@ pub fn create_bridge_router(state: Arc<BridgeState>) -> Router {
             .expect("Failed to initialize Governor Rate Limiter"),
     );
 
-    Router::new()
-        .route("/health", get(handle_health))
-        .route("/metrics", get(handle_metrics))
-        .route("/grafana/dashboard", get(handle_grafana_dashboard))
-        .route("/monitoring/dashboard.json", get(handle_grafana_dashboard))
+    let protected_routes = Router::new()
         .route("/enqueue", post(handle_enqueue))
         .route("/results/:job_id", get(handle_get_result))
         .route("/v1/chat/completions", post(handle_openai_chat_completions))
@@ -86,7 +110,14 @@ pub fn create_bridge_router(state: Arc<BridgeState>) -> Router {
         ))
         .layer(GovernorLayer {
             config: governor_conf,
-        })
+        });
+
+    Router::new()
+        .route("/health", get(handle_health))
+        .route("/metrics", get(handle_metrics))
+        .route("/grafana/dashboard", get(handle_grafana_dashboard))
+        .route("/monitoring/dashboard.json", get(handle_grafana_dashboard))
+        .merge(protected_routes)
         .with_state(state)
 }
 
@@ -408,10 +439,105 @@ async fn handle_grafana_dashboard() -> impl IntoResponse {
 
 fn get_proxy_http_client() -> reqwest::Client {
     reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(3))
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .unwrap_or_default()
+}
+
+async fn process_and_audit_text(
+    state: &Arc<BridgeState>,
+    auth: &AuthenticatedUser,
+    text: &str,
+    combined_token_map: &mut TokenMap,
+) -> Result<String, (StatusCode, String)> {
+    let report = match state
+        .shield
+        .sanitize_prompt(text, Some(&auth.session))
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let status = match e {
+                SovereignError::PiiViolation(_) => StatusCode::BAD_REQUEST,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            return Err((status, e.to_string()));
+        }
+    };
+
+    if let Err(e) = state
+        .storage
+        .log_audit_event(&report, text, &auth.username)
+        .await
+    {
+        tracing::error!("CRITICAL: Audit log failure. Aborting request: {}", e);
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
+
+    if report.is_blocked {
+        state
+            .metrics
+            .injections_blocked
+            .fetch_add(1, Ordering::Relaxed);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "[POLICY VIOLATION] Prompt blocked by IronWarden.".to_string(),
+        ));
+    }
+
+    if !report.token_map.is_empty() {
+        state
+            .metrics
+            .pii_entities_redacted
+            .fetch_add(report.token_map.len() as u64, Ordering::Relaxed);
+    }
+    merge_token_map(combined_token_map, &report.token_map);
+    Ok(report.sanitized_text)
+}
+
+type ProcessContentFuture<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<(), (StatusCode, String)>> + Send + 'a>,
+>;
+
+fn process_and_audit_content_value<'a>(
+    state: &'a Arc<BridgeState>,
+    auth: &'a AuthenticatedUser,
+    content: &'a mut serde_json::Value,
+    combined_token_map: &'a mut TokenMap,
+) -> ProcessContentFuture<'a> {
+    Box::pin(async move {
+        match content {
+            serde_json::Value::String(s) => {
+                let sanitized = process_and_audit_text(state, auth, s, combined_token_map).await?;
+                *s = sanitized;
+            }
+            serde_json::Value::Array(items) => {
+                for item in items.iter_mut() {
+                    process_and_audit_content_value(state, auth, item, combined_token_map).await?;
+                }
+            }
+            serde_json::Value::Object(map) => {
+                if let Some(text_val) = map.get_mut("text") {
+                    if let serde_json::Value::String(s) = text_val {
+                        let sanitized =
+                            process_and_audit_text(state, auth, s, combined_token_map).await?;
+                        *s = sanitized;
+                    } else {
+                        process_and_audit_content_value(state, auth, text_val, combined_token_map)
+                            .await?;
+                    }
+                }
+                if let Some(content_val) = map.get_mut("content") {
+                    process_and_audit_content_value(state, auth, content_val, combined_token_map)
+                        .await?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    })
 }
 
 async fn handle_openai_chat_completions(
@@ -430,54 +556,26 @@ async fn handle_openai_chat_completions(
         Err((status, msg)) => return (status, msg).into_response(),
     };
 
-    // 2. Pre-flight scrub all messages
+    // 2. Pre-flight scrub all messages (both string and structured array content blocks)
     let mut combined_token_map = TokenMap::new();
     for msg in payload.messages.iter_mut() {
-        if let Some(text) = msg.content.as_str() {
-            let report = match state
-                .shield
-                .sanitize_prompt(text, Some(&auth.session))
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => return map_error(e).into_response(),
-            };
-            // Audit BEFORE forwarding — abort on failure
-            if let Err(e) = state
-                .storage
-                .log_audit_event(&report, text, &auth.username)
-                .await
-            {
-                tracing::error!(
-                    "CRITICAL: Audit log failure in proxy. Aborting request: {}",
-                    e
-                );
-                return map_error(e).into_response();
-            }
-            if report.is_blocked {
-                state
-                    .metrics
-                    .injections_blocked
-                    .fetch_add(1, Ordering::Relaxed);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    "[POLICY VIOLATION] Prompt blocked by IronWarden.".to_string(),
-                )
-                    .into_response();
-            }
-            if !report.token_map.is_empty() {
-                state
-                    .metrics
-                    .pii_entities_redacted
-                    .fetch_add(report.token_map.len() as u64, Ordering::Relaxed);
-            }
-            merge_token_map(&mut combined_token_map, &report.token_map);
-            msg.content = serde_json::Value::String(report.sanitized_text);
+        if let Err((status, msg_err)) = process_and_audit_content_value(
+            &state,
+            &auth,
+            &mut msg.content,
+            &mut combined_token_map,
+        )
+        .await
+        {
+            return (status, msg_err).into_response();
         }
     }
 
     // 3. Resolve target
-    let target_url = resolve_upstream_url(&headers, &payload.model);
+    let target_url = match resolve_upstream_url(&headers, &payload.model).await {
+        Ok(url) => url,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
     let api_key = resolve_upstream_key(&headers);
     let is_stream = payload.stream.unwrap_or(false);
 
@@ -572,64 +670,19 @@ async fn handle_openai_legacy_completions(
         Err((status, msg)) => return (status, msg).into_response(),
     };
 
+    // 2. Pre-flight scrub prompts (string or array)
     let mut combined_token_map = TokenMap::new();
-
-    let prompts: Vec<String> = match &payload.prompt {
-        serde_json::Value::String(s) => vec![s.clone()],
-        serde_json::Value::Array(arr) => arr
-            .iter()
-            .filter_map(|v| v.as_str().map(str::to_string))
-            .collect(),
-        _ => vec![],
-    };
-
-    let mut sanitized_prompts = Vec::new();
-    for p in &prompts {
-        let report = match state.shield.sanitize_prompt(p, Some(&auth.session)).await {
-            Ok(r) => r,
-            Err(e) => return map_error(e).into_response(),
-        };
-        if let Err(e) = state
-            .storage
-            .log_audit_event(&report, p, &auth.username)
+    if let Err((status, msg_err)) =
+        process_and_audit_content_value(&state, &auth, &mut payload.prompt, &mut combined_token_map)
             .await
-        {
-            return map_error(e).into_response();
-        }
-        if report.is_blocked {
-            state
-                .metrics
-                .injections_blocked
-                .fetch_add(1, Ordering::Relaxed);
-            return (
-                StatusCode::BAD_REQUEST,
-                "[POLICY VIOLATION] Prompt blocked.".to_string(),
-            )
-                .into_response();
-        }
-        if !report.token_map.is_empty() {
-            state
-                .metrics
-                .pii_entities_redacted
-                .fetch_add(report.token_map.len() as u64, Ordering::Relaxed);
-        }
-        merge_token_map(&mut combined_token_map, &report.token_map);
-        sanitized_prompts.push(report.sanitized_text);
+    {
+        return (status, msg_err).into_response();
     }
 
-    payload.prompt = if sanitized_prompts.len() == 1 {
-        serde_json::Value::String(sanitized_prompts.remove(0))
-    } else {
-        serde_json::Value::Array(
-            sanitized_prompts
-                .into_iter()
-                .map(serde_json::Value::String)
-                .collect(),
-        )
+    let target_url = match resolve_upstream_url(&headers, &payload.model).await {
+        Ok(u) => u.replace("/chat/completions", "/completions"),
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
-
-    let target_url =
-        resolve_upstream_url(&headers, &payload.model).replace("/chat/completions", "/completions");
     let api_key = resolve_upstream_key(&headers);
 
     let client = get_proxy_http_client();
@@ -684,13 +737,27 @@ async fn handle_openai_models(
         .metrics
         .requests_models
         .fetch_add(1, Ordering::Relaxed);
-    let base = std::env::var("OPENAI_BASE_URL")
-        .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string());
-    let models_url = base
-        .trim_end_matches('/')
-        .replace("/chat/completions", "")
-        .replace("/completions", "");
-    let models_url = format!("{}/models", models_url.trim_end_matches('/'));
+
+    // SECURITY: Authenticate request to prevent unauthenticated upstream quota drain
+    if let Err((status, msg)) =
+        authenticate(&headers, &state.jwt_public_key, &state.session_manager).await
+    {
+        return (status, msg).into_response();
+    }
+
+    let base = match resolve_upstream_url(&headers, "").await {
+        Ok(u) => u,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+    let models_url = if base.ends_with("/models") {
+        base
+    } else {
+        let trimmed = base
+            .trim_end_matches('/')
+            .replace("/chat/completions", "")
+            .replace("/completions", "");
+        format!("{}/models", trimmed.trim_end_matches('/'))
+    };
     let api_key = resolve_upstream_key(&headers);
     let client = get_proxy_http_client();
     match client.get(&models_url).bearer_auth(&api_key).send().await {
@@ -720,124 +787,50 @@ async fn handle_anthropic_messages(
 
     // Sanitize system prompt
     if let Some(ref system) = payload.system.clone() {
-        let report = match state
-            .shield
-            .sanitize_prompt(system, Some(&auth.session))
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => return map_error(e).into_response(),
-        };
-        if let Err(e) = state
-            .storage
-            .log_audit_event(&report, system, &auth.username)
-            .await
-        {
-            return map_error(e).into_response();
-        }
-        if report.is_blocked {
-            state
-                .metrics
-                .injections_blocked
-                .fetch_add(1, Ordering::Relaxed);
-            return (
-                StatusCode::BAD_REQUEST,
-                "System prompt blocked.".to_string(),
-            )
-                .into_response();
-        }
-        if !report.token_map.is_empty() {
-            state
-                .metrics
-                .pii_entities_redacted
-                .fetch_add(report.token_map.len() as u64, Ordering::Relaxed);
-        }
-        merge_token_map(&mut combined_token_map, &report.token_map);
-        payload.system = Some(report.sanitized_text);
+        let sanitized =
+            match process_and_audit_text(&state, &auth, system, &mut combined_token_map).await {
+                Ok(s) => s,
+                Err((status, msg_err)) => return (status, msg_err).into_response(),
+            };
+        payload.system = Some(sanitized);
     }
 
     // Sanitize messages — support both string and content-block array formats
     for msg in payload.messages.iter_mut() {
-        if let Some(text) = msg.content.as_str() {
-            let report = match state
-                .shield
-                .sanitize_prompt(text, Some(&auth.session))
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => return map_error(e).into_response(),
-            };
-            if let Err(e) = state
-                .storage
-                .log_audit_event(&report, text, &auth.username)
-                .await
-            {
-                return map_error(e).into_response();
-            }
-            if report.is_blocked {
-                state
-                    .metrics
-                    .injections_blocked
-                    .fetch_add(1, Ordering::Relaxed);
-                return (StatusCode::BAD_REQUEST, "Message blocked.".to_string()).into_response();
-            }
-            if !report.token_map.is_empty() {
-                state
-                    .metrics
-                    .pii_entities_redacted
-                    .fetch_add(report.token_map.len() as u64, Ordering::Relaxed);
-            }
-            merge_token_map(&mut combined_token_map, &report.token_map);
-            msg.content = serde_json::Value::String(report.sanitized_text);
-        } else if let Some(blocks) = msg.content.as_array_mut() {
-            for block in blocks.iter_mut() {
-                if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    if let Some(text) = block
-                        .get("text")
-                        .and_then(|t| t.as_str())
-                        .map(str::to_string)
-                    {
-                        let report = match state
-                            .shield
-                            .sanitize_prompt(&text, Some(&auth.session))
-                            .await
-                        {
-                            Ok(r) => r,
-                            Err(e) => return map_error(e).into_response(),
-                        };
-                        if report.is_blocked {
-                            state
-                                .metrics
-                                .injections_blocked
-                                .fetch_add(1, Ordering::Relaxed);
-                            return (
-                                StatusCode::BAD_REQUEST,
-                                "Content block blocked.".to_string(),
-                            )
-                                .into_response();
-                        }
-                        if !report.token_map.is_empty() {
-                            state
-                                .metrics
-                                .pii_entities_redacted
-                                .fetch_add(report.token_map.len() as u64, Ordering::Relaxed);
-                        }
-                        merge_token_map(&mut combined_token_map, &report.token_map);
-                        block["text"] = serde_json::Value::String(report.sanitized_text);
-                    }
-                }
-            }
+        if let Err((status, msg_err)) = process_and_audit_content_value(
+            &state,
+            &auth,
+            &mut msg.content,
+            &mut combined_token_map,
+        )
+        .await
+        {
+            return (status, msg_err).into_response();
         }
     }
 
-    let target_url = resolve_upstream_url(&headers, &payload.model);
+    let target_url = match resolve_upstream_url(&headers, &payload.model).await {
+        Ok(u) => u,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+    let has_custom_target = headers
+        .get("X-IronWarden-Target-URL")
+        .or_else(|| headers.get("x-ironwarden-target-url"))
+        .is_some();
+
     let api_key = headers
         .get("x-api-key")
         .or_else(|| headers.get("X-IronWarden-Upstream-Key"))
         .or_else(|| headers.get("x-ironwarden-upstream-key"))
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
-        .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+        .or_else(|| {
+            if has_custom_target {
+                None
+            } else {
+                std::env::var("ANTHROPIC_API_KEY").ok()
+            }
+        })
         .unwrap_or_default();
     let anthropic_version = headers
         .get("anthropic-version")
@@ -1184,5 +1177,260 @@ mod tests {
         let grafana_str = String::from_utf8_lossy(&grafana_body);
         assert!(grafana_str.contains("ironwarden-main"));
         assert!(grafana_str.contains("IronWarden Universal Gateway Dashboard"));
+    }
+
+    #[tokio::test]
+    async fn test_models_endpoint_unauthenticated_rejected() {
+        let pepper = SecretVec::from(vec![0u8; 32]);
+        let queue = GroundingQueue::new(
+            "file::memory:?cache=shared".to_string(),
+            &pepper,
+            None,
+            None,
+        )
+        .unwrap();
+        let session_manager =
+            LocalSessionManager::new("file::memory:?cache=shared".to_string(), &pepper).unwrap();
+
+        struct DummyStorage;
+        #[async_trait]
+        impl StorageProvider for DummyStorage {
+            async fn fetch_context(&self, _: &str, _: &str) -> Result<Vec<String>, SovereignError> {
+                Ok(vec![])
+            }
+            async fn log_audit_event(
+                &self,
+                _: &ScrubbingReport,
+                _: &str,
+                _: &str,
+            ) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn validate_job_access(&self, _: &str, _: &str) -> Result<bool, SovereignError> {
+                Ok(true)
+            }
+            async fn purge_user_data(&self, _: &str) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn check_health(&self) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn get_compliance_report(&self) -> Result<ComplianceReport, SovereignError> {
+                unimplemented!()
+            }
+        }
+
+        let state = Arc::new(BridgeState {
+            shield: Arc::new(MockPiiShield),
+            grounding_shield: Arc::new(MockGroundingShield),
+            queue: Arc::new(queue),
+            storage: Arc::new(DummyStorage),
+            session_manager,
+            jwt_public_key: SecretVec::from(PUBLIC_KEY_PEM.to_vec()),
+            ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(10)),
+            metrics: Arc::new(crate::metrics::GatewayMetrics::new()),
+        });
+
+        let app = create_bridge_router(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/models")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                8080,
+            ))))
+            .body(Body::empty())
+            .unwrap();
+
+        let res = app.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_health_and_metrics_exempt_when_concurrency_exhausted() {
+        let pepper = SecretVec::from(vec![0u8; 32]);
+        let queue = GroundingQueue::new(
+            "file::memory:?cache=shared".to_string(),
+            &pepper,
+            None,
+            None,
+        )
+        .unwrap();
+        let session_manager =
+            LocalSessionManager::new("file::memory:?cache=shared".to_string(), &pepper).unwrap();
+
+        struct DummyStorage;
+        #[async_trait]
+        impl StorageProvider for DummyStorage {
+            async fn fetch_context(&self, _: &str, _: &str) -> Result<Vec<String>, SovereignError> {
+                Ok(vec![])
+            }
+            async fn log_audit_event(
+                &self,
+                _: &ScrubbingReport,
+                _: &str,
+                _: &str,
+            ) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn validate_job_access(&self, _: &str, _: &str) -> Result<bool, SovereignError> {
+                Ok(true)
+            }
+            async fn purge_user_data(&self, _: &str) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn check_health(&self) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn get_compliance_report(&self) -> Result<ComplianceReport, SovereignError> {
+                unimplemented!()
+            }
+        }
+
+        // Set semaphore to 0 permits (fully exhausted concurrency)
+        let state = Arc::new(BridgeState {
+            shield: Arc::new(MockPiiShield),
+            grounding_shield: Arc::new(MockGroundingShield),
+            queue: Arc::new(queue),
+            storage: Arc::new(DummyStorage),
+            session_manager,
+            jwt_public_key: SecretVec::from(PUBLIC_KEY_PEM.to_vec()),
+            ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(0)),
+            metrics: Arc::new(crate::metrics::GatewayMetrics::new()),
+        });
+
+        let app = create_bridge_router(state);
+
+        // 1. /health MUST succeed with 200 OK even when concurrency permits are exhausted
+        let health_req = Request::builder()
+            .method("GET")
+            .uri("/health")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                8080,
+            ))))
+            .body(Body::empty())
+            .unwrap();
+        let health_res = app.clone().oneshot(health_req).await.unwrap();
+        assert_eq!(health_res.status(), StatusCode::OK);
+
+        // 2. /metrics MUST succeed with 200 OK even when concurrency permits are exhausted
+        let metrics_req = Request::builder()
+            .method("GET")
+            .uri("/metrics")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                8080,
+            ))))
+            .body(Body::empty())
+            .unwrap();
+        let metrics_res = app.clone().oneshot(metrics_req).await.unwrap();
+        assert_eq!(metrics_res.status(), StatusCode::OK);
+
+        // 3. Protected endpoint MUST return 429 Too Many Requests
+        let enqueue_req = Request::builder()
+            .method("POST")
+            .uri("/enqueue")
+            .header("Content-Type", "application/json")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                8080,
+            ))))
+            .body(Body::from(r#"{"query":"test","thread_id":"t1"}"#))
+            .unwrap();
+        let enqueue_res = app.oneshot(enqueue_req).await.unwrap();
+        assert_eq!(enqueue_res.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn test_target_url_invalid_fails_closed() {
+        let pepper = SecretVec::from(vec![0u8; 32]);
+        let queue = GroundingQueue::new(
+            "file::memory:?cache=shared".to_string(),
+            &pepper,
+            None,
+            None,
+        )
+        .unwrap();
+        let session_manager =
+            LocalSessionManager::new("file::memory:?cache=shared".to_string(), &pepper).unwrap();
+
+        struct DummyStorage;
+        #[async_trait]
+        impl StorageProvider for DummyStorage {
+            async fn fetch_context(&self, _: &str, _: &str) -> Result<Vec<String>, SovereignError> {
+                Ok(vec![])
+            }
+            async fn log_audit_event(
+                &self,
+                _: &ScrubbingReport,
+                _: &str,
+                _: &str,
+            ) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn validate_job_access(&self, _: &str, _: &str) -> Result<bool, SovereignError> {
+                Ok(true)
+            }
+            async fn purge_user_data(&self, _: &str) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn check_health(&self) -> Result<(), SovereignError> {
+                Ok(())
+            }
+            async fn get_compliance_report(&self) -> Result<ComplianceReport, SovereignError> {
+                unimplemented!()
+            }
+        }
+
+        let state = Arc::new(BridgeState {
+            shield: Arc::new(MockPiiShield),
+            grounding_shield: Arc::new(MockGroundingShield),
+            queue: Arc::new(queue),
+            storage: Arc::new(DummyStorage),
+            session_manager,
+            jwt_public_key: SecretVec::from(PUBLIC_KEY_PEM.to_vec()),
+            ingress_semaphore: Arc::new(tokio::sync::Semaphore::new(10)),
+            metrics: Arc::new(crate::metrics::GatewayMetrics::new()),
+        });
+
+        let app = create_bridge_router(state);
+
+        std::env::set_var("WARDEN_JWT_AUDIENCE", "test_aud");
+        std::env::set_var("WARDEN_JWT_ISSUER", "test_iss");
+
+        let claims = CustomClaims {
+            sub: "admin_user".to_string(),
+            exp: 9999999999,
+            iss: "test_iss".to_string(),
+            aud: "test_aud".to_string(),
+            roles: vec!["admin".to_string()],
+        };
+        let key = EncodingKey::from_rsa_pem(PRIVATE_KEY_PEM).unwrap();
+        let token = encode(&Header::new(Algorithm::RS256), &claims, &key).unwrap();
+
+        // Attempt SSRF via cloud metadata target
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .header(
+                "X-IronWarden-Target-URL",
+                "http://169.254.169.254/latest/meta-data",
+            )
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                8080,
+            ))))
+            .body(Body::from(
+                r#"{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}"#,
+            ))
+            .unwrap();
+
+        let res = app.oneshot(req).await.unwrap();
+        // Must fail closed with 400 Bad Request
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 }
