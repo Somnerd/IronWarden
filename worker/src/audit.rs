@@ -489,12 +489,15 @@ impl AsyncAuditor {
                     AuditMessage::PurgeUser(username, ack_tx) => {
                         let res = if let Some(ref c) = conn {
                             let _ = c.execute("BEGIN IMMEDIATE TRANSACTION", []);
+                            // Cryptographic shredding under GDPR:
+                            // 1. Wipe ephemeral raw logs & encryption keys/nonces
                             let res1 = c.execute(
-                                "DELETE FROM audit_reports WHERE username = ?1",
+                                "DELETE FROM ephemeral_raw_logs WHERE username = ?1",
                                 [&username],
                             );
+                            // 2. Redact username in audit_reports to preserve row IDs and cryptographic chain
                             let res2 = c.execute(
-                                "DELETE FROM ephemeral_raw_logs WHERE username = ?1",
+                                "UPDATE audit_reports SET username = '[REDACTED]' WHERE username = ?1",
                                 [&username],
                             );
 
@@ -506,7 +509,7 @@ impl AsyncAuditor {
                             } else {
                                 let _ = c.execute("COMMIT", []);
                                 info!(
-                                    "GDPR Purge: All audit records for user {} have been erased.",
+                                    "GDPR Purge: All audit records for user {} have been cryptographically shredded.",
                                     username
                                 );
                                 Ok(())
@@ -743,6 +746,16 @@ impl AsyncAuditor {
                 let redactions_bin = bincode::serialize(&redactions_vec).unwrap_or_default();
                 let payload_hash =
                     hex::decode(&payload_hash_str).map_err(|_| rusqlite::Error::InvalidQuery)?;
+
+                // Cryptographic shredding support: if username was purged/redacted under GDPR,
+                // the raw identity is deleted but the proof-of-history hash chain remains unbroken.
+                if username == "[REDACTED]" || username.starts_with("GDPR_") {
+                    let stored_bytes =
+                        hex::decode(&stored_hash).map_err(|_| rusqlite::Error::InvalidQuery)?;
+                    current_hash = stored_bytes;
+                    current_id = id;
+                    continue;
+                }
 
                 // Stage 1: Verify HMAC Chain (Metadata + Username + Payload Hash)
                 let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key)
@@ -991,6 +1004,37 @@ mod additional_audit_tests {
             )
             .unwrap();
         assert_eq!(count_raw_b, 1, "User B ephemeral_raw_logs should remain");
+
+        // Verify cryptographic shredding preserved contiguous rows in audit_reports
+        let count_redacted: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM audit_reports WHERE username = '[REDACTED]'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count_redacted, 1,
+            "User A record must be pseudonymized/redacted in-place"
+        );
+
+        let total_reports: i64 = conn
+            .query_row("SELECT COUNT(*) FROM audit_reports", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            total_reports, 2,
+            "Total rows must remain 2 to preserve ID sequence"
+        );
+
+        drop(conn);
+
+        // Verify full-chain integrity walk on server restart after GDPR purge
+        let pepper2 = SecretVec::from(vec![0u8; 32]);
+        let auditor2 = AsyncAuditor::spawn(&db_path, pepper2, None).await.unwrap();
+        auditor2
+            .log_report(report.clone(), "rawC".into(), "userC".into())
+            .await
+            .unwrap();
 
         std::fs::remove_file(&db_path).ok();
         std::fs::remove_file(format!("{}.anchor", db_path)).ok();

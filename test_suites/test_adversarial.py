@@ -76,19 +76,20 @@ def test_scaling_ai_mutex_contention(warden, jwt_factory):
     Verify that multiple concurrent requests are serialized by the AI Mutex.
     (Indirectly observed via latency spikes).
     """
-    # Note: Since our AI is a mock, this might be fast, but if we add a sleep in the mock...
-    # For now, just ensure 5 concurrent heavy requests don't crash.
+    # Brief cooldown to allow prior connections from large 2MB payloads to finish draining
+    time.sleep(1.0)
     bridge_url = f"http://localhost:{warden.env['BRIDGE_PORT']}"
     token = jwt_factory("tester")
     headers = {"Authorization": f"Bearer {token}"}
     
-    def send():
-        return requests.post(f"{bridge_url}/enqueue", json={"query": "Alice " * 10, "thread_id": "t"}, headers=headers, timeout=45.0)
+    with requests.Session() as session:
+        def send():
+            return session.post(f"{bridge_url}/enqueue", json={"query": "Alice " * 10, "thread_id": "t"}, headers=headers, timeout=45.0)
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(send) for _ in range(10)]
-        for f in as_completed(futures):
-            assert f.result().status_code in [200, 429]
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(send) for _ in range(10)]
+            for f in as_completed(futures):
+                assert f.result().status_code in [200, 429]
 
 def test_mcp_multi_line_pii(warden):
     params = {
