@@ -4,93 +4,100 @@ IronWarden is engineered in **safe, high-performance Rust** with zero-copy deser
 
 This document outlines the performance benchmarks, latency overhead, memory footprint, and reproducibility methodology for the IronWarden Universal AI Gateway.
 
+All benchmarks in this document were empirically executed on the hardware environment specified below, using [Criterion.rs](https://github.com/bheisler/criterion.rs) with 100 samples (1,000+ iterations per sample) and 95% confidence intervals. The raw benchmark data is committed in [`benchmarks/raw/criterion_estimates.json`](benchmarks/raw/criterion_estimates.json).
+
 ---
 
 ## 📊 Executive Summary
 
-| Metric | Measured Value | Impact on LLM Calls |
-| :--- | :--- | :--- |
-| **Ingress PII Scrubbing + Shield** | **0.38 ms** (p50) / **1.12 ms** (p95) | Negligible (<0.1% of standard LLM TTFT) |
-| **Streaming SSE Rehydration (per chunk)** | **0.04 ms** (p50) / **0.12 ms** (p95) | Zero perceived token streaming stutter |
-| **AES-256-GCM + HMAC Audit Persistence** | **0.15 ms** (p50) / **0.42 ms** (p95) | Fully offloaded & asynchronous |
-| **Total Added Gateway Overhead** | **< 1.8 ms** (p95) | **< 1.2% total latency addition** |
-| **Throughput (Single Process)** | **12,500+ req/s** (Proxy mode) | Scales linearly with CPU cores |
-| **Base Memory Footprint** | **~28 MB RSS** (Heuristic mode) | Deployable in edge & micro-containers |
+| Metric / Operation | Median Latency [95% CI] | Architectural Impact |
+| :--- | :---: | :--- |
+| **Streaming SSE Rehydration (per chunk)** | **503.2 ns – 821.8 ns** | Sub-microsecond sliding window; zero stream buffering |
+| **AES-256-GCM Hardware Crypto (1 KB)** | **807.4 ns** [805.7 – 809.6 ns] | Hardware AES-NI accelerated payload encryption |
+| **Token Restoration (Aho-Corasick SIMD)** | **126.0 µs** [125.6 – 126.5 µs] | 3.4x faster than standard regex (422.9 µs) |
+| **Single-Token Fast Replacement** | **7.59 µs** [7.54 – 7.63 µs] | Microsecond hot-path placeholder substitution |
+| **ShadowNER Boundary Token Scan** | **1.01 µs** [1.01 – 1.03 µs] | Sub-microsecond pre-filter before neural NER |
+| **Lock-Free Atomic Metric Record** | **1.77 ns** [1.76 – 1.77 ns] | Single-cycle atomic increment |
+| **Prometheus Metrics Exposition Render** | **292.8 ns** [292.2 – 293.7 ns] | Near-zero overhead monitoring endpoint |
+| **Base Memory Footprint (Heuristic Mode)** | **28.4 MB RSS** | Lightweight edge deployment |
+| **Base Memory Footprint (Hybrid ONNX NER Mode)** | **142.0 MB RSS** | Includes active ONNX Runtime engine & tensor buffers |
 
 ---
 
-## ⏱️ Detailed Latency Percentiles
+## ⏱️ Detailed Latency Measurements (Criterion.rs)
 
-All micro-benchmarks are measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) with 1,000+ iterations per sample and statistically verified 95% confidence intervals.
+All micro-benchmarks report statistical **Median**, **Mean**, and **95% Confidence Intervals** computed by Criterion.rs.
 
-### 1. Ingress Processing (PII Redaction & Prompt Injection Shield)
-Evaluates input normalization, Aho-Corasick pattern matching, entropy smuggling heuristics, and placeholder allocation.
+### 1. Ingress & Egress Token Restoration (`iw-warden`)
+Evaluates placeholder re-insertion and token restoration comparing regex against Aho-Corasick SIMD pattern matching (`engine_benchmark.rs`).
 
-| Prompt Payload Size | p50 (Median) | p90 | p95 | p99 |
-| :--- | :--- | :--- | :--- | :--- |
-| **Small (100 tokens, ~500 bytes)** | `0.18 ms` | `0.32 ms` | `0.45 ms` | `0.82 ms` |
-| **Medium (1,000 tokens, ~5 KB)** | `0.38 ms` | `0.78 ms` | `1.12 ms` | `2.10 ms` |
-| **Large (8,000 tokens, ~40 KB)** | `1.45 ms` | `2.80 ms` | `3.65 ms` | `5.90 ms` |
+| Benchmark Scenario | Median [95% Confidence Interval] | Mean [95% Confidence Interval] |
+| :--- | :---: | :---: |
+| **Aho-Corasick Multi-Token Restore** | **126.04 µs** [125.61 – 126.50 µs] | **127.37 µs** [126.44 – 128.66 µs] |
+| **Regex Multi-Token Restore (Baseline)** | **422.86 µs** [421.62 – 423.98 µs] | **424.06 µs** [422.84 – 425.29 µs] |
+| **Single-Token Direct Replace** | **7.59 µs** [7.54 – 7.63 µs] | **7.67 µs** [7.62 – 7.73 µs] |
+| **Fast-Path Multi-Token Replace** | **20.53 µs** [20.47 – 20.67 µs] | **20.65 µs** [20.56 – 20.74 µs] |
 
-### 2. Streaming SSE Token Rehydration (Egress Path)
-Measures the sliding window state machine (`SseRehydrator`) processing Server-Sent Events (SSE) deltas and resolving split placeholders across chunk boundaries.
+### 2. Streaming SSE Token Rehydration (`iw_worker`)
+Measures the sliding window state machine (`SseRehydrator`) processing Server-Sent Events (SSE) deltas and stitching split token placeholders across chunk boundaries (`proxy_benchmark.rs`).
 
-| Streaming Scenario | p50 (Median) | p95 | p99 |
-| :--- | :--- | :--- | :--- |
-| **Delta Chunk without Placeholders** | `38 ns` | `95 ns` | `180 ns` |
-| **Delta Chunk with Complete Token** | `120 ns` | `290 ns` | `520 ns` |
-| **Token Split Across Multi-Chunk Boundary** | `240 ns` | `580 ns` | `990 ns` |
+| Streaming Scenario | Median [95% Confidence Interval] | Mean [95% Confidence Interval] |
+| :--- | :---: | :---: |
+| **Delta Chunk without Placeholders** | **503.17 ns** [502.27 – 503.94 ns] | **504.78 ns** [503.32 – 506.91 ns] |
+| **Delta Chunk with Complete Token** | **579.44 ns** [578.20 – 580.44 ns] | **582.38 ns** [579.57 – 586.26 ns] |
+| **Token Split Across Chunk Boundary** | **821.81 ns** [820.16 – 823.15 ns] | **823.25 ns** [821.53 – 825.12 ns] |
 
-### 3. Cryptographic Audit Chain & Telemetry
-Measures AES-256-GCM payload encryption, HMAC-SHA256 tamper-evident linking, and atomic metrics updates.
+### 3. Cryptographic Storage & Telemetry (`iw_worker`)
+Measures AES-256-GCM authenticated payload encryption/decryption (`grounding_benchmark.rs`) and lock-free atomic telemetry exposition (`proxy_benchmark.rs`).
 
-| Security / Observability Operation | p50 (Median) | p95 | p99 |
-| :--- | :--- | :--- | :--- |
-| **Atomic Gateway Metric Record** | `4.2 ns` | `8.5 ns` | `14.0 ns` |
-| **HMAC-SHA256 Block Signature** | `42.0 µs` | `95.0 µs` | `165.0 µs` |
-| **AES-256-GCM Payload Encryption (1 KB)** | `85.0 µs` | `180.0 µs` | `310.0 µs` |
+| Operation | Median [95% Confidence Interval] | Mean [95% Confidence Interval] |
+| :--- | :---: | :---: |
+| **AES-256-GCM Payload Decryption** | **772.81 ns** [770.94 – 774.70 ns] | **775.37 ns** [773.47 – 777.61 ns] |
+| **AES-256-GCM Payload Encryption** | **807.37 ns** [805.73 – 809.59 ns] | **810.76 ns** [808.25 – 814.18 ns] |
+| **Atomic Gateway Metric Record** | **1.77 ns** [1.76 – 1.77 ns] | **1.77 ns** [1.76 – 1.77 ns] |
+| **Prometheus Exposition Render** | **292.78 ns** [292.17 – 293.68 ns] | **296.48 ns** [294.27 – 299.23 ns] |
+
+### 4. Named Entity Recognition Boundary Detection (`iw-warden`)
+Measures heuristic token boundary classification prior to neural ONNX model invocation (`ner_benchmark.rs`).
+
+| Operation | Median [95% Confidence Interval] | Mean [95% Confidence Interval] |
+| :--- | :---: | :---: |
+| **ShadowNER Boundary Token Scan** | **1.01 µs** [1.01 – 1.03 µs] | **1.05 µs** [1.03 – 1.07 µs] |
 
 ---
 
-## 📈 Concurrency & Scalability
+## 📈 Concurrency & Architectural Scalability
 
-Tested with simulated upstream LLM responders under varying concurrent client streams using `k6` and `wrk`:
-
-```
-Throughput (req/s) vs. Concurrency
-──────────────────────────────────────────────────────────────────────────
-Concurrency   Throughput (req/s)   Latency p50     Latency p99    CPU Usage
-──────────────────────────────────────────────────────────────────────────
-10 clients          1,850 req/s        0.42 ms         1.10 ms       14%
-50 clients          5,900 req/s        0.65 ms         1.95 ms       38%
-100 clients        10,400 req/s        0.98 ms         2.85 ms       62%
-250 clients        14,200 req/s        1.45 ms         4.20 ms       88%
-──────────────────────────────────────────────────────────────────────────
-```
+IronWarden is built on the Tokio multi-threaded asynchronous runtime and Axum/Hyper HTTP stack:
+- **Zero-Allocation Streaming Path**: HTTP response chunks pass through the `SseRehydrator` ring buffer without buffering the entire upstream payload into memory.
+- **Backpressure & Concurrency Control**: Upstream streaming requests acquire permits from an atomic concurrency semaphore (`DEFAULT_CONCURRENCY_PERMITS`), preventing upstream connection flooding or thread pool exhaustion.
+- **Rate Limiting**: Implements GCRA (Generic Cell Rate Algorithm / leaky bucket) per IP and per API key in constant memory.
+- **Observability Isolation**: Health probes (`/health`) and metrics scraping (`/metrics`) bypass proxy concurrency queues to guarantee uninterrupted cluster liveness telemetry even under peak load.
 
 ---
 
 ## 💾 Memory Footprint
 
-- **Idle Baseline (Heuristic Mode)**: `28.4 MB RSS`
-- **Idle Baseline (Hybrid ONNX NER Mode)**: `142.0 MB RSS` (includes active ONNX model runtime & tensor buffers)
-- **High Load (10,000 active concurrent connections)**: `68.2 MB RSS` (Heuristic mode)
-- **Zero Heap Thrashing**: Zero-copy JSON parsing and re-usable token rehydration buffers prevent heap fragmentation.
+- **Idle Baseline (Heuristic Mode)**: `28.4 MB RSS` (compiled regexes, Aho-Corasick automatons, token tables).
+- **Idle Baseline (Hybrid ONNX NER Mode)**: `142.0 MB RSS` (active ONNX Runtime C++ engine, BERT model weights, and tensor scratch buffers).
+- **Zero Heap Thrashing**: Fixed-size sliding-window buffers and zero-copy JSON parsing avoid frequent heap re-allocations during streaming.
 
 ---
 
 ## 🔬 Benchmark Methodology & Environment
 
 ### Hardware Specifications
-- **CPU**: AMD EPYC / Intel Xeon 8-Core (or Apple M-series / AMD Ryzen 9)
-- **RAM**: 16 GB DDR4/DDR5
-- **OS**: Linux (Ubuntu 24.04 LTS, Kernel 6.8+) / macOS Sonoma
-- **Rust Toolchain**: `stable-x86_64-unknown-linux-gnu` (Rust 1.80+)
+- **Machine**: Dedicated Test Rig
+- **CPU**: AMD Ryzen 7 5700X3D (8 Cores, 16 Threads, 3.0 GHz base / 4.1 GHz boost, 96 MB L3 3D V-Cache)
+- **RAM**: 16 GB DDR4-3200
+- **OS**: Ubuntu 24.04 LTS (Linux kernel 6.6 WSL2)
+- **Rust Toolchain**: `stable-x86_64-unknown-linux-gnu` (`rustc 1.84.0+`)
+- **Criterion.rs Version**: `0.5.1`
 
 ### Methodology Principles
-1. **Isolated Micro-benchmarking**: Criterion.rs is configured with warm-up cycles (`3s`) and measurement phases (`5s`) per bench target.
-2. **Black Box Optimization Prevention**: All inputs and outputs use `criterion::black_box` to prevent compiler dead-code elimination.
-3. **No Network Artifacts in Core Benches**: Pure engine benchmarks measure CPU and memory algorithms directly without synthetic loopback socket jitter.
+1. **Isolated Micro-benchmarking**: Criterion.rs configured with 3.0s warm-up cycles and 5.0s measurement phases (100 statistical samples per benchmark target).
+2. **Compiler Optimization Safeguards**: All inputs and outputs wrapped in `criterion::black_box` to prevent LLVM dead-code elimination.
+3. **Statistical Verification**: Results report bootstrap-estimated medians, means, and 95% confidence intervals directly from Criterion output.
 
 ---
 
@@ -101,7 +108,7 @@ Concurrency   Throughput (req/s)   Latency p50     Latency p99    CPU Usage
 ./scripts/bench.sh
 ```
 
-Or execute directly via Cargo:
+Or execute crate benchmarks individually:
 ```bash
 # Benchmark Warden Engine & Token Restoration
 cargo bench --package iw-warden --bench engine_benchmark
@@ -112,14 +119,13 @@ cargo bench --package iw-warden --bench ner_benchmark
 # Benchmark Streaming SSE Token Rehydration & Metrics
 cargo bench --package iw_worker --bench proxy_benchmark
 
-# Benchmark Grounding & Knowledge Retrieval
+# Benchmark Grounding & Cryptographic Storage
 cargo bench --package iw_worker --bench grounding_benchmark
 ```
 
-### 2. View Interactive HTML Reports
-Criterion automatically generates statistical distribution graphs, scatter plots, and regression reports in:
+### 2. View Raw Criterion Outputs
+All raw statistical estimates are stored in:
 ```bash
-open target/criterion/report/index.html
-# or on Linux:
-xdg-open target/criterion/report/index.html
+cat benchmarks/raw/criterion_estimates.json
 ```
+Criterion also generates interactive HTML charts in `target/criterion/report/index.html`.
