@@ -1,0 +1,189 @@
+   Compiling typenum v1.20.1
+   Compiling cc v1.2.65
+   Compiling serde_core v1.0.228
+   Compiling smallvec v1.15.2
+   Compiling syn v2.0.118
+   Compiling getrandom v0.4.3
+   Compiling serde_json v1.0.150
+   Compiling num-integer v0.1.46
+   Compiling portable-atomic v1.13.1
+   Compiling futures-core v0.3.32
+   Compiling futures-sink v0.3.32
+   Compiling time-macros v0.2.29
+   Compiling matrixmultiply v0.3.10
+   Compiling deranged v0.5.8
+   Compiling slab v0.4.12
+   Compiling num-complex v0.4.6
+   Compiling parking_lot_core v0.9.12
+   Compiling futures-channel v0.3.32
+   Compiling unicode-normalization-alignments v0.1.12
+   Compiling wait-timeout v0.2.1
+   Compiling num-iter v0.1.45
+   Compiling num-bigint v0.4.6
+   Compiling parking_lot v0.12.5
+   Compiling dashmap v6.2.1
+   Compiling bit-vec v0.8.0
+   Compiling quick-error v1.2.3
+   Compiling uuid v1.23.3
+   Compiling tempfile v3.27.0
+   Compiling plotters v0.3.7
+   Compiling clap v4.6.1
+   Compiling flume v0.12.0
+   Compiling bit-set v0.8.0
+   Compiling rusty-fork v0.3.1
+   Compiling rand v0.9.4
+   Compiling rand_xorshift v0.4.0
+   Compiling is-terminal v0.4.17
+   Compiling oorandom v11.1.5
+   Compiling anes v0.1.6
+   Compiling indicatif v0.17.11
+   Compiling moka v0.12.15
+   Compiling openssl-sys v0.9.117
+   Compiling onig_sys v69.9.3
+   Compiling esaxx-rs v0.1.10
+   Compiling iw-warden v1.1.0 (/home/somnerd/Documents/Projects/IronWarden/warden)
+   Compiling unarray v0.1.4
+   Compiling time v0.3.49
+   Compiling ndarray v0.17.2
+   Compiling openssl v0.10.81
+   Compiling darling_core v0.20.11
+   Compiling zeroize_derive v1.5.0
+   Compiling zerocopy-derive v0.8.52
+   Compiling serde_derive v1.0.228
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling thiserror-impl v2.0.18
+   Compiling futures-macro v0.3.32
+   Compiling tracing-attributes v0.1.31
+   Compiling openssl-macros v0.1.1
+   Compiling thiserror-impl v1.0.69
+   Compiling monostate-impl v0.1.18
+   Compiling tokio-macros v2.7.0
+   Compiling monostate v0.1.18
+   Compiling async-trait v0.1.89
+   Compiling zeroize v1.9.0
+   Compiling generic-array v0.14.9
+   Compiling der v0.7.10
+   Compiling tokio v1.52.3
+   Compiling futures-util v0.3.32
+   Compiling thiserror v1.0.69
+   Compiling thiserror v2.0.18
+   Compiling tracing v0.1.44
+   Compiling simple_asn1 v0.6.4
+   Compiling crypto-common v0.1.6
+   Compiling block-buffer v0.10.4
+   Compiling crypto-bigint v0.5.5
+   Compiling digest v0.10.7
+   Compiling inout v0.1.4
+   Compiling zerocopy v0.8.52
+   Compiling universal-hash v0.5.1
+   Compiling cipher v0.4.4
+   Compiling polyval v0.6.2
+   Compiling aead v0.5.2
+   Compiling darling_macro v0.20.11
+   Compiling hmac v0.12.1
+   Compiling signature v2.2.0
+   Compiling sha2 v0.10.9
+   Compiling hkdf v0.12.4
+   Compiling rfc6979 v0.4.0
+   Compiling curve25519-dalek v4.1.3
+   Compiling ctr v0.9.2
+   Compiling spki v0.7.3
+   Compiling aes v0.8.4
+   Compiling ghash v0.5.1
+   Compiling pkcs8 v0.10.2
+   Compiling darling v0.20.11
+   Compiling derive_builder_core v0.20.2
+   Compiling sec1 v0.7.3
+   Compiling ed25519 v2.2.3
+   Compiling serde v1.0.228
+   Compiling elliptic-curve v0.13.8
+   Compiling pkcs1 v0.7.5
+   Compiling primeorder v0.13.6
+   Compiling ecdsa v0.16.9
+   Compiling derive_builder_macro v0.20.2
+   Compiling ed25519-dalek v2.2.0
+   Compiling secrecy v0.8.0
+   Compiling spm_precompiled v0.1.4
+   Compiling aes-gcm v0.10.3
+   Compiling ort v2.0.0-rc.12
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling futures-executor v0.3.32
+   Compiling tinytemplate v1.2.1
+   Compiling p256 v0.13.2
+   Compiling p384 v0.13.1
+   Compiling derive_builder v0.20.2
+   Compiling futures v0.3.32
+   Compiling ppv-lite86 v0.2.21
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling onig v6.5.3
+   Compiling rand_chacha v0.3.1
+   Compiling rand_chacha v0.9.0
+   Compiling ciborium v0.2.2
+   Compiling proptest v1.11.0
+   Compiling rand v0.8.6
+   Compiling criterion v0.5.1
+   Compiling num-bigint-dig v0.8.6
+   Compiling tokenizers v0.19.1
+   Compiling rsa v0.9.10
+   Compiling jsonwebtoken v10.4.0
+   Compiling iw_core v1.1.0 (/home/somnerd/Documents/Projects/IronWarden/core)
+    Finished `bench` profile [optimized] target(s) in 24.39s
+     Running benches/engine_benchmark.rs (target/release/deps/engine_benchmark-adfb4b0f9dc22e5c)
+Gnuplot not found, using plotters backend
+Benchmarking restore_prompt/regex_approach
+Benchmarking restore_prompt/regex_approach: Warming up for 3.0000 s
+Benchmarking restore_prompt/regex_approach: Collecting 100 samples in estimated 6.7681 s (15k iterations)
+Benchmarking restore_prompt/regex_approach: Analyzing
+restore_prompt/regex_approach
+                        time:   [465.99 µs 471.63 µs 477.37 µs]
+Found 2 outliers among 100 measurements (2.00%)
+  2 (2.00%) high mild
+Benchmarking restore_prompt/aho_corasick_approach
+Benchmarking restore_prompt/aho_corasick_approach: Warming up for 3.0000 s
+Benchmarking restore_prompt/aho_corasick_approach: Collecting 100 samples in estimated 5.4985 s (40k iterations)
+Benchmarking restore_prompt/aho_corasick_approach: Analyzing
+restore_prompt/aho_corasick_approach
+                        time:   [126.44 µs 128.04 µs 129.80 µs]
+Found 9 outliers among 100 measurements (9.00%)
+  6 (6.00%) high mild
+  3 (3.00%) high severe
+
+Benchmarking restore_prompt_compare/replace_approach
+Benchmarking restore_prompt_compare/replace_approach: Warming up for 3.0000 s
+Benchmarking restore_prompt_compare/replace_approach: Collecting 100 samples in estimated 5.0044 s (591k iterations)
+Benchmarking restore_prompt_compare/replace_approach: Analyzing
+restore_prompt_compare/replace_approach
+                        time:   [7.8997 µs 7.9934 µs 8.1018 µs]
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+Benchmarking restore_prompt_compare/aho_corasick_approach
+Benchmarking restore_prompt_compare/aho_corasick_approach: Warming up for 3.0000 s
+Benchmarking restore_prompt_compare/aho_corasick_approach: Collecting 100 samples in estimated 5.5620 s (40k iterations)
+Benchmarking restore_prompt_compare/aho_corasick_approach: Analyzing
+restore_prompt_compare/aho_corasick_approach
+                        time:   [132.64 µs 133.85 µs 135.17 µs]
+Found 6 outliers among 100 measurements (6.00%)
+  3 (3.00%) high mild
+  3 (3.00%) high severe
+
+Benchmarking restore_prompt_compare_all/replace_fast_approach
+Benchmarking restore_prompt_compare_all/replace_fast_approach: Warming up for 3.0000 s
+Benchmarking restore_prompt_compare_all/replace_fast_approach: Collecting 100 samples in estimated 5.0448 s (202k iterations)
+Benchmarking restore_prompt_compare_all/replace_fast_approach: Analyzing
+restore_prompt_compare_all/replace_fast_approach
+                        time:   [21.912 µs 22.256 µs 22.628 µs]
+Found 4 outliers among 100 measurements (4.00%)
+  3 (3.00%) high mild
+  1 (1.00%) high severe
+Benchmarking restore_prompt_compare_all/aho_corasick_approach
+Benchmarking restore_prompt_compare_all/aho_corasick_approach: Warming up for 3.0000 s
+Benchmarking restore_prompt_compare_all/aho_corasick_approach: Collecting 100 samples in estimated 5.1586 s (40k iterations)
+Benchmarking restore_prompt_compare_all/aho_corasick_approach: Analyzing
+restore_prompt_compare_all/aho_corasick_approach
+                        time:   [131.68 µs 134.05 µs 136.59 µs]
+Found 5 outliers among 100 measurements (5.00%)
+  2 (2.00%) high mild
+  3 (3.00%) high severe
+

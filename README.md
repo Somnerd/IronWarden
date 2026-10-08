@@ -6,7 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fsomnerd%2Fironwarden-blue?logo=docker)](https://github.com/Somnerd/IronWarden/pkgs/container/ironwarden)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?logo=rust)](Cargo.toml)
-[![Latency](https://img.shields.io/badge/Overhead-%3C0.07ms%20p95-brightgreen)](BENCHMARKS.md)
+[![Criterion Benchmarks](https://img.shields.io/badge/Criterion%20Benchmarks-Statistically%20Verified-brightgreen)](BENCHMARKS.md)
+[![SSE Rehydration](https://img.shields.io/badge/SSE%20Rehydration-%3C1%C2%B5s%20per%20chunk-blue)](BENCHMARKS.md)
 
 **IronWarden** is a sovereign, ultra-low-latency AI security reverse proxy and PII firewall written in bare-metal Rust. 
 
@@ -14,17 +15,16 @@ Point any **OpenAI**, **Anthropic**, or **Ollama/vLLM** SDK client at IronWarden
 
 ---
 
-## ⚡ Technical Superiority & Latency Benchmark Matrix
+## ⚡ Architectural Comparison
 
-| Metric | **IronWarden** (Rust) | **LiteLLM** (Python) | **Portkey** (Node.js) | **Kong AI Gateway** (Lua/Go) |
+| Capability / Dimension | **IronWarden** | **Python Proxies (e.g. LiteLLM)** | **Node.js Gateways (e.g. Portkey)** | **Reverse Proxies (e.g. Kong)** |
 | :--- | :---: | :---: | :---: | :---: |
-| **Language & Runtime** | Bare-Metal Rust (Tokio/Axum) | Python (FastAPI/Uvicorn) | Node.js (TypeScript) | OpenResty (Lua) / Go |
-| **P95 Routing Overhead** | **<0.07 ms** | 18.5 ms | 12.2 ms | 3.4 ms |
-| **Streaming PII Redaction** | **Real-Time Sliding Window** | Buffers Entire Stream | Buffers or regex post-hoc | Basic plugin / slow Lua regex |
-| **Max Concurrency (1 Core)** | **125,000+ req/s** | ~2,200 req/s | ~4,800 req/s | ~24,000 req/s |
-| **Memory Footprint** | **~18 MB** | ~140 MB | ~110 MB | ~85 MB |
-| **Data Sovereignty** | **100% Local / On-Prem / VPC** | Local or Cloud | Cloud SaaS Dependent | Self-hosted or Cloud |
-| **Audit Log Integrity** | **Cryptographic HMAC-SHA256 Chaining** | Plain Text JSON | Cloud SaaS Dashboard | Standard Access Logs |
+| **Language & Concurrency** | **Safe Rust (Tokio / Axum async)** | Python (FastAPI / Uvicorn) | Node.js (TypeScript / V8) | OpenResty (Nginx / Lua) or Go |
+| **Memory Safety & Runtime** | **Zero GC pauses, compile-time borrow checks** | GIL lock, garbage collection overhead | Single-threaded event loop, GC sweeps | Manual memory (C/Lua) or Go GC |
+| **Streaming PII Redaction** | **Real-Time Sliding-Window SSE (<1 µs/chunk)** | Buffers stream or high-latency regex | Buffers stream or post-hoc inspection | Plugin-dependent / Lua regex |
+| **Audit Log Integrity** | **Cryptographic HMAC-SHA256 Ledger Chaining** | Plaintext JSON files | Cloud SaaS telemetry | Standard web access logs |
+| **Base Memory Footprint** | **~28.4 MB RSS (Heuristic) / ~142 MB (Hybrid NER)** | ~140 MB+ baseline | ~110 MB+ baseline | ~85 MB baseline |
+| **Data Sovereignty** | **100% Local / Air-Gapped / Private VPC** | Self-hosted or SaaS | SaaS-dependent cloud routing | Self-hosted or Enterprise Cloud |
 
 ---
 
@@ -194,7 +194,7 @@ print(message.content[0].text)
 ## 🛡️ Core Capabilities & Invariants
 
 ### 1. Real-Time Streaming SSE Token Rehydration
-Unlike standard proxies that buffer the entire response to replace tokens (introducing massive latency and breaking streaming UI), IronWarden implements an **asynchronous SSE sliding-window state machine** (`SseRehydrator`). It dynamically stitches split tokens across partial HTTP chunks in under **0.04 ms** per chunk.
+Unlike standard proxies that buffer the entire response to replace tokens (introducing massive latency and breaking streaming UI), IronWarden implements an **asynchronous SSE sliding-window state machine** (`SseRehydrator`). It dynamically stitches split tokens across partial HTTP chunks in under **1 µs** per chunk (503 ns – 822 ns Criterion median on AMD Ryzen 7 5700X3D).
 
 ### 2. Hybrid Intelligence PII Shield
 - **Deterministic Layer (Aho-Corasick + Entropy Smuggling Protection)**: Ultra-fast regex and entropy heuristics for Credit Cards, SSNs, Emails, Phone Numbers, IBANs, and International IDs (including Greek AMKA/AFM and EU identifiers).
@@ -224,16 +224,21 @@ IronWarden includes a native JSON-RPC 2.0 stdio MCP server for agentic AI archit
 
 ## 📊 Performance Benchmarks
 
-Measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) with 1,000+ iterations per sample. See [BENCHMARKS.md](BENCHMARKS.md) for full methodology.
+Empirically measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) (100 samples, 1,000+ iterations per sample, 95% confidence intervals) on AMD Ryzen 7 5700X3D (8C/16T, 96MB L3 V-Cache), Linux 6.6 WSL2. All raw data committed in [`benchmarks/raw/criterion_estimates.json`](benchmarks/raw/criterion_estimates.json). See [BENCHMARKS.md](BENCHMARKS.md) for full methodology.
 
-| Metric | Measured Value | Real-World Impact |
-| :--- | :--- | :--- |
-| **Ingress PII Scrubbing + Shield** | **0.38 ms** (p50) / **1.12 ms** (p95) | <0.1% of standard LLM TTFT |
-| **Streaming SSE Rehydration (per chunk)** | **0.04 ms** (p50) / **0.12 ms** (p95) | Zero perceived token streaming stutter |
-| **AES-256-GCM + HMAC Audit Persistence** | **0.15 ms** (p50) / **0.42 ms** (p95) | Fully offloaded & asynchronous |
-| **Total Added Gateway Overhead** | **< 1.8 ms** (p95) | **< 1.2% total added latency** |
-| **Throughput (Single Process)** | **14,200+ req/s** | Scales linearly with CPU cores |
-| **Base Memory Footprint** | **~28.4 MB RSS** | Ultra-lightweight edge deployment |
+| Operation / Micro-Benchmark | Median Latency [95% CI] | Architectural Impact |
+| :--- | :---: | :--- |
+| **Streaming SSE Rehydration (no tokens)** | **503.2 ns** [502.3 – 503.9 ns] | Zero perceptible streaming stutter (<0.001 ms) |
+| **Streaming SSE Rehydration (complete token)** | **579.4 ns** [578.2 – 580.4 ns] | Immediate in-flight substitution |
+| **Streaming SSE Rehydration (split token across chunks)** | **821.8 ns** [820.2 – 823.2 ns] | Sub-microsecond multi-chunk state machine |
+| **AES-256-GCM Hardware Decryption** | **772.8 ns** [770.9 – 774.7 ns] | Hardware AES-NI accelerated |
+| **AES-256-GCM Hardware Encryption** | **807.4 ns** [805.7 – 809.6 ns] | Hardware AES-NI accelerated |
+| **Token Restoration (Aho-Corasick SIMD)** | **126.0 µs** [125.6 – 126.5 µs] | 3.4x faster than regex (422.9 µs) |
+| **ShadowNER Boundary Token Scan** | **1.01 µs** [1.01 – 1.03 µs] | Sub-microsecond heuristic pre-filter |
+| **Lock-Free Atomic Metric Record** | **1.77 ns** [1.76 – 1.77 ns] | Zero lock contention telemetry |
+| **Prometheus Exposition Render** | **292.8 ns** [292.2 – 293.7 ns] | Near-zero overhead monitoring |
+| **Base Memory Footprint (Heuristic Mode)** | **28.4 MB RSS** | Minimal footprint for micro-containers |
+| **Base Memory Footprint (Hybrid ONNX NER Mode)** | **142.0 MB RSS** | Loaded ONNX Runtime engine & tensor buffers |
 
 ---
 
@@ -256,7 +261,7 @@ Visit **`http://localhost:3000`** (admin/admin) to view real-time gateway traffi
 
 ### 🛠️ Need Custom High-Performance Systems or Sovereign AI Infrastructure?
 I partner with engineering teams and startups on fractional consulting and dedicated infrastructure sprints:
-* **The 1-Week Sovereign AI Gateway Sprint (€4,500 flat fee)**: VPC deployment, custom PII rules, and <0.1ms streaming latency.
+* **The 1-Week Sovereign AI Gateway Sprint (€4,500 flat fee)**: VPC deployment, custom PII rules, and sub-millisecond gateway processing overhead.
 * **Custom Rust Reverse Proxies & Protocol Gateways** (HTTP/2, Tokio, Axum, L2.5–L7 signaling).
 * **Backend Performance Audits & Python-to-Rust Migrations**.
 
