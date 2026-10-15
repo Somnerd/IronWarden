@@ -8,6 +8,7 @@ members = [
     "app",
     "cli",
     "integration_tests",
+    "benchmarks/accuracy_suite",
 ]
 
 [workspace.package]
