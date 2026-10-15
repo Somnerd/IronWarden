@@ -8,7 +8,7 @@ use secrecy::ExposeSecret;
 use secrecy::SecretVec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 // ── OpenAI DTOs ───────────────────────────────────────────────────────────────
@@ -189,7 +189,9 @@ fn is_private_or_loopback(ip: &IpAddr) -> bool {
 ///   `ALLOW_PRIVATE_TARGET_URL=true` or listed in `IRONWARDEN_ALLOWED_TARGET_HOSTS`.
 /// - In development/test mode, permits `127.0.0.1` and `localhost` for local services/testing,
 ///   while keeping metadata IPs strictly blocked.
-pub async fn validate_upstream_url(raw_url: &str) -> Result<String, SovereignError> {
+pub async fn validate_upstream_url(
+    raw_url: &str,
+) -> Result<(String, Option<SocketAddr>), SovereignError> {
     let trimmed = raw_url.trim();
     if trimmed.is_empty() {
         return Err(SovereignError::UnauthorizedAccess(
@@ -274,6 +276,8 @@ pub async fn validate_upstream_url(raw_url: &str) -> Result<String, SovereignErr
         .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
         .unwrap_or(false);
 
+    let mut pinned_addr: Option<SocketAddr> = None;
+
     // 6. Check if host parses as literal IP
     if let Ok(ip) = host_clean.parse::<IpAddr>() {
         if is_cloud_metadata_ip(&ip) {
@@ -288,6 +292,7 @@ pub async fn validate_upstream_url(raw_url: &str) -> Result<String, SovereignErr
                 host_str
             )));
         }
+        pinned_addr = Some(SocketAddr::new(ip, port));
     } else {
         // Hostname (not literal IP)
         let is_localhost = host_lower == "localhost" || host_lower.ends_with(".localhost");
@@ -303,6 +308,9 @@ pub async fn validate_upstream_url(raw_url: &str) -> Result<String, SovereignErr
             Ok(addrs) => {
                 let mut found = false;
                 for addr in addrs {
+                    if !found {
+                        pinned_addr = Some(addr);
+                    }
                     found = true;
                     let ip = addr.ip();
                     if is_cloud_metadata_ip(&ip) {
@@ -341,7 +349,7 @@ pub async fn validate_upstream_url(raw_url: &str) -> Result<String, SovereignErr
         }
     }
 
-    Ok(trimmed.to_string())
+    Ok((trimmed.to_string(), pinned_addr))
 }
 
 // ── Upstream Resolution ───────────────────────────────────────────────────────
@@ -354,7 +362,7 @@ pub async fn validate_upstream_url(raw_url: &str) -> Result<String, SovereignErr
 pub async fn resolve_upstream_url(
     headers: &HeaderMap,
     model: &str,
-) -> Result<String, SovereignError> {
+) -> Result<(String, Option<SocketAddr>), SovereignError> {
     if let Some(header_val) = headers
         .get("X-IronWarden-Target-URL")
         .or_else(|| headers.get("x-ironwarden-target-url"))
@@ -369,8 +377,11 @@ pub async fn resolve_upstream_url(
     }
     let m = model.to_lowercase();
     if m.starts_with("claude") {
-        return Ok(std::env::var("ANTHROPIC_BASE_URL")
-            .unwrap_or_else(|_| "https://api.anthropic.com/v1/messages".to_string()));
+        return Ok((
+            std::env::var("ANTHROPIC_BASE_URL")
+                .unwrap_or_else(|_| "https://api.anthropic.com/v1/messages".to_string()),
+            None,
+        ));
     }
     if m.starts_with("llama")
         || m.starts_with("mistral")
@@ -378,13 +389,19 @@ pub async fn resolve_upstream_url(
         || m.starts_with("gemma")
         || m.starts_with("qwen")
     {
-        return Ok(std::env::var("OLLAMA_BASE_URL")
-            .unwrap_or_else(|_| "http://localhost:11434/v1/chat/completions".to_string()));
+        return Ok((
+            std::env::var("OLLAMA_BASE_URL")
+                .unwrap_or_else(|_| "http://localhost:11434/v1/chat/completions".to_string()),
+            None,
+        ));
     }
-    Ok(std::env::var("OPENAI_BASE_URL")
-        .or_else(|_| std::env::var("UPSTREAM_LLM"))
-        .or_else(|_| std::env::var("UPSTREAM_OPENAI_URL"))
-        .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string()))
+    Ok((
+        std::env::var("OPENAI_BASE_URL")
+            .or_else(|_| std::env::var("UPSTREAM_LLM"))
+            .or_else(|_| std::env::var("UPSTREAM_OPENAI_URL"))
+            .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string()),
+        None,
+    ))
 }
 
 /// Upstream API key resolution:
@@ -449,7 +466,7 @@ mod tests {
             "http://custom-override.example.com",
         );
         assert_eq!(
-            resolve_upstream_url(&h, "claude-3").await.unwrap(),
+            resolve_upstream_url(&h, "claude-3").await.unwrap().0,
             "http://custom-override.example.com"
         );
     }
@@ -458,7 +475,7 @@ mod tests {
     async fn test_routing_claude_routes_to_anthropic() {
         std::env::remove_var("ANTHROPIC_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "claude-3-5-sonnet-20241022")
+        let (url, _) = resolve_upstream_url(&h, "claude-3-5-sonnet-20241022")
             .await
             .unwrap();
         assert!(url.contains("anthropic.com"));
@@ -468,7 +485,7 @@ mod tests {
     async fn test_routing_llama_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "llama3").await.unwrap();
+        let (url, _) = resolve_upstream_url(&h, "llama3").await.unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -476,7 +493,7 @@ mod tests {
     async fn test_routing_mistral_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "mistral-7b").await.unwrap();
+        let (url, _) = resolve_upstream_url(&h, "mistral-7b").await.unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -484,7 +501,7 @@ mod tests {
     async fn test_routing_phi_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "phi-3").await.unwrap();
+        let (url, _) = resolve_upstream_url(&h, "phi-3").await.unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -492,7 +509,7 @@ mod tests {
     async fn test_routing_gemma_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "gemma2").await.unwrap();
+        let (url, _) = resolve_upstream_url(&h, "gemma2").await.unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -500,7 +517,7 @@ mod tests {
     async fn test_routing_qwen_routes_to_ollama() {
         std::env::remove_var("OLLAMA_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "qwen2.5").await.unwrap();
+        let (url, _) = resolve_upstream_url(&h, "qwen2.5").await.unwrap();
         assert!(url.contains("11434"));
     }
 
@@ -508,7 +525,7 @@ mod tests {
     async fn test_routing_gpt_routes_to_openai_default() {
         std::env::remove_var("OPENAI_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "gpt-4o").await.unwrap();
+        let (url, _) = resolve_upstream_url(&h, "gpt-4o").await.unwrap();
         assert!(url.contains("openai.com"));
     }
 
@@ -516,7 +533,7 @@ mod tests {
     async fn test_routing_unknown_model_routes_to_openai() {
         std::env::remove_var("OPENAI_BASE_URL");
         let h = empty_headers();
-        let url = resolve_upstream_url(&h, "some-unknown-model")
+        let (url, _) = resolve_upstream_url(&h, "some-unknown-model")
             .await
             .unwrap();
         assert!(url.contains("openai.com"));
@@ -938,24 +955,22 @@ mod tests {
         );
 
         // Loopback and localhost permitted in development/test
-        assert_eq!(
-            validate_upstream_url("http://127.0.0.1:11434/v1/chat/completions")
-                .await
-                .unwrap(),
-            "http://127.0.0.1:11434/v1/chat/completions"
-        );
-        assert_eq!(
-            validate_upstream_url("http://localhost:11434/v1/chat/completions")
-                .await
-                .unwrap(),
-            "http://localhost:11434/v1/chat/completions"
-        );
-        assert_eq!(
-            validate_upstream_url("http://custom-override.example.com")
-                .await
-                .unwrap(),
-            "http://custom-override.example.com"
-        );
+        let (res1, addr1) = validate_upstream_url("http://127.0.0.1:11434/v1/chat/completions")
+            .await
+            .unwrap();
+        assert_eq!(res1, "http://127.0.0.1:11434/v1/chat/completions");
+        assert_eq!(addr1, Some("127.0.0.1:11434".parse().unwrap()));
+
+        let (res2, addr2) = validate_upstream_url("http://localhost:11434/v1/chat/completions")
+            .await
+            .unwrap();
+        assert_eq!(res2, "http://localhost:11434/v1/chat/completions");
+        assert!(addr2.is_some());
+
+        let (res3, _) = validate_upstream_url("http://custom-override.example.com")
+            .await
+            .unwrap();
+        assert_eq!(res3, "http://custom-override.example.com");
 
         // Metadata still strictly blocked
         assert!(

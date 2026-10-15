@@ -16,6 +16,7 @@ use iw_core::{PiiShield, SovereignError, StorageProvider, TokenMap};
 use secrecy::{ExposeSecret, SecretVec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
@@ -437,13 +438,17 @@ async fn handle_grafana_dashboard() -> impl IntoResponse {
     )
 }
 
-fn get_proxy_http_client() -> reqwest::Client {
-    reqwest::Client::builder()
+fn get_proxy_http_client(resolved_addr: Option<(&str, SocketAddr)>) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(3))
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .unwrap_or_default()
+        .timeout(std::time::Duration::from_secs(120));
+
+    if let Some((host, addr)) = resolved_addr {
+        builder = builder.resolve(host, addr);
+    }
+
+    builder.build().unwrap_or_default()
 }
 
 async fn process_and_audit_text(
@@ -572,15 +577,22 @@ async fn handle_openai_chat_completions(
     }
 
     // 3. Resolve target
-    let target_url = match resolve_upstream_url(&headers, &payload.model).await {
+    let (target_url, resolved_addr) = match resolve_upstream_url(&headers, &payload.model).await {
         Ok(url) => url,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
     let api_key = resolve_upstream_key(&headers);
     let is_stream = payload.stream.unwrap_or(false);
 
-    // 4. Build client
-    let client = get_proxy_http_client();
+    // 4. Build client with SocketAddr pinning (DNS rebinding TOCTOU defense)
+    let host_for_pin = reqwest::Url::parse(&target_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()));
+    let pin_arg = match (&host_for_pin, resolved_addr) {
+        (Some(h), Some(addr)) => Some((h.as_str(), addr)),
+        _ => None,
+    };
+    let client = get_proxy_http_client(pin_arg);
 
     // 5. Forward scrubbed request
     let upstream_resp = match client
@@ -679,13 +691,22 @@ async fn handle_openai_legacy_completions(
         return (status, msg_err).into_response();
     }
 
-    let target_url = match resolve_upstream_url(&headers, &payload.model).await {
-        Ok(u) => u.replace("/chat/completions", "/completions"),
-        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
-    };
+    let (target_url_base, resolved_addr) =
+        match resolve_upstream_url(&headers, &payload.model).await {
+            Ok(u) => u,
+            Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        };
+    let target_url = target_url_base.replace("/chat/completions", "/completions");
     let api_key = resolve_upstream_key(&headers);
 
-    let client = get_proxy_http_client();
+    let host_for_pin = reqwest::Url::parse(&target_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()));
+    let pin_arg = match (&host_for_pin, resolved_addr) {
+        (Some(h), Some(addr)) => Some((h.as_str(), addr)),
+        _ => None,
+    };
+    let client = get_proxy_http_client(pin_arg);
     let upstream_resp = match client
         .post(&target_url)
         .bearer_auth(&api_key)
@@ -745,7 +766,7 @@ async fn handle_openai_models(
         return (status, msg).into_response();
     }
 
-    let base = match resolve_upstream_url(&headers, "").await {
+    let (base, resolved_addr) = match resolve_upstream_url(&headers, "").await {
         Ok(u) => u,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
@@ -759,7 +780,14 @@ async fn handle_openai_models(
         format!("{}/models", trimmed.trim_end_matches('/'))
     };
     let api_key = resolve_upstream_key(&headers);
-    let client = get_proxy_http_client();
+    let host_for_pin = reqwest::Url::parse(&models_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()));
+    let pin_arg = match (&host_for_pin, resolved_addr) {
+        (Some(h), Some(addr)) => Some((h.as_str(), addr)),
+        _ => None,
+    };
+    let client = get_proxy_http_client(pin_arg);
     match client.get(&models_url).bearer_auth(&api_key).send().await {
         Ok(resp) => {
             let body = resp.text().await.unwrap_or_default();
@@ -809,7 +837,7 @@ async fn handle_anthropic_messages(
         }
     }
 
-    let target_url = match resolve_upstream_url(&headers, &payload.model).await {
+    let (target_url, resolved_addr) = match resolve_upstream_url(&headers, &payload.model).await {
         Ok(u) => u,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
@@ -838,7 +866,14 @@ async fn handle_anthropic_messages(
         .unwrap_or("2023-06-01");
     let is_stream = payload.stream.unwrap_or(false);
 
-    let client = get_proxy_http_client();
+    let host_for_pin = reqwest::Url::parse(&target_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()));
+    let pin_arg = match (&host_for_pin, resolved_addr) {
+        (Some(h), Some(addr)) => Some((h.as_str(), addr)),
+        _ => None,
+    };
+    let client = get_proxy_http_client(pin_arg);
     let upstream_resp = match client
         .post(&target_url)
         .header("x-api-key", &api_key)
@@ -1432,5 +1467,11 @@ mod tests {
         let res = app.oneshot(req).await.unwrap();
         // Must fail closed with 400 Bad Request
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_get_proxy_http_client_with_pinned_socket_addr() {
+        let pinned: std::net::SocketAddr = "127.0.0.1:11434".parse().unwrap();
+        let _client = get_proxy_http_client(Some(("localhost", pinned)));
     }
 }

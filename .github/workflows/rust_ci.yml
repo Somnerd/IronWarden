@@ -56,11 +56,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest pytest-timeout pyjwt cryptography requests httpx redis PyYAML
 
-      - name: Prepare Test Manifests
+      - name: Prepare Test Manifests & Models
         run: |
-          mkdir -p integration_tests
+          mkdir -p integration_tests data/models/distilbert-ner
           cp warden/test_manifest_*.yaml integration_tests/ 2>/dev/null || true
           cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml 2>/dev/null || true
+          if [ -d "/home/somnerd/Documents/Projects/IronWarden/data/models/distilbert-ner" ]; then
+            cp -r /home/somnerd/Documents/Projects/IronWarden/data/models/distilbert-ner/* data/models/distilbert-ner/ 2>/dev/null || true
+          fi
+          ./scripts/setup_models.sh
 
       - name: Run Rust Tests
         run: cargo test --workspace --lib --bins --tests

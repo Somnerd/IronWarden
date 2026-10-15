@@ -1,5 +1,5 @@
 use crate::normalize::Normalizer;
-use crate::shadow_ner::ShadowNer;
+use crate::shadow_ner::{AmbiguousCandidate, ShadowNer};
 use aes_gcm::{
     aead::{Aead, Payload},
     Aes256Gcm, Key, KeyInit, Nonce,
@@ -485,6 +485,8 @@ impl PiiShield for WardenEngine {
         }
 
         // 3. Shadow NER Pass (Dual track: ASCII for homoglyph resilience, Unicode for script awareness)
+        all_confirmed.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
+
         let shadow_matches = self
             .shadow_ner
             .analyze(&norm_res.normalized_unicode, &norm_res.normalized_ascii);
@@ -508,10 +510,16 @@ impl PiiShield for WardenEngine {
             let unicode_start = norm_res.original_to_unicode[orig_start];
             let unicode_end = norm_res.original_to_unicode[orig_end];
 
-            let is_covered = all_confirmed
-                .iter()
-                .any(|m| unicode_start < m.end && unicode_end > m.start);
-            if is_covered {
+            if let Some(existing) = all_confirmed
+                .iter_mut()
+                .find(|m| unicode_start < m.end && unicode_end > m.start)
+            {
+                if unicode_start < existing.start || unicode_end > existing.end {
+                    existing.start = existing.start.min(unicode_start);
+                    existing.end = existing.end.max(unicode_end);
+                    existing.text = normalized[existing.start..existing.end].to_string();
+                }
+                existing.action = combine_actions(existing.action, shadow.action);
                 continue;
             }
 
@@ -661,6 +669,350 @@ impl PiiShield for WardenEngine {
             }
         }
 
+        // 3.5. Tier 2 Track B: Ambiguous Candidate Window-Batched ONNX Disambiguation (Hybrid Mode Only)
+        if let Some(pool) = &self.ai {
+            let confirmed_spans: Vec<(usize, usize)> =
+                all_confirmed.iter().map(|m| (m.start, m.end)).collect();
+
+            let ambiguous_candidates = self
+                .shadow_ner
+                .find_ambiguous_tokens(&norm_res.normalized_unicode, &confirmed_spans);
+
+            if !ambiguous_candidates.is_empty() {
+                let text_unicode = &norm_res.normalized_unicode;
+                let text_bytes = text_unicode.as_bytes();
+                let text_len = text_unicode.len();
+
+                // Group ambiguous candidates by sentence windows
+                let mut windows: Vec<(usize, usize)> = Vec::new();
+
+                for cand in &ambiguous_candidates {
+                    if text_len <= 512 {
+                        if windows.is_empty() {
+                            windows.push((0, text_len));
+                        }
+                    } else {
+                        // Find sentence start (last ".", "!", "?", "\n" before cand.start)
+                        let mut w_start = text_bytes[..cand.start]
+                            .iter()
+                            .rposition(|&b| b == b'.' || b == b'!' || b == b'?' || b == b'\n')
+                            .map(|pos| pos + 1)
+                            .unwrap_or(0);
+
+                        // Find sentence end (next ".", "!", "?", "\n" after cand.end)
+                        let mut w_end = text_bytes[cand.end..]
+                            .iter()
+                            .position(|&b| b == b'.' || b == b'!' || b == b'?' || b == b'\n')
+                            .map(|pos| cand.end + pos + 1)
+                            .unwrap_or(text_len);
+                        // Ensure valid UTF-8 character boundaries
+                        while w_start < text_len && !text_unicode.is_char_boundary(w_start) {
+                            w_start += 1;
+                        }
+                        while w_end > 0 && !text_unicode.is_char_boundary(w_end) {
+                            w_end -= 1;
+                        }
+                        if w_start < w_end {
+                            let mut merged = false;
+                            for w in &mut windows {
+                                if w_start <= w.1 && w_end >= w.0 {
+                                    w.0 = w.0.min(w_start);
+                                    w.1 = w.1.max(w_end);
+                                    merged = true;
+                                    break;
+                                }
+                            }
+                            if !merged {
+                                windows.push((w_start, w_end));
+                            }
+                        }
+                    }
+                }
+
+                if let Some(ai_instance) = pool.get().await {
+                    for (w_start, w_end) in windows {
+                        let original_window_text = &text_unicode[w_start..w_end];
+
+                        // Synthetic casing for lowercase candidates requiring neural probing
+                        let cands_requiring_casing: Vec<&AmbiguousCandidate> = ambiguous_candidates
+                            .iter()
+                            .filter(|c| {
+                                c.start >= w_start && c.end <= w_end && c.needs_synthetic_casing
+                            })
+                            .collect();
+
+                        let synthetic_window_text = {
+                            let mut buf = original_window_text.as_bytes().to_vec();
+
+                            // Map delimiter punctuation to standard parens and markdown underscores to spaces
+                            for b in buf.iter_mut() {
+                                if *b == b'[' || *b == b'<' {
+                                    *b = b'(';
+                                } else if *b == b']' || *b == b'>' {
+                                    *b = b')';
+                                } else if *b == b'_' {
+                                    *b = b' ';
+                                }
+                            }
+
+                            // In-place UTF-8 safe synthetic title-casing for candidate words
+                            for cand in &cands_requiring_casing {
+                                let rel_start = cand.start - w_start;
+                                let rel_end = cand.end - w_start;
+                                if rel_end <= buf.len()
+                                    && original_window_text.is_char_boundary(rel_start)
+                                    && original_window_text.is_char_boundary(rel_end)
+                                {
+                                    // Capitalize preceding honorific if present (e.g. "dr. " -> "Dr. ", "mr. " -> "Mr. ")
+                                    if rel_start >= 4 {
+                                        let prefix_bytes = &buf[..rel_start];
+                                        if prefix_bytes.ends_with(b"dr. ")
+                                            || prefix_bytes.ends_with(b"mr. ")
+                                            || prefix_bytes.ends_with(b"ms. ")
+                                        {
+                                            let honorific_pos = rel_start - 4;
+                                            buf[honorific_pos] =
+                                                buf[honorific_pos].to_ascii_uppercase();
+                                        } else if rel_start >= 5 && prefix_bytes.ends_with(b"mrs. ")
+                                        {
+                                            let honorific_pos = rel_start - 5;
+                                            buf[honorific_pos] =
+                                                buf[honorific_pos].to_ascii_uppercase();
+                                        }
+                                    }
+
+                                    let cand_slice = &original_window_text[rel_start..rel_end];
+                                    let mut at_word_boundary = true;
+                                    for (char_offset, ch) in cand_slice.char_indices() {
+                                        if ch == ' ' || ch == '-' || ch == '\'' {
+                                            at_word_boundary = true;
+                                        } else if at_word_boundary {
+                                            if let Some(upper_ch) = ch.to_uppercase().next() {
+                                                if upper_ch.len_utf8() == ch.len_utf8() {
+                                                    let byte_pos = rel_start + char_offset;
+                                                    upper_ch.encode_utf8(
+                                                        &mut buf
+                                                            [byte_pos..byte_pos + ch.len_utf8()],
+                                                    );
+                                                }
+                                            }
+                                            at_word_boundary = false;
+                                        }
+                                    }
+                                }
+                            }
+                            String::from_utf8(buf)
+                                .unwrap_or_else(|_| original_window_text.to_string())
+                        };
+
+                        let entities = ai_instance.analyze(&synthetic_window_text);
+
+                        for entity in entities {
+                            let global_start = w_start + entity.start;
+                            let global_end = w_start + entity.end;
+
+                            if global_start < global_end && global_end <= text_len {
+                                if let Some(cand) = ambiguous_candidates
+                                    .iter()
+                                    .find(|c| global_start < c.end && global_end > c.start)
+                                {
+                                    let min_thresh = if cand.needs_synthetic_casing {
+                                        self.confidence_threshold.min(0.65)
+                                    } else {
+                                        self.confidence_threshold.min(0.70)
+                                    };
+
+                                    let is_valid = ShadowNer::is_valid_name_span(
+                                        normalized, cand.start, cand.end,
+                                    ) && ShadowNer::is_valid_name_span(
+                                        normalized,
+                                        global_start,
+                                        global_end,
+                                    );
+
+                                    let is_agentive_or_starter =
+                                        self.shadow_ner
+                                            .is_at_sentence_start(normalized, cand.start)
+                                            || {
+                                                let prefix = normalized[..cand.start]
+                                                    .trim_end_matches(|c: char| {
+                                                        c == '<'
+                                                            || c == '['
+                                                            || c == '('
+                                                            || c == ' '
+                                                            || c == ':'
+                                                    });
+                                                prefix.ends_with("by")
+                                                    || prefix.ends_with("from")
+                                                    || prefix.ends_with("for")
+                                            };
+
+                                    let label_matches = if entity.label.ends_with("PER") {
+                                        is_valid
+                                    } else if entity.label.ends_with("ORG") {
+                                        is_valid
+                                            && (cand.needs_synthetic_casing
+                                                || is_agentive_or_starter)
+                                    } else {
+                                        false
+                                    };
+
+                                    if entity.score >= min_thresh && label_matches {
+                                        let match_start = global_start.min(cand.start);
+                                        let match_end = global_end.max(cand.end);
+
+                                        let already_covered = all_confirmed
+                                            .iter()
+                                            .any(|m| match_start < m.end && match_end > m.start);
+
+                                        if !already_covered {
+                                            if let Some(ctx) = session {
+                                                if entity.score >= SEMANTIC_CACHE_THRESHOLD {
+                                                    ctx.semantic_cache.insert(
+                                                        cand.text.to_lowercase(),
+                                                        (entity.label.clone(), entity.score),
+                                                    );
+                                                }
+                                            }
+
+                                            all_confirmed.push(UnifiedMatch {
+                                                start: match_start,
+                                                end: match_end,
+                                                text: normalized[match_start..match_end]
+                                                    .to_string(),
+                                                rule_id: format!("ai_hybrid_{}", entity.label),
+                                                is_confirmed: true,
+                                                action: EnforcementAction::Redact,
+                                                category: PiiCategory::HighConfidenceAi,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Targeted validation for remaining unconfirmed ambiguous candidates (roster lists & agentive delimiters)
+                    for cand in &ambiguous_candidates {
+                        let already_covered = all_confirmed
+                            .iter()
+                            .any(|m| cand.start < m.end && cand.end > m.start);
+                        if !already_covered {
+                            if !ShadowNer::is_valid_name_span(normalized, cand.start, cand.end) {
+                                continue;
+                            }
+
+                            // 1. In list coordinate with a confirmed match (e.g. "[Hoyt, Coste]")
+                            let is_in_list = all_confirmed.iter().any(|m| {
+                                if m.end <= cand.start {
+                                    let gap = &normalized[m.end..cand.start];
+                                    gap == ", " || gap == ", and " || gap == " and " || gap == " & "
+                                } else if cand.end <= m.start {
+                                    let gap = &normalized[cand.end..m.start];
+                                    gap == ", " || gap == ", and " || gap == " and " || gap == " & "
+                                } else {
+                                    false
+                                }
+                            });
+
+                            // 2. Preceded by agentive marker or conversational intro
+                            let last_word = normalized[..cand.start]
+                                .split(|c: char| {
+                                    c.is_whitespace()
+                                        || c == '<'
+                                        || c == '['
+                                        || c == '('
+                                        || c == ':'
+                                        || c == '"'
+                                        || c == '\''
+                                        || c == '*'
+                                        || c == '`'
+                                        || c == '.'
+                                        || c == ','
+                                        || c == '>'
+                                        || c == ']'
+                                        || c == ')'
+                                })
+                                .rfind(|s| !s.is_empty())
+                                .unwrap_or("")
+                                .to_lowercase();
+
+                            let is_agentive = matches!(
+                                last_word.as_str(),
+                                "by" | "from"
+                                    | "for"
+                                    | "to"
+                                    | "user"
+                                    | "attendees"
+                                    | "assigned"
+                                    | "lead"
+                                    | "patient"
+                                    | "per"
+                                    | "dr"
+                                    | "mr"
+                                    | "mrs"
+                                    | "ms"
+                                    | "ask"
+                                    | "ping"
+                                    | "contact"
+                                    | "email"
+                                    | "dm"
+                                    | "cc"
+                                    | "attn"
+                            ) || cand.needs_synthetic_casing;
+
+                            if is_in_list || is_agentive {
+                                let capitalized_cand = {
+                                    let mut chars = cand.text.chars();
+                                    match chars.next() {
+                                        None => String::new(),
+                                        Some(first) => {
+                                            first.to_uppercase().collect::<String>()
+                                                + chars.as_str()
+                                        }
+                                    }
+                                };
+                                let probe_john = format!("John {}", capitalized_cand);
+                                let probe_doc = format!("Doctor {}", capitalized_cand);
+                                let matched = {
+                                    let p1 = ai_instance.analyze(&probe_john);
+                                    let m1 = p1.iter().any(|pe| {
+                                        pe.score >= self.confidence_threshold.min(0.70)
+                                            && (pe.label.ends_with("PER")
+                                                || pe.label.ends_with("ORG"))
+                                    });
+                                    if m1 {
+                                        true
+                                    } else {
+                                        let p2 = ai_instance.analyze(&probe_doc);
+                                        p2.iter().any(|pe| {
+                                            pe.score >= self.confidence_threshold.min(0.70)
+                                                && (pe.label.ends_with("PER")
+                                                    || pe.label.ends_with("ORG"))
+                                        })
+                                    }
+                                };
+
+                                if matched {
+                                    all_confirmed.push(UnifiedMatch {
+                                        start: cand.start,
+                                        end: cand.end,
+                                        text: normalized[cand.start..cand.end].to_string(),
+                                        rule_id: "ai_hybrid_roster_B-PER".to_string(),
+                                        is_confirmed: true,
+                                        action: EnforcementAction::Redact,
+                                        category: PiiCategory::HighConfidenceAi,
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    pool.release(ai_instance);
+                }
+            }
+        }
+
         // 4. Resolve Overlaps & Sort Timeline
         all_confirmed.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
 
@@ -678,7 +1030,6 @@ impl PiiShield for WardenEngine {
                     }
                     let gap = &normalized[current_end..p.start];
                     gap.trim().is_empty()
-                        || gap == ", "
                         || gap == " bin "
                         || gap == " al "
                         || gap == " da "
@@ -701,7 +1052,7 @@ impl PiiShield for WardenEngine {
             if let Some(last) = final_matches.last_mut() {
                 if merged.start >= last.end {
                     let gap = &normalized[last.end..merged.start];
-                    if gap.trim().is_empty() || gap == ", " {
+                    if gap.trim().is_empty() {
                         last.end = merged.end;
                         last.text.push_str(gap);
                         last.text.push_str(&merged.text);
@@ -723,6 +1074,7 @@ impl PiiShield for WardenEngine {
                         if overlap_start < merged.text.len() {
                             last.text.push_str(&merged.text[overlap_start..]);
                         }
+                        last.end = merged.end;
                     }
 
                     // Resolve action and rule_id using priority rules (Block > Redact > Mask > AuditOnly)
@@ -855,15 +1207,19 @@ impl PiiShield for WardenEngine {
 
                     // 3. Greedy Expansion (Parent -> Child)
                     if existing_token.is_none() {
+                        let mut upgrade_candidate = None;
                         for entry in ctx.identities.iter() {
                             let known_id = entry.key();
                             if is_standalone_word(&text_lower, known_id) && known_id.len() > 3 {
                                 let token = entry.value().clone();
-                                existing_token = Some(token.clone());
-                                // Upgrade identity storage to the fuller name
-                                ctx.identities.insert(text_lower.clone(), token);
+                                upgrade_candidate = Some((text_lower.clone(), token));
                                 break;
                             }
+                        }
+                        if let Some((new_key, token)) = upgrade_candidate {
+                            existing_token = Some(token.clone());
+                            // Drop iterator before inserting to prevent DashMap shard deadlock
+                            ctx.identities.insert(new_key, token);
                         }
                     }
                 }
@@ -1722,5 +2078,57 @@ mod tests {
             .restore_prompt(&report.sanitized_text, &report.token_map)
             .unwrap();
         assert_eq!(restored, prompt);
+    }
+
+    #[tokio::test]
+    async fn test_lowercase_conversational_hybrid_defense() {
+        use std::path::Path;
+        let model_path = Path::new("data/models/distilbert-ner/model_quantized.onnx");
+        let tokenizer_path = Path::new("data/models/distilbert-ner/tokenizer.json");
+
+        if !model_path.exists() || !tokenizer_path.exists() {
+            println!("Skipping hybrid test: ONNX model/tokenizer not found");
+            return;
+        }
+
+        let pool = crate::ai::HybridNerPool::new(0.85, 1).expect("Failed to initialize AI pool");
+        let pepper = secrecy::SecretVec::from(vec![42u8; 32]);
+        let engine = WardenEngine::new(vec![], vec![], vec![], Some(pool), 0.85, &pepper).unwrap();
+
+        // 1. Lowercase conversational attack with names: both names should be redacted
+        let prompt_names = "my name is john smith and please ask miura about logs";
+        let report_names = engine.sanitize_prompt(prompt_names, None).await.unwrap();
+
+        assert!(
+            !report_names.sanitized_text.contains("john smith"),
+            "Expected 'john smith' to be redacted, got: {}",
+            report_names.sanitized_text
+        );
+        assert!(
+            !report_names.sanitized_text.contains("miura"),
+            "Expected 'miura' to be redacted, got: {}",
+            report_names.sanitized_text
+        );
+        assert_eq!(
+            report_names.redactions.len(),
+            2,
+            "Expected exactly 2 redactions, got {:?}",
+            report_names.redactions
+        );
+
+        // 2. Lowercase conversational stopwords phrase: should produce 0 redactions
+        let prompt_stopwords = "i am ready to contact support about the patient portal";
+        let report_stopwords = engine
+            .sanitize_prompt(prompt_stopwords, None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            report_stopwords.redactions.len(),
+            0,
+            "Expected 0 redactions for stopwords text, got: {}",
+            report_stopwords.sanitized_text
+        );
+        assert_eq!(report_stopwords.sanitized_text, prompt_stopwords);
     }
 }

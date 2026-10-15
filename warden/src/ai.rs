@@ -11,10 +11,13 @@ const NER_LABELS: &[&str] = &[
     "O", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC", "B-MISC", "I-MISC",
 ];
 
+#[derive(Debug, Clone)]
 pub struct Entity {
     pub word: String,
     pub score: f64,
     pub label: String,
+    pub start: usize,
+    pub end: usize,
 }
 
 pub enum NerBackend {
@@ -232,6 +235,9 @@ impl OnnxNer {
                         last.word.push(' ');
                         last.word.push_str(&word);
                     }
+                    if end > last.end {
+                        last.end = end;
+                    }
                     // Keep the higher score
                     if score > last.score {
                         last.score = score;
@@ -244,6 +250,8 @@ impl OnnxNer {
                 word,
                 score,
                 label: label.to_string(),
+                start,
+                end,
             });
         }
 

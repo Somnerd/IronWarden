@@ -44,6 +44,31 @@ rules:
     type: "Regex"
     category: "InternalAsset"
 
+  - id: "github_token"
+    pattern: '\bgh[pousr]_[A-Za-z0-9_]{36,255}\b'
+    type: "Regex"
+    category: "InternalAsset"
+
+  - id: "openai_or_stripe_key"
+    pattern: '\b(?:sk-(?:proj-)?[A-Za-z0-9_\-]{20,}|rk_live_[A-Za-z0-9]{24,})\b'
+    type: "Regex"
+    category: "InternalAsset"
+
+  - id: "aws_access_key_id"
+    pattern: '\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'
+    type: "Regex"
+    category: "InternalAsset"
+
+  - id: "slack_token"
+    pattern: '\bxox[baprs]-[0-9A-Za-z\-]{10,}\b'
+    type: "Regex"
+    category: "InternalAsset"
+
+  - id: "bearer_jwt"
+    pattern: '\bey[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}(?:\.[A-Za-z0-9_\-]{10,})?\b'
+    type: "Regex"
+    category: "InternalAsset"
+
   - id: "gr_afm"
     pattern: '\b\d{9}\b'
     type: "Regex"
@@ -56,5 +81,11 @@ rules:
 
 heuristics:
   - label: "POTENTIAL_GREEK_NAME"
-    pattern: '\b[Α-ΩΆΈΉΊΌΎΏ][α-ωάέήίόύώϊϋΐΰ]+(?:ης|ου|ος|ας|α|ων)\b'
+    pattern: '\b[Α-ΩΆΈΉΊΌΎΏ][α-ωάέήίόύώϊϋΐΰ]+(?:ης|ου|ος|ας|α|ων|η)\b'
     skip_sentence_start: true
+    category: "IndividualName"
+
+  - label: "HONORIFIC_PERSON_NAME"
+    pattern: '\b(?:Mr|Mrs|Ms|Miss|Dr|Prof|Rev|Hon)\.?\s+[A-ZΑ-ΩΆΈΉΊΌΎΏ][a-zα-ωάέήίόύώϊϋΐΰ]{2,}\b'
+    skip_sentence_start: false
+    category: "IndividualName"
