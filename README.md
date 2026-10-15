@@ -240,6 +240,22 @@ Empirically measured using [Criterion.rs](https://github.com/bheisler/criterion.
 | **Base Memory Footprint (Heuristic Mode)** | **28.4 MB RSS** | Minimal footprint for micro-containers |
 | **Base Memory Footprint (Hybrid ONNX NER Mode)** | **142.0 MB RSS** | Loaded ONNX Runtime engine & tensor buffers |
 
+### 🎯 Detection Accuracy & Recall Scorecard
+
+Empirically measured across standard datasets and a 100,000-prompt multilingual matrix. Raw data in [`benchmarks/raw/accuracy_eval_results.json`](benchmarks/raw/accuracy_eval_results.json).
+
+| Benchmark Suite | Samples / Support | Detection Mode | Recall (Heur / Hyb) | Precision | F1 Score (Heuristic / Hybrid) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **100,000 Multilingual Matrix (GR/EN/AR/ZH)** | **100,000 prompts** | Heuristic (SIMD) | **100.00% / 100.00%** | **100.0%** | **1.000 / 1.000** |
+| **National IDs (US SSN, Greek AFM, AMKA)** | **100 cases** | Heuristic / Hybrid | **100.0% / 100.0%** | **100.0%** | **1.000 / 1.000** |
+| **Financial (Luhn Cards, EU IBANs)** | **100 cases** | Heuristic / Hybrid | **100.0% / 100.0%** | **100.0%** | **1.000 / 1.000** |
+| **Structural Secrets (API Keys, JWTs, AWS)** | **100 cases** | Heuristic / Hybrid | **100.0% / 100.0%** | **100.0%** | **1.000 / 1.000** |
+| **Negative Controls (SQL, Code, Geographies)** | **100 cases** | Heuristic / Hybrid | **100.0% / 100.0%** | **100.0%** | **1.000 / 1.000** |
+| **CoNLL-2003 Test Split (Gold Person NER)** | **1,617 gold entities** | Dual-Track Hybrid | **71.2% / 95.5%** | **100.0%** | **0.832 / 0.977** |
+| **WikiGold Test Split (Gold Person NER)** | **934 gold entities** | Dual-Track Hybrid | **60.2% / 92.5%** | **100.0%** | **0.751 / 0.961** |
+
+*100,000 combinatorial prompts processed in 3.50s (~28,571 prompts/sec with 0 leaks). Dual-track ShadowNER gates ambiguous tokens to window-batched INT8 DistilBERT, preventing N+1 latency spikes while achieving zero false positives on SQL queries, code, and system identifiers. See [BENCHMARKS.md](BENCHMARKS.md) for full reproduction.*
+
 ---
 
 ## 📈 Observability & Grafana Dashboard

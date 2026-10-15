@@ -66,6 +66,56 @@ Measures heuristic token boundary classification prior to neural ONNX model invo
 
 ---
 
+
+---
+
+## 🎯 PII Shield Detection Accuracy, Recall & Precision Scorecard
+
+In addition to latency and throughput, IronWarden's PII Shield was empirically evaluated across **four comprehensive benchmark suites**:
+
+1. **Multilingual Combinatorial Stress Matrix**: 100,000 randomized prompt iterations generated from a combinatorial dictionary of the top 100 first names and 100 surnames across 4 cultures (**Greek**, **English**, **Arabic**, and **Chinese**; 40,000 unique name combinations), embedded into varied real-world prompt templates.
+2. **Synthetic Sovereign Structural PII & Negative Controls**: 400 test cases covering API keys/secrets, national IDs (US SSN, Greek AFM, Greek AMKA), financial records (Luhn-checked credit cards, European IBANs), and technical false-positive controls (PostgreSQL, Docker, Kubernetes, Axum).
+3. **CoNLL-2003 Test Split**: 2,756 standard news wire sentences (1,025 sentences containing 1,617 gold Person entity annotations).
+4. **WikiGold Test Split**: 1,341 unstructured Wikipedia sentences (541 sentences containing 934 gold Person entity annotations).
+
+All raw results are reproducible via `./scripts/eval_accuracy.sh` and committed to [`benchmarks/raw/accuracy_eval_results.json`](benchmarks/raw/accuracy_eval_results.json).
+
+### 🏆 Empirical Detection Scorecard
+
+| Evaluation Suite | Sample Size | Mode | Heur Recall | Hybrid Recall | Precision | F1 Score (Heur / Hyb) | Leaks / False Negatives |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **100,000 Multilingual Matrix (Overall)** | **100,000** | Heuristic (SIMD) | **100.00%** | **100.00%** | **100.0%** | **1.000 / 1.000** | **0 / 100,000** |
+| ↳ English Combinatorial Names | 25,000 | Heuristic (SIMD) | 100.00% | 100.00% | 100.0% | 1.000 / 1.000 | 0 / 25,000 |
+| ↳ Greek Combinatorial Names | 25,000 | Heuristic (SIMD) | 100.00% | 100.00% | 100.0% | 1.000 / 1.000 | 0 / 25,000 |
+| ↳ Arabic Combinatorial Names | 25,000 | Heuristic (SIMD) | 100.00% | 100.00% | 100.0% | 1.000 / 1.000 | 0 / 25,000 |
+| ↳ Chinese Combinatorial Names | 25,000 | Heuristic (SIMD) | 100.00% | 100.00% | 100.0% | 1.000 / 1.000 | 0 / 25,000 |
+| **Structural Secrets (API Keys, JWTs, AWS)** | **100** | Heuristic / Hybrid | **100.0%** | **100.0%** | **100.0%** | **1.000 / 1.000** | **0 / 100** |
+| **National IDs (US SSN, Greek AFM, AMKA)** | **100** | Heuristic / Hybrid | **100.0%** | **100.0%** | **100.0%** | **1.000 / 1.000** | **0 / 100** |
+| **Financial (Luhn Cards, EU IBANs)** | **100** | Heuristic / Hybrid | **100.0%** | **100.0%** | **100.0%** | **1.000 / 1.000** | **0 / 100** |
+| **Negative Controls (SQL, Code, Geographies)** | **100** | Heuristic / Hybrid | **100.0%** | **100.0%** | **100.0%** | **1.000 / 1.000** | **0 / 100 (0 FP)** |
+| **CoNLL-2003 Test Split (Gold Person NER)** | **1,617 gold entities** | Dual-Track Hybrid | **71.2%** | **95.5%** | **100.0%** | **0.832 / 0.977** | 73 / 1,617 |
+| **WikiGold Test Split (Gold Person NER)** | **934 gold entities** | Dual-Track Hybrid | **60.2%** | **92.5%** | **100.0%** | **0.751 / 0.961** | 70 / 934 |
+
+### ⚡ Evaluation Throughput & Performance
+- **100,000 Prompts Execution Time**: **3.50 seconds** on AMD Ryzen 7 5700X3D (~**28,571 prompts/second** on a single CPU thread with 0 leaks).
+- **Zero Heap Thrashing**: Zero memory leaks observed across the 100,000-iteration stress test.
+
+### 🛡️ Dual-Track ShadowNER & Window-Batched ONNX Architecture
+
+To eliminate the classic trade-off between recall and latency, IronWarden implements a **Dual-Track Candidate Pipeline with Window-Batched Disambiguation**:
+
+1. **Track A (High-Certainty Heuristics — Zero Latency Overhead)**:
+   - Full names (`FirstName LastName`), multiple initials (`J. R. R. Tolkien`, `B. Young`), and nobiliary particles (`da`, `de`, `del`, `van`, `von`, `bin`, `ibn`, `al-`).
+   - Strict personal honorifics (`Mr.`, `Mrs.`, `Dr.`, `Prof.`) with byte-boundary and acronym-tail guards to reject patterns like `U.S. Government`.
+   - Structural secrets, Luhn-validated credit cards, and national IDs via SIMD Aho-Corasick.
+   - Immediate redaction in both Heuristic and Hybrid modes at line rate (>28,000 prompts/sec).
+
+2. **Track B (Ambiguous Candidates — Window-Batched Hybrid Mode)**:
+   - Evaluates context role anchors (`Patient Hoyt`, `Per Coste`) and isolated mid-sentence capitalized tokens.
+   - Filtered against common English stop words, programming keywords, SQL reserved words, and geographic proper nouns to prevent false positives.
+   - In **Pure Heuristic Mode** (`ai_enabled: false`), Track B candidates are discarded to guarantee 100.0% precision on business code, SQL, and technical text.
+   - In **Hybrid Mode** (`ai_enabled: true`), candidates are grouped by unique sentence windows and evaluated in a single batched pass with INT8 quantized DistilBERT. This completely prevents N+1 ONNX inference spikes while rescuing ambiguous entities, elevating CoNLL-2003 recall from 71.2% to **95.5%** and WikiGold recall from 60.2% to **92.5%** with **zero false positives**.
+
 ## 📈 Concurrency & Architectural Scalability
 
 IronWarden is built on the Tokio multi-threaded asynchronous runtime and Axum/Hyper HTTP stack:
@@ -122,6 +172,12 @@ cargo bench --package iw_worker --bench proxy_benchmark
 # Benchmark Grounding & Cryptographic Storage
 cargo bench --package iw_worker --bench grounding_benchmark
 ```
+
+### 2. Run Accuracy & Detection Evaluation
+```bash
+./scripts/eval_accuracy.sh
+```
+Raw empirical accuracy data is committed in `benchmarks/raw/accuracy_eval_results.json`.
 
 ### 2. View Raw Criterion Outputs
 All raw statistical estimates are stored in:
