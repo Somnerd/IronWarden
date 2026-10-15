@@ -147,8 +147,9 @@ impl Normalizer {
 
     fn is_invisible(c: char) -> bool {
         // Broaden detection to all Unicode Format (Cf) and Control (Cc) characters,
+        // excluding standard whitespace (newlines, tabs, carriage returns),
         // as well as other non-spacing characters used for evasion.
-        c.is_control() ||
+        (c.is_control() && c != '\n' && c != '\r' && c != '\t') ||
         ('\u{200B}'..='\u{200F}').contains(&c) || // ZWSP, ZWNJ, ZWJ, LRM, RLM
         ('\u{202A}'..='\u{202E}').contains(&c) || // LRE, RLE, PDF, LRO, RLO
         ('\u{2060}'..='\u{206F}').contains(&c) || // Word Joiner, Format characters
@@ -190,6 +191,17 @@ mod tests {
             assert_eq!(res.normalized_ascii, "AB");
             assert_eq!(res.ascii_to_original.get_original_offset(0), 0); // A
             assert_eq!(res.ascii_to_original.get_original_offset(1), 4); // B (skips 3-byte ZWSP at indices 1,2,3)
+        });
+    }
+
+    #[test]
+    fn test_whitespace_control_characters_preserved() {
+        let input = "User Name:\nAlice\tBob\r\nEmail:\talice@example.com";
+        Normalizer::with_normalized(input, |res| {
+            assert!(res.normalized_unicode.contains('\n'));
+            assert!(res.normalized_unicode.contains('\t'));
+            assert!(res.normalized_unicode.contains('\r'));
+            assert_eq!(res.normalized_unicode, input);
         });
     }
 }

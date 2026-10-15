@@ -35,8 +35,8 @@ async fn test_shadow_ner_promotion_without_ai() {
     let engine = WardenEngine::new(vec![], vec![], vec![], None, 0.85, &pepper).unwrap();
 
     // Greek name should be caught by Shadow NER heuristics and promoted even without AI
-    // "Αλέξανδρος" (Alexandros) matches greek_suffix_re
-    let report = engine.sanitize_prompt("\u{0391}\u{03BB}\u{03AD}\u{03BE}\u{03B1}\u{03BD}\u{03B4}\u{03C1}\u{03BF}\u{03C2} is here.", None).await.unwrap();
+    // "Αλέξανδρος" (Papadopoulos) matches greek_suffix_re
+    let report = engine.sanitize_prompt("\u{03A0}\u{03B1}\u{03C0}\u{03B1}\u{03B4}\u{03CC}\u{03C0}\u{03BF}\u{03C5}\u{03BB}\u{03BF}\u{03C2} is here.", None).await.unwrap();
 
     assert_eq!(
         report.redactions.len(),

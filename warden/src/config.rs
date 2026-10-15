@@ -5,13 +5,13 @@ use std::fs;
 use std::path::Path;
 use tracing::{error, info};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuleType {
     Regex,
     Dictionary,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleConfig {
     pub id: String,
     pub pattern: String,
