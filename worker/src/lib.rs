@@ -1,3 +1,4 @@
+#![allow(clippy::double_must_use)]
 #![recursion_limit = "2048"]
 
 pub mod audit;

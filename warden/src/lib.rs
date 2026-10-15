@@ -1,3 +1,5 @@
+#![allow(clippy::double_must_use)]
+
 pub mod ai;
 pub mod config;
 pub mod configurator;
