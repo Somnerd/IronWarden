@@ -1,12 +1,12 @@
 {
-  "timestamp": "SystemTime { tv_sec: 1792075241, tv_nsec: 510370183 }",
+  "timestamp": "SystemTime { tv_sec: 1792078725, tv_nsec: 708421173 }",
   "system_info": "Linux x86_64 / Rust 1.99.0",
   "heuristic_mode": {
     "synthetic_structural": {
-      "NEGATIVE_CONTROL": {
+      "SECRET": {
         "total_samples": 100,
-        "gold_entities": 0,
-        "true_positives": 0,
+        "gold_entities": 100,
+        "true_positives": 100,
         "false_negatives": 0,
         "false_positives": 0,
         "recall": 1.0,
@@ -23,10 +23,10 @@
         "precision": 1.0,
         "f1": 1.0
       },
-      "SECRET": {
+      "NEGATIVE_CONTROL": {
         "total_samples": 100,
-        "gold_entities": 100,
-        "true_positives": 100,
+        "gold_entities": 0,
+        "true_positives": 0,
         "false_negatives": 0,
         "false_positives": 0,
         "recall": 1.0,
@@ -67,17 +67,17 @@
     "overall": {
       "total_samples": 100000,
       "gold_entities": 100000,
-      "true_positives": 98172,
-      "false_negatives": 1828,
+      "true_positives": 98127,
+      "false_negatives": 1873,
       "false_positives": 0,
-      "recall": 0.98172,
+      "recall": 0.98127,
       "precision": 1.0,
-      "f1": 0.990775689804816
+      "f1": 0.990546467669727
     }
   },
   "hybrid_mode": {
     "synthetic_structural": {
-      "NATIONAL_ID": {
+      "SECRET": {
         "total_samples": 100,
         "gold_entities": 100,
         "true_positives": 100,
@@ -87,17 +87,7 @@
         "precision": 1.0,
         "f1": 1.0
       },
-      "NEGATIVE_CONTROL": {
-        "total_samples": 100,
-        "gold_entities": 0,
-        "true_positives": 0,
-        "false_negatives": 0,
-        "false_positives": 0,
-        "recall": 1.0,
-        "precision": 1.0,
-        "f1": 1.0
-      },
-      "SECRET": {
+      "NATIONAL_ID": {
         "total_samples": 100,
         "gold_entities": 100,
         "true_positives": 100,
@@ -111,6 +101,16 @@
         "total_samples": 100,
         "gold_entities": 100,
         "true_positives": 100,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "recall": 1.0,
+        "precision": 1.0,
+        "f1": 1.0
+      },
+      "NEGATIVE_CONTROL": {
+        "total_samples": 100,
+        "gold_entities": 0,
+        "true_positives": 0,
         "false_negatives": 0,
         "false_positives": 0,
         "recall": 1.0,
@@ -152,17 +152,17 @@
   "combinatorial_100k_stress_test": {
     "total_iterations": 100000,
     "detailed_by_culture": {
-      "greek": {
+      "arabic": {
         "total_samples": 25000,
         "gold_entities": 25000,
-        "true_positives": 25000,
-        "false_negatives": 0,
+        "true_positives": 24811,
+        "false_negatives": 189,
         "false_positives": 0,
-        "recall": 1.0,
+        "recall": 0.99244,
         "precision": 1.0,
-        "f1": 1.0
+        "f1": 0.996205657384915
       },
-      "english": {
+      "greek": {
         "total_samples": 25000,
         "gold_entities": 25000,
         "true_positives": 25000,
@@ -175,42 +175,42 @@
       "chinese": {
         "total_samples": 25000,
         "gold_entities": 25000,
-        "true_positives": 23368,
-        "false_negatives": 1632,
+        "true_positives": 23316,
+        "false_negatives": 1684,
         "false_positives": 0,
-        "recall": 0.93472,
+        "recall": 0.93264,
         "precision": 1.0,
-        "f1": 0.9662586834270592
+        "f1": 0.9651461213676629
       },
-      "arabic": {
+      "english": {
         "total_samples": 25000,
         "gold_entities": 25000,
-        "true_positives": 24804,
-        "false_negatives": 196,
+        "true_positives": 25000,
+        "false_negatives": 0,
         "false_positives": 0,
-        "recall": 0.99216,
+        "recall": 1.0,
         "precision": 1.0,
-        "f1": 0.9960645731266564
+        "f1": 1.0
       }
     },
     "aggregate": {
       "total_samples": 100000,
       "gold_entities": 100000,
-      "true_positives": 98172,
-      "false_negatives": 1828,
+      "true_positives": 98127,
+      "false_negatives": 1873,
       "false_positives": 0,
-      "recall": 0.98172,
+      "recall": 0.98127,
       "precision": 1.0,
-      "f1": 0.990775689804816
+      "f1": 0.990546467669727
     }
   },
   "eval5_adversarial_suite": {
     "total_samples": 1000,
     "slices": {
-      "5E_NEGATIVE_CONTROLS": {
+      "5B_SINGLE_SURNAMES_VERBS": {
         "total_samples": 200,
-        "gold_entities": 0,
-        "true_positives": 0,
+        "gold_entities": 200,
+        "true_positives": 200,
         "false_negatives": 0,
         "false_positives": 0,
         "recall": 1.0,
@@ -237,10 +237,10 @@
         "precision": 0.99,
         "f1": 0.9949748743718593
       },
-      "5B_SINGLE_SURNAMES_VERBS": {
+      "5E_NEGATIVE_CONTROLS": {
         "total_samples": 200,
-        "gold_entities": 200,
-        "true_positives": 200,
+        "gold_entities": 0,
+        "true_positives": 0,
         "false_negatives": 0,
         "false_positives": 0,
         "recall": 1.0,
