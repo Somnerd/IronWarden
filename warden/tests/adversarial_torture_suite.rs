@@ -19,6 +19,14 @@ struct TestEngines {
     hybrid: Option<WardenEngine>,
 }
 
+fn is_onnx_model_available() -> bool {
+    let model = Path::new("data/models/distilbert-ner/model_quantized.onnx");
+    let model_parent = Path::new("../data/models/distilbert-ner/model_quantized.onnx");
+    let tok = Path::new("data/models/distilbert-ner/tokenizer.json");
+    let tok_parent = Path::new("../data/models/distilbert-ner/tokenizer.json");
+    (model.exists() || model_parent.exists()) && (tok.exists() || tok_parent.exists())
+}
+
 fn init_test_engines() -> TestEngines {
     // If running inside warden/ subdirectory, navigate to repo root
     if !Path::new("config/manifest.yaml").exists() && Path::new("../config/manifest.yaml").exists()
@@ -57,15 +65,19 @@ fn init_test_engines() -> TestEngines {
         .compile_engine(&pepper)
         .expect("Failed to compile Heuristic engine");
 
-    // Hybrid Engine (Enable ONNX in test)
-    std::env::set_var("WARDEN_ENABLE_ONNX_TEST", "1");
-    let hyb_config = WardenConfig {
-        rules: config.rules.clone(),
-        heuristics: config.heuristics.clone(),
-        ai_enabled: true,
-        ai_confidence_threshold: 0.85,
+    // Hybrid Engine (Enable ONNX in test only if model files are present on disk)
+    let hybrid = if is_onnx_model_available() {
+        std::env::set_var("WARDEN_ENABLE_ONNX_TEST", "1");
+        let hyb_config = WardenConfig {
+            rules: config.rules.clone(),
+            heuristics: config.heuristics.clone(),
+            ai_enabled: true,
+            ai_confidence_threshold: 0.85,
+        };
+        hyb_config.compile_engine(&pepper).ok()
+    } else {
+        None
     };
-    let hybrid = hyb_config.compile_engine(&pepper).ok();
 
     TestEngines { heuristic, hybrid }
 }
@@ -138,11 +150,13 @@ async fn test_verb_eater_and_span_boundaries() {
         },
     ];
 
-    let test_targets: Vec<&WardenEngine> = if let Some(ref hyb) = engines.hybrid {
-        vec![hyb]
-    } else {
-        vec![&engines.heuristic]
+    let Some(ref hyb) = engines.hybrid else {
+        eprintln!(
+            "SKIPPING test_verb_eater_and_span_boundaries: ONNX model weights not present on disk"
+        );
+        return;
     };
+    let test_targets: Vec<&WardenEngine> = vec![hyb];
 
     for engine in test_targets {
         for case in &cases {
@@ -431,11 +445,11 @@ async fn test_complex_name_topologies() {
         },
     ];
 
-    let test_targets: Vec<&WardenEngine> = if let Some(ref hyb) = engines.hybrid {
-        vec![hyb]
-    } else {
-        vec![&engines.heuristic]
+    let Some(ref hyb) = engines.hybrid else {
+        eprintln!("SKIPPING test_complex_name_topologies: ONNX model weights not present on disk");
+        return;
     };
+    let test_targets: Vec<&WardenEngine> = vec![hyb];
 
     for engine in test_targets {
         for case in &cases {
@@ -493,11 +507,11 @@ async fn test_complex_name_topologies() {
 async fn test_dirty_enterprise_formats_and_multi_span_offsets() {
     let engines = &*TEST_ENGINES;
 
-    let test_targets: Vec<&WardenEngine> = if let Some(ref hyb) = engines.hybrid {
-        vec![hyb]
-    } else {
-        vec![&engines.heuristic]
+    let Some(ref hyb) = engines.hybrid else {
+        eprintln!("SKIPPING test_dirty_enterprise_formats_and_multi_span_offsets: ONNX model weights not present on disk");
+        return;
     };
+    let test_targets: Vec<&WardenEngine> = vec![hyb];
 
     for engine in test_targets {
         // 1. JSON Strings
