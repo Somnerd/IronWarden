@@ -387,6 +387,39 @@ mod ai_tests {
             }
         }
     }
+
+    #[test]
+    fn test_ner_mode_heuristic_effective_backend() {
+        let dummy_model = Path::new("non_existent/model.onnx");
+        let dummy_tok = Path::new("non_existent/tokenizer.json");
+        let ner = HybridNer::new_with_paths(0.85, NerMode::Heuristic, dummy_model, dummy_tok)
+            .expect("Heuristic mode must succeed");
+        assert_eq!(ner.requested_mode(), "heuristic");
+        assert_eq!(ner.effective_backend(), "heuristic");
+    }
+
+    #[test]
+    fn test_ner_mode_hybrid_fallback_on_missing_model() {
+        let dummy_model = Path::new("non_existent/model.onnx");
+        let dummy_tok = Path::new("non_existent/tokenizer.json");
+        let ner = HybridNer::new_with_paths(0.85, NerMode::Hybrid, dummy_model, dummy_tok)
+            .expect("Hybrid mode with missing model should fall back to heuristic");
+        assert_eq!(ner.requested_mode(), "hybrid");
+        assert_eq!(ner.effective_backend(), "heuristic");
+    }
+
+    #[test]
+    fn test_ner_mode_require_hybrid_err_on_missing_model() {
+        let dummy_model = Path::new("non_existent/model.onnx");
+        let dummy_tok = Path::new("non_existent/tokenizer.json");
+        let res = HybridNer::new_with_paths(0.85, NerMode::RequireHybrid, dummy_model, dummy_tok);
+        assert!(
+            res.is_err(),
+            "RequireHybrid mode must error when model files are missing"
+        );
+        let err_msg = res.unwrap_err();
+        assert!(err_msg.contains("required by WARDEN_NER_MODE=require_hybrid"));
+    }
 }
 
 mod normalize_tests {

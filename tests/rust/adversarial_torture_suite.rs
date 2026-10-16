@@ -26,7 +26,12 @@ fn is_onnx_model_available() -> bool {
     let model_parent = Path::new("../data/models/distilbert-ner/model_quantized.onnx");
     let tok = Path::new("data/models/distilbert-ner/tokenizer.json");
     let tok_parent = Path::new("../data/models/distilbert-ner/tokenizer.json");
-    (model.exists() || model_parent.exists()) && (tok.exists() || tok_parent.exists())
+    let available =
+        (model.exists() || model_parent.exists()) && (tok.exists() || tok_parent.exists());
+    if !available && std::env::var("WARDEN_NER_MODE").as_deref() == Ok("require_hybrid") {
+        panic!("WARDEN_NER_MODE=require_hybrid is set, but ONNX model weights are missing!");
+    }
+    available
 }
 
 fn init_test_engines() -> TestEngines {
