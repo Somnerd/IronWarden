@@ -16,6 +16,8 @@ pub struct HealthResponse {
     pub uptime_seconds: u64,
     pub concurrency_available: usize,
     pub subsystems: HealthSubsystems,
+    pub ner_mode: &'static str,
+    pub ner_backend: &'static str,
 }
 
 #[derive(Serialize)]
@@ -43,6 +45,20 @@ pub async fn handle_health(
         .unwrap_or(false);
 
     if is_json {
+        let ner_mode = iw_warden::ai::NerMode::from_env()
+            .map(|m| m.as_str())
+            .unwrap_or("hybrid");
+        let ner_backend = if ner_mode != "heuristic"
+            && std::env::var("WARDEN_DISABLE_ONNX").is_err()
+            && (std::path::Path::new("data/models/distilbert-ner/model_quantized.onnx").exists()
+                || std::path::Path::new("../data/models/distilbert-ner/model_quantized.onnx")
+                    .exists())
+        {
+            "onnx"
+        } else {
+            "heuristic"
+        };
+
         let report = HealthResponse {
             status,
             version: env!("CARGO_PKG_VERSION"),
@@ -53,6 +69,8 @@ pub async fn handle_health(
                 shield: "ok",
                 session_manager: "ok",
             },
+            ner_mode,
+            ner_backend,
         };
         let http_status = if storage_ok {
             StatusCode::OK

@@ -248,7 +248,10 @@ mod tests {
         let json_body = axum::body::to_bytes(json_res.into_body(), 1024)
             .await
             .unwrap();
-        assert!(String::from_utf8_lossy(&json_body).contains("\"status\":\"HEALTHY\""));
+        let json_str = String::from_utf8_lossy(&json_body);
+        assert!(json_str.contains("\"status\":\"HEALTHY\""));
+        assert!(json_str.contains("\"ner_mode\":"));
+        assert!(json_str.contains("\"ner_backend\":"));
 
         // 3. Prometheus metrics endpoint
         let metrics_req = Request::builder()

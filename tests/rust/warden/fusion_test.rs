@@ -12,7 +12,7 @@ rules:
 heuristics:
   - label: "POTENTIAL_NAME"
     pattern: '\b[A-Z][a-z]+\b'
-ai_enabled: true
+ai_enabled: false
 ai_confidence_threshold: 0.85
 "#;
 
