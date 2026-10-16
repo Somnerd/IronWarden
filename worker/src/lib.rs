@@ -9,6 +9,7 @@ pub mod metrics;
 pub mod ocr;
 pub mod proxy;
 pub mod router;
+pub mod session;
 pub mod sse_proxy;
 pub mod storage;
 

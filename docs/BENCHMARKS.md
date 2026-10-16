@@ -19,8 +19,6 @@ All benchmarks in this document were empirically executed on the hardware enviro
 | **ShadowNER Boundary Token Scan** | **1.01 µs** [1.01 – 1.03 µs] | Sub-microsecond pre-filter before neural NER |
 | **Lock-Free Atomic Metric Record** | **1.77 ns** [1.76 – 1.77 ns] | Single-cycle atomic increment |
 | **Prometheus Metrics Exposition Render** | **292.8 ns** [292.2 – 293.7 ns] | Near-zero overhead monitoring endpoint |
-| **Base Memory Footprint (Heuristic Mode)** | **28.4 MB RSS** | Lightweight edge deployment |
-| **Base Memory Footprint (Hybrid ONNX NER Mode)** | **142.0 MB RSS** | Includes active ONNX Runtime engine & tensor buffers |
 
 ---
 
@@ -84,20 +82,21 @@ All raw results are reproducible via `./scripts/bench/eval_accuracy.sh` and comm
 
 | Evaluation Suite | Sample Size | Mode | Heur Recall | Hybrid Recall | Precision | F1 Score (Heur / Hyb) | Leaks / False Negatives |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **100,000 Multilingual Matrix (Overall)** | **100,000** | Heuristic (SIMD) | **100.00%** | **100.00%** | **100.0%** | **1.000 / 1.000** | **0 / 100,000** |
+| **100,000 Multilingual Matrix (Overall)** | **100,000** | Heuristic (SIMD) | **98.13%** | **98.13%** | **100.0%** | **0.991 / 0.991** | **1,873 / 100,000** |
 | ↳ English Combinatorial Names | 25,000 | Heuristic (SIMD) | 100.00% | 100.00% | 100.0% | 1.000 / 1.000 | 0 / 25,000 |
 | ↳ Greek Combinatorial Names | 25,000 | Heuristic (SIMD) | 100.00% | 100.00% | 100.0% | 1.000 / 1.000 | 0 / 25,000 |
-| ↳ Arabic Combinatorial Names | 25,000 | Heuristic (SIMD) | 100.00% | 100.00% | 100.0% | 1.000 / 1.000 | 0 / 25,000 |
-| ↳ Chinese Combinatorial Names | 25,000 | Heuristic (SIMD) | 100.00% | 100.00% | 100.0% | 1.000 / 1.000 | 0 / 25,000 |
+| ↳ Arabic Combinatorial Names | 25,000 | Heuristic (SIMD) | 99.24% | 99.24% | 100.0% | 0.996 / 0.996 | 189 / 25,000 |
+| ↳ Chinese Combinatorial Names | 25,000 | Heuristic (SIMD) | 93.26% | 93.26% | 100.0% | 0.965 / 0.965 | 1,684 / 25,000 |
 | **Structural Secrets (API Keys, JWTs, AWS)** | **100** | Heuristic / Hybrid | **100.0%** | **100.0%** | **100.0%** | **1.000 / 1.000** | **0 / 100** |
 | **National IDs (US SSN, Greek AFM, AMKA)** | **100** | Heuristic / Hybrid | **100.0%** | **100.0%** | **100.0%** | **1.000 / 1.000** | **0 / 100** |
 | **Financial (Luhn Cards, EU IBANs)** | **100** | Heuristic / Hybrid | **100.0%** | **100.0%** | **100.0%** | **1.000 / 1.000** | **0 / 100** |
 | **Negative Controls (SQL, Code, Geographies)** | **100** | Heuristic / Hybrid | **100.0%** | **100.0%** | **100.0%** | **1.000 / 1.000** | **0 / 100 (0 FP)** |
-| **CoNLL-2003 Test Split (Gold Person NER)** | **1,617 gold entities** | Dual-Track Hybrid | **71.2%** | **95.5%** | **100.0%** | **0.832 / 0.977** | 73 / 1,617 |
-| **WikiGold Test Split (Gold Person NER)** | **934 gold entities** | Dual-Track Hybrid | **60.2%** | **92.5%** | **100.0%** | **0.751 / 0.961** | 70 / 934 |
+| **CoNLL-2003 Test Split (Gold Person NER)** | **1,617 gold entities** | Dual-Track Hybrid | **66.54%** | **94.62%** | **100.0%** | **0.799 / 0.972** | **541 (Heur) / 87 (Hyb)** |
+| **WikiGold Test Split (Gold Person NER)** | **934 gold entities** | Dual-Track Hybrid | **56.21%** | **92.18%** | **100.0%** | **0.720 / 0.959** | **409 (Heur) / 73 (Hyb)** |
+| **Adversarial Torture Suite (Eval 5)** | **1,000** | Dual-Track Hybrid | **100.0%** | **100.0%** | **99.80%** | **0.999 / 0.999** | **0 / 1,000 (2 FP in inflected Greek)** |
 
 ### ⚡ Evaluation Throughput & Performance
-- **100,000 Prompts Execution Time**: **3.50 seconds** on AMD Ryzen 7 5700X3D (~**28,571 prompts/second** on a single CPU thread with 0 leaks).
+- **100,000 Prompts Execution Time**: **3.50 seconds** on AMD Ryzen 7 5700X3D (~**28,571 prompts/second** on a single CPU thread with 98.13% overall recall across 4 languages and zero false positives).
 - **Zero Heap Thrashing**: Zero memory leaks observed across the 100,000-iteration stress test.
 
 ### 🛡️ Dual-Track ShadowNER & Window-Batched ONNX Architecture
@@ -114,7 +113,7 @@ To eliminate the classic trade-off between recall and latency, IronWarden implem
    - Evaluates context role anchors (`Patient Hoyt`, `Per Coste`) and isolated mid-sentence capitalized tokens.
    - Filtered against common English stop words, programming keywords, SQL reserved words, and geographic proper nouns to prevent false positives.
    - In **Pure Heuristic Mode** (`ai_enabled: false`), Track B candidates are discarded to guarantee 100.0% precision on business code, SQL, and technical text.
-   - In **Hybrid Mode** (`ai_enabled: true`), candidates are grouped by unique sentence windows and evaluated in a single batched pass with INT8 quantized DistilBERT. This completely prevents N+1 ONNX inference spikes while rescuing ambiguous entities, elevating CoNLL-2003 recall from 71.2% to **95.5%** and WikiGold recall from 60.2% to **92.5%** with **zero false positives**.
+   - In **Hybrid Mode** (`ai_enabled: true`), candidates are grouped by unique sentence windows and evaluated in a single batched pass with INT8 quantized DistilBERT. This completely prevents N+1 ONNX inference spikes while rescuing ambiguous entities, elevating CoNLL-2003 recall from 66.54% to **94.62%** and WikiGold recall from 56.21% to **92.18%** with **zero false positives**.
 
 ## 📈 Concurrency & Architectural Scalability
 
@@ -126,11 +125,13 @@ IronWarden is built on the Tokio multi-threaded asynchronous runtime and Axum/Hy
 
 ---
 
-## 💾 Memory Footprint
+## 💾 Memory Architecture & Resource Management
 
-- **Idle Baseline (Heuristic Mode)**: `28.4 MB RSS` (compiled regexes, Aho-Corasick automatons, token tables).
-- **Idle Baseline (Hybrid ONNX NER Mode)**: `142.0 MB RSS` (active ONNX Runtime C++ engine, BERT model weights, and tensor scratch buffers).
-- **Zero Heap Thrashing**: Fixed-size sliding-window buffers and zero-copy JSON parsing avoid frequent heap re-allocations during streaming.
+IronWarden avoids garbage collection overhead and dynamic heap allocations in its streaming hot paths:
+- **Zero Stream Buffering**: Fixed-size sliding-window ring buffers (`SseRehydrator`) stream upstream tokens without buffering complete responses.
+- **Heuristic Engine Allocation**: Pre-compiled Aho-Corasick automata and regex sets are initialized once during startup and shared across threads via read-only memory references.
+- **Hybrid ONNX Runtime Memory**: When `WARDEN_NER_MODE=hybrid` is enabled, the in-process ONNX Runtime manages INT8 tensor memory and session allocations.
+- **Production RSS Sizing**: Process memory varies by platform libc and allocator configuration. In production environments, monitor process memory via Prometheus `/metrics` (`process_resident_memory_bytes`) or container metrics (`cgroups`).
 
 ---
 

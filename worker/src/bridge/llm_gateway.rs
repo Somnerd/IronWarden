@@ -1,442 +1,18 @@
-use crate::grounding::{GroundingQueue, LocalSessionManager};
+use super::{map_error, BridgeState};
 use crate::proxy::{
     authenticate, merge_token_map, resolve_upstream_key, resolve_upstream_url, AnthropicRequest,
     AuthenticatedUser, ChatCompletionRequest, CompletionRequest,
 };
 use axum::{
-    body::Body,
-    extract::{Path, State},
+    extract::State,
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
+    Json,
 };
-use iw_core::crypto::JwtVerifier;
-use iw_core::{PiiShield, SovereignError, StorageProvider, TokenMap};
-use secrecy::{ExposeSecret, SecretVec};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use iw_core::{SovereignError, TokenMap};
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
-
-#[derive(Serialize)]
-struct EnqueueResponse<'a> {
-    status: &'a str,
-    id: String,
-    pii_scrubbed: bool,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct SearchRequest {
-    pub query: String,
-    pub thread_id: String,
-    pub options: Option<HashMap<String, serde_json::Value>>,
-}
-
-pub struct BridgeState {
-    pub shield: Arc<dyn PiiShield>,
-    pub grounding_shield: Arc<dyn iw_core::GroundingShield>,
-    pub queue: Arc<GroundingQueue>,
-    pub storage: Arc<dyn StorageProvider>,
-    /// Unified Session Manager (Local SQLite-backed)
-    pub session_manager: Arc<LocalSessionManager>,
-    /// RSA Public Key for identity verification (V1.0 Decoupled Auth Mandate)
-    pub jwt_public_key: SecretVec<u8>,
-    /// Global Concurrency Semaphore to prevent Tokio executor starvation
-    pub ingress_semaphore: Arc<tokio::sync::Semaphore>,
-    /// Universal Gateway Prometheus Metrics Collector
-    pub metrics: Arc<crate::metrics::GatewayMetrics>,
-}
-
-struct PermitStream<S> {
-    stream: S,
-    _permit: tokio::sync::OwnedSemaphorePermit,
-}
-
-impl<S: futures::Stream<Item = Result<bytes::Bytes, axum::Error>> + Unpin> futures::Stream
-    for PermitStream<S>
-{
-    type Item = Result<bytes::Bytes, axum::Error>;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        std::pin::Pin::new(&mut self.stream).poll_next(cx)
-    }
-}
-
-async fn concurrency_limiter(
-    State(state): State<Arc<BridgeState>>,
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Result<axum::response::Response, StatusCode> {
-    let permit = state
-        .ingress_semaphore
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
-    let response = next.run(request).await;
-    let (parts, body) = response.into_parts();
-    let stream = body.into_data_stream();
-    let tracked_stream = PermitStream {
-        stream,
-        _permit: permit,
-    };
-    let tracked_body = Body::from_stream(tracked_stream);
-    Ok(axum::response::Response::from_parts(parts, tracked_body))
-}
-
-pub fn create_bridge_router(state: Arc<BridgeState>) -> Router {
-    let governor_conf = Arc::new(
-        GovernorConfigBuilder::default()
-            .per_second(25)
-            .burst_size(100)
-            .finish()
-            .expect("Failed to initialize Governor Rate Limiter"),
-    );
-
-    let protected_routes = Router::new()
-        .route("/enqueue", post(handle_enqueue))
-        .route("/results/:job_id", get(handle_get_result))
-        .route("/v1/chat/completions", post(handle_openai_chat_completions))
-        .route("/v1/completions", post(handle_openai_legacy_completions))
-        .route("/v1/models", get(handle_openai_models))
-        .route("/v1/messages", post(handle_anthropic_messages))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            concurrency_limiter,
-        ))
-        .layer(GovernorLayer {
-            config: governor_conf,
-        });
-
-    Router::new()
-        .route("/health", get(handle_health))
-        .route("/metrics", get(handle_metrics))
-        .route("/grafana/dashboard", get(handle_grafana_dashboard))
-        .route("/monitoring/dashboard.json", get(handle_grafana_dashboard))
-        .merge(protected_routes)
-        .with_state(state)
-}
-
-fn map_error(e: SovereignError) -> impl IntoResponse {
-    let status = match e {
-        SovereignError::DatabaseBusy(_) => StatusCode::SERVICE_UNAVAILABLE,
-        SovereignError::UnauthorizedAccess(_) => StatusCode::FORBIDDEN,
-        SovereignError::GatewayTimeout(_) => StatusCode::GATEWAY_TIMEOUT,
-        SovereignError::PiiViolation(_) => StatusCode::BAD_REQUEST,
-        _ => StatusCode::INTERNAL_SERVER_ERROR,
-    };
-    (status, e.to_string())
-}
-
-async fn handle_enqueue(
-    State(state): State<Arc<BridgeState>>,
-    headers: HeaderMap,
-    Json(payload): Json<SearchRequest>,
-) -> impl IntoResponse {
-    // 1. Authenticate & Verify Identity (JWT)
-    let auth_header = headers
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h: &str| h.strip_prefix("Bearer "));
-
-    let token = match auth_header {
-        Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED, "Missing Bearer Token").into_response(),
-    };
-
-    // --- SECURITY FIX (Section 3.3 / Finding B.3): RS256 Decoupled Verification ---
-    let aud = match std::env::var("WARDEN_JWT_AUDIENCE") {
-        Ok(v) => v,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_AUDIENCE environment variable is strictly required. Refusing to boot with default fallbacks.").into_response(),
-    };
-    let iss = match std::env::var("WARDEN_JWT_ISSUER") {
-        Ok(v) => v,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "WARDEN_JWT_ISSUER environment variable is strictly required. Refusing to boot with default fallbacks.").into_response(),
-    };
-
-    let token_data =
-        match JwtVerifier::verify(token, state.jwt_public_key.expose_secret(), &aud, &iss) {
-            Ok(claims) => claims,
-            Err(SovereignError::UnauthorizedAccess(msg)) => {
-                return (StatusCode::UNAUTHORIZED, msg).into_response()
-            }
-            Err(e) => return map_error(e).into_response(),
-        };
-
-    let has_required_role = token_data.roles.contains(&"admin".to_string())
-        || token_data.roles.contains(&"privileged_search".to_string());
-    if !has_required_role {
-        tracing::error!(
-            "RBAC Enforcement Failure: {} lacks required roles",
-            token_data.sub
-        );
-        return (
-            StatusCode::FORBIDDEN,
-            "Insufficient privileges. Requires 'admin' or 'privileged_search' role.",
-        )
-            .into_response();
-    }
-
-    let username = token_data.sub.clone();
-
-    // 2. Local Session Retrieval
-    let user_context = match state.session_manager.get_session(&username).await {
-        Ok(ctx) => ctx,
-        Err(e) => return map_error(e).into_response(),
-    };
-
-    // 3. Scrub PII from the query using the isolated context
-    let report_result = state
-        .shield
-        .sanitize_prompt(&payload.query, Some(&user_context))
-        .await;
-
-    let report = match report_result {
-        Ok(r) => r,
-        Err(e) => return map_error(e).into_response(),
-    };
-
-    // --- SECURITY FIX: Log to Audit Ledger ---
-    if let Err(e) = state
-        .storage
-        .log_audit_event(&report, &payload.query, &username)
-        .await
-    {
-        tracing::error!(
-            "AUDIT LOG FAILURE: {}. Request aborted to prevent un-audited access!",
-            e
-        );
-        return map_error(e).into_response();
-    }
-
-    // --- SECURITY FIX (V-14): Hard-Block Circuit Breaker & Leak Prevention ---
-    if report.is_blocked {
-        return map_error(iw_core::SovereignError::PiiViolation(
-            "[POLICY VIOLATION] Your request was blocked due to sensitive data leakage.".into(),
-        ))
-        .into_response();
-    }
-
-    // 4. Persist updated session state
-    if let Err(e) = state
-        .session_manager
-        .save_session(&username, &user_context)
-        .await
-    {
-        tracing::error!("Failed to save session for {}: {}", username, e);
-    }
-
-    // 5. Delegate to Storage & Queue
-    tracing::info!(
-        "PII Scrubbed for {}: replaced {} terms",
-        username,
-        report.token_map.len()
-    );
-
-    let options = payload.options.unwrap_or_default();
-
-    // --- SECURITY ENFORCEMENT (V-14 / WP-97): Enqueue ONLY sanitized text ---
-    // To maintain 100% compliance with the Leak-Proof Routing mandate, raw queries are
-    // dropped immediately after auditing. Side-channels for raw query grounding are strictly
-    // prohibited as they bypass the core security boundary.
-    state
-        .metrics
-        .requests_enqueue
-        .fetch_add(1, Ordering::Relaxed);
-    if !report.token_map.is_empty() {
-        state
-            .metrics
-            .pii_entities_redacted
-            .fetch_add(report.token_map.len() as u64, Ordering::Relaxed);
-    }
-
-    match state
-        .queue
-        .enqueue(report.sanitized_text, options, payload.thread_id, username)
-        .await
-    {
-        Ok(job_id) => (
-            StatusCode::OK,
-            Json(EnqueueResponse {
-                status: "queued",
-                id: job_id,
-                pii_scrubbed: !report.token_map.is_empty(),
-            }),
-        )
-            .into_response(),
-        Err(e) => {
-            tracing::error!("Failed to enqueue SearchBoost job: {}", e);
-            map_error(e).into_response()
-        }
-    }
-}
-
-async fn handle_get_result(
-    State(state): State<Arc<BridgeState>>,
-    headers: HeaderMap,
-    Path(job_id): Path<String>,
-) -> impl IntoResponse {
-    state
-        .metrics
-        .requests_get_result
-        .fetch_add(1, Ordering::Relaxed);
-    let auth_header = headers
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h: &str| h.strip_prefix("Bearer "));
-
-    let token = match auth_header {
-        Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED, "Missing Bearer Token").into_response(),
-    };
-
-    let aud = match std::env::var("WARDEN_JWT_AUDIENCE") {
-        Ok(v) => v,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "WARDEN_JWT_AUDIENCE environment variable is strictly required.",
-            )
-                .into_response()
-        }
-    };
-    let iss = match std::env::var("WARDEN_JWT_ISSUER") {
-        Ok(v) => v,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "WARDEN_JWT_ISSUER environment variable is strictly required.",
-            )
-                .into_response()
-        }
-    };
-
-    let token_data =
-        match JwtVerifier::verify(token, state.jwt_public_key.expose_secret(), &aud, &iss) {
-            Ok(claims) => claims,
-            Err(SovereignError::UnauthorizedAccess(msg)) => {
-                return (StatusCode::UNAUTHORIZED, msg).into_response()
-            }
-            Err(e) => return map_error(e).into_response(),
-        };
-
-    let username = token_data.sub.clone();
-    let has_required_role = token_data.roles.contains(&"admin".to_string())
-        || token_data.roles.contains(&"privileged_search".to_string());
-    let is_admin = token_data.roles.contains(&"admin".to_string());
-    if !has_required_role {
-        tracing::error!(
-            "RBAC Enforcement Failure: {} lacks required roles",
-            username
-        );
-        return (
-            StatusCode::FORBIDDEN,
-            "Insufficient privileges. Requires 'admin' or 'privileged_search' role.",
-        )
-            .into_response();
-    }
-
-    match state.queue.get_result(&job_id, &username, is_admin).await {
-        Ok(Some(res)) => (StatusCode::OK, res).into_response(),
-        Ok(None) => (StatusCode::ACCEPTED, "Processing...").into_response(),
-        Err(e) => map_error(e).into_response(),
-    }
-}
-
-#[derive(Serialize)]
-struct HealthResponse {
-    status: &'static str,
-    version: &'static str,
-    uptime_seconds: u64,
-    concurrency_available: usize,
-    subsystems: HealthSubsystems,
-}
-
-#[derive(Serialize)]
-struct HealthSubsystems {
-    storage: &'static str,
-    shield: &'static str,
-    session_manager: &'static str,
-}
-
-async fn handle_health(
-    State(state): State<Arc<BridgeState>>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    state
-        .metrics
-        .requests_health
-        .fetch_add(1, Ordering::Relaxed);
-    let storage_ok = state.storage.check_health().await.is_ok();
-    let status = if storage_ok { "HEALTHY" } else { "DEGRADED" };
-
-    let is_json = headers
-        .get(axum::http::header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.contains("application/json"))
-        .unwrap_or(false);
-
-    if is_json {
-        let report = HealthResponse {
-            status,
-            version: env!("CARGO_PKG_VERSION"),
-            uptime_seconds: state.metrics.uptime_seconds(),
-            concurrency_available: state.ingress_semaphore.available_permits(),
-            subsystems: HealthSubsystems {
-                storage: if storage_ok { "ok" } else { "unavailable" },
-                shield: "ok",
-                session_manager: "ok",
-            },
-        };
-        let http_status = if storage_ok {
-            StatusCode::OK
-        } else {
-            StatusCode::SERVICE_UNAVAILABLE
-        };
-        return (http_status, Json(report)).into_response();
-    }
-
-    if storage_ok {
-        (
-            StatusCode::OK,
-            "IronWarden Bridge: V2.0 Universal AI Gateway Proxy: HEALTHY",
-        )
-            .into_response()
-    } else {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "IronWarden Bridge: CRITICAL FAILURE: Storage check failed",
-        )
-            .into_response()
-    }
-}
-
-async fn handle_metrics(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
-    let body = state
-        .metrics
-        .render_prometheus(state.ingress_semaphore.available_permits());
-    (
-        StatusCode::OK,
-        [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
-        body,
-    )
-}
-
-const GRAFANA_DASHBOARD_JSON: &str =
-    include_str!("../../monitoring/grafana/dashboards/ironwarden_dashboard.json");
-
-async fn handle_grafana_dashboard() -> impl IntoResponse {
-    (
-        StatusCode::OK,
-        [("content-type", "application/json; charset=utf-8")],
-        GRAFANA_DASHBOARD_JSON,
-    )
-}
 
 #[doc(hidden)]
 pub fn get_proxy_http_client(resolved_addr: Option<(&str, SocketAddr)>) -> reqwest::Client {
@@ -452,7 +28,7 @@ pub fn get_proxy_http_client(resolved_addr: Option<(&str, SocketAddr)>) -> reqwe
     builder.build().unwrap_or_default()
 }
 
-async fn process_and_audit_text(
+pub(crate) async fn process_and_audit_text(
     state: &Arc<BridgeState>,
     auth: &AuthenticatedUser,
     text: &str,
@@ -507,7 +83,7 @@ type ProcessContentFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<(), (StatusCode, String)>> + Send + 'a>,
 >;
 
-fn process_and_audit_content_value<'a>(
+pub(crate) fn process_and_audit_content_value<'a>(
     state: &'a Arc<BridgeState>,
     auth: &'a AuthenticatedUser,
     content: &'a mut serde_json::Value,
@@ -546,7 +122,7 @@ fn process_and_audit_content_value<'a>(
     })
 }
 
-async fn handle_openai_chat_completions(
+pub async fn handle_openai_chat_completions(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
     Json(mut payload): Json<ChatCompletionRequest>,
@@ -669,7 +245,7 @@ async fn handle_openai_chat_completions(
     (StatusCode::OK, Json(res_json)).into_response()
 }
 
-async fn handle_openai_legacy_completions(
+pub async fn handle_openai_legacy_completions(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
     Json(mut payload): Json<CompletionRequest>,
@@ -751,7 +327,7 @@ async fn handle_openai_legacy_completions(
     (StatusCode::OK, Json(res_json)).into_response()
 }
 
-async fn handle_openai_models(
+pub async fn handle_openai_models(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
@@ -798,7 +374,7 @@ async fn handle_openai_models(
     }
 }
 
-async fn handle_anthropic_messages(
+pub async fn handle_anthropic_messages(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
     Json(mut payload): Json<AnthropicRequest>,

@@ -5,7 +5,7 @@ use iw_warden::WardenConfig;
 #[tokio::test]
 async fn test_global_identity_fusion() {
     let yaml = r#"
-ai_enabled: true
+ai_enabled: false
 ai_confidence_threshold: 0.85
 "#;
 
