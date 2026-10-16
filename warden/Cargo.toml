@@ -9,9 +9,7 @@ aho-corasick.workspace = true
 regex.workspace = true
 unicode-normalization.workspace = true
 base64.workspace = true
-once_cell.workspace = true
 any_ascii.workspace = true
-crossbeam-channel.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
@@ -20,8 +18,6 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "net", 
 ort.workspace = true
 tokenizers.workspace = true
 async-trait.workspace = true
-futures.workspace = true
-console.workspace = true
 aes-gcm.workspace = true
 aead.workspace = true
 hkdf.workspace = true
@@ -34,8 +30,6 @@ libc.workspace = true
 ort-sys = { version = "2.0.0-rc.12", features = ["disable-linking"] }
 
 [dev-dependencies]
-tempfile.workspace = true
-proptest.workspace = true
 criterion.workspace = true
 
 [[bench]]

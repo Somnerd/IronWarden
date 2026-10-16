@@ -43,7 +43,7 @@ jobs:
           cp "target/release/iw-cli" "$RELEASE_DIR/iw-cli"
           
           # Copy configuration templates & documentation
-          cp example.env "$RELEASE_DIR/example.env"
+          cp .env.example "$RELEASE_DIR/.env.example"
           cp LICENSE "$RELEASE_DIR/LICENSE"
           cp README.md "$RELEASE_DIR/README.md"
           

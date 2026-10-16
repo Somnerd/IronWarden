@@ -11,9 +11,6 @@ sha2.workspace = true
 hkdf.workspace = true
 hex.workspace = true
 serde_json.workspace = true
-chrono.workspace = true
-aes-gcm.workspace = true
-rand.workspace = true
 secrecy.workspace = true
 iw_core = { workspace = true }
 bincode.workspace = true

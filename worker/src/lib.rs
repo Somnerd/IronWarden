@@ -9,6 +9,7 @@ pub mod metrics;
 pub mod ocr;
 pub mod proxy;
 pub mod router;
+pub mod session;
 pub mod sse_proxy;
 pub mod storage;
 
@@ -21,5 +22,5 @@ pub use ocr::{OcrWorker, TesseractOcr};
 pub use router::OpenAIGateway;
 pub use storage::WorkerStorage;
 
-#[cfg(test)]
-pub(crate) static TEST_ENV_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+#[doc(hidden)]
+pub static TEST_ENV_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

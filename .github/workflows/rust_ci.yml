@@ -14,7 +14,7 @@ env:
 jobs:
   lint:
     name: Format & Clippy
-    runs-on: [self-hosted, linux]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -35,7 +35,7 @@ jobs:
   test:
     name: Test Suite (Unit & Integration)
     needs: lint
-    runs-on: [self-hosted, linux]
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -58,15 +58,11 @@ jobs:
 
       - name: Prepare Test Manifests & Models
         run: |
-          mkdir -p integration_tests data/models/distilbert-ner
-          cp warden/test_manifest_*.yaml integration_tests/ 2>/dev/null || true
-          cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml 2>/dev/null || true
-          if [ -d "/home/somnerd/Documents/Projects/IronWarden/data/models/distilbert-ner" ]; then
-            cp -r /home/somnerd/Documents/Projects/IronWarden/data/models/distilbert-ner/* data/models/distilbert-ner/ 2>/dev/null || true
-          fi
-          ./scripts/setup_models.sh
+          ./scripts/setup/setup_models.sh
 
       - name: Run Rust Tests
+        env:
+          WARDEN_NER_MODE: require_hybrid
         run: cargo test --workspace --lib --bins --tests
 
       - name: Build App Binary
@@ -75,5 +71,5 @@ jobs:
       - name: Run Python Integration Test Suite
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          pytest test_suites/ --timeout=180 -k "not stress and not benchmark" -v
+          pytest tests/e2e/ --timeout=180 -k "not stress and not benchmark" -v
 

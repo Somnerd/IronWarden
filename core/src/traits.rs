@@ -148,34 +148,6 @@ impl SessionContext {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_session_context_roundtrip() {
-        let ctx = SessionContext::new();
-        ctx.pii_to_token
-            .insert("alice".to_string(), "[PERSON_1]".to_string());
-        ctx.semantic_cache
-            .insert("alice smith".to_string(), ("PERSON".to_string(), 0.99));
-        ctx.next_id.store(5, Ordering::SeqCst);
-
-        let state = SessionState::from(&ctx);
-        assert_eq!(state.pii_to_token.get("alice").unwrap(), "[PERSON_1]");
-        assert_eq!(state.semantic_cache.get("alice smith").unwrap().0, "PERSON");
-        assert_eq!(state.next_id, 5);
-
-        let ctx2 = SessionContext::from(state);
-        assert_eq!(
-            ctx2.pii_to_token.get("alice").unwrap().value(),
-            "[PERSON_1]"
-        );
-        assert_eq!(ctx2.semantic_cache.get("alice smith").unwrap().0, "PERSON");
-        assert_eq!(ctx2.next_id.load(Ordering::SeqCst), 5);
-    }
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EnforcementAction {
     Block,

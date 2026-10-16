@@ -1,0 +1,88 @@
+[package]
+name = "iw-integration-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+iw_core = { workspace = true }
+warden = { workspace = true }
+worker = { workspace = true }
+mcp = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tempfile.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+async-trait.workspace = true
+proptest.workspace = true
+axum.workspace = true
+jsonwebtoken.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+secrecy.workspace = true
+bincode.workspace = true
+redis.workspace = true
+reqwest.workspace = true
+aes-gcm.workspace = true
+aead.workspace = true
+hex.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hkdf.workspace = true
+chrono.workspace = true
+regex.workspace = true
+aho-corasick.workspace = true
+dashmap.workspace = true
+lazy_static = "1.5"
+url = "2.5"
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+futures.workspace = true
+rand.workspace = true
+
+[[test]]
+name = "integration_tests"
+path = "rust/integration_tests.rs"
+
+[[test]]
+name = "adversarial_torture_suite"
+path = "rust/adversarial_torture_suite.rs"
+
+[[test]]
+name = "challenger1_stress"
+path = "rust/challenger1_stress.rs"
+
+[[test]]
+name = "challenger_2_adversarial_suite"
+path = "rust/challenger_2_adversarial_suite.rs"
+
+[[test]]
+name = "unit_core"
+path = "rust/unit_core.rs"
+
+[[test]]
+name = "unit_mcp"
+path = "rust/unit_mcp.rs"
+
+[[test]]
+name = "unit_warden_engine"
+path = "rust/unit_warden_engine.rs"
+
+[[test]]
+name = "unit_warden_subsystems"
+path = "rust/unit_warden_subsystems.rs"
+
+[[test]]
+name = "unit_worker_bridge"
+path = "rust/unit_worker_bridge.rs"
+
+[[test]]
+name = "unit_worker_proxy"
+path = "rust/unit_worker_proxy.rs"
+
+[[test]]
+name = "unit_worker_storage"
+path = "rust/unit_worker_storage.rs"
