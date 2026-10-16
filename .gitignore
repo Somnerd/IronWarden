@@ -24,6 +24,7 @@ Thumbs.db
 .gemini/
 
 # Database and Test Cache Data
+/data/
 **/data/
 
 # SQLite Temporary Files
