@@ -6,8 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fsomnerd%2Fironwarden-blue?logo=docker)](https://github.com/Somnerd/IronWarden/pkgs/container/ironwarden)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?logo=rust)](Cargo.toml)
-[![Criterion Benchmarks](https://img.shields.io/badge/Criterion%20Benchmarks-Statistically%20Verified-brightgreen)](docs/BENCHMARKS.md)
-[![SSE Rehydration](https://img.shields.io/badge/SSE%20Rehydration-%3C1%C2%B5s%20per%20chunk-blue)](docs/BENCHMARKS.md)
+[![Criterion Benchmarks](https://img.shields.io/badge/Criterion%20Benchmarks-Statistically%20Verified-brightgreen)](benchmarks/raw/criterion_estimates.json)
+[![SSE Rehydration](https://img.shields.io/badge/SSE%20Rehydration-%3C1%C2%B5s%20per%20chunk-blue)](benchmarks/raw/criterion_estimates.json)
 
 **IronWarden** is a sovereign, ultra-low-latency AI security reverse proxy and PII firewall written in bare-metal Rust. 
 
@@ -68,8 +68,6 @@ Point any **OpenAI**, **Anthropic**, or **Ollama/vLLM** SDK client at IronWarden
                  [ Upstream LLMs: OpenAI / Anthropic / Local Ollama ]
 ```
 
-> [!NOTE]
-> For in-depth crate breakdowns, data flows, and security invariants, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
@@ -105,14 +103,7 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 docker compose up -d
 ```
 
-### 4. Deploy to Kubernetes with Helm
-```bash
-helm install ironwarden ./deploy/helm/ironwarden \
-  --set secrets.wardenPepper="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" \
-  --set secrets.openaiApiKey="sk-..."
-```
-
-### 5. Build & Run from Source
+### 4. Build & Run from Source
 ```bash
 git clone https://github.com/Somnerd/IronWarden.git
 cd IronWarden
@@ -227,7 +218,7 @@ IronWarden includes a native JSON-RPC 2.0 stdio MCP server for agentic AI archit
 
 ## 📊 Performance Benchmarks
 
-Empirically measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) (100 samples, 1,000+ iterations per sample, 95% confidence intervals) on AMD Ryzen 7 5700X3D (8C/16T, 96MB L3 V-Cache), Linux 6.6 WSL2. All raw data committed in [`benchmarks/raw/criterion_estimates.json`](benchmarks/raw/criterion_estimates.json). See [BENCHMARKS.md](docs/BENCHMARKS.md) for full methodology.
+Empirically measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) (100 samples, 1,000+ iterations per sample, 95% confidence intervals) on AMD Ryzen 7 5700X3D (8C/16T, 96MB L3 V-Cache), Linux 6.6 WSL2. All raw data committed in [`benchmarks/raw/criterion_estimates.json`](benchmarks/raw/criterion_estimates.json).
 
 | Operation / Micro-Benchmark | Median Latency [95% CI] | Architectural Impact |
 | :--- | :---: | :--- |
@@ -256,7 +247,7 @@ Empirically measured across standard datasets and a 100,000-prompt multilingual 
 | **WikiGold Test Split (Gold Person NER)** | **934 gold entities** | Dual-Track Hybrid | **56.21% / 92.18%** | **100.0%** | **0.720 / 0.959** |
 | **Adversarial Torture Suite (Eval 5)** | **1,000 cases** | Dual-Track Hybrid | **100.0% / 100.0%** | **99.80%** | **0.999 / 0.999** |
 
-*100,000 combinatorial prompts evaluated across 4 languages with 98.13% overall recall (100% in English/Greek, 99.24% in Arabic, 93.26% in Chinese) and 0 false positives. Dual-track ShadowNER gates ambiguous tokens to window-batched INT8 DistilBERT, preventing N+1 latency spikes while achieving zero false positives on SQL queries, code, and system identifiers. All empirical measurements are backed by [`benchmarks/raw/accuracy_eval_results.json`](benchmarks/raw/accuracy_eval_results.json). See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for full reproduction.*
+*100,000 combinatorial prompts evaluated across 4 languages with 98.13% overall recall (100% in English/Greek, 99.24% in Arabic, 93.26% in Chinese) and 0 false positives. Dual-track ShadowNER gates ambiguous tokens to window-batched INT8 DistilBERT, preventing N+1 latency spikes while achieving zero false positives on SQL queries, code, and system identifiers. All empirical measurements are backed by [`benchmarks/raw/accuracy_eval_results.json`](benchmarks/raw/accuracy_eval_results.json).*
 
 ---
 
