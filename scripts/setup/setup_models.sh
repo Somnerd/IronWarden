@@ -5,12 +5,12 @@
 # Downloads the INT8 quantized DistilBERT NER model weights and tokenizer.
 #
 # UPSTREAM ASSETS & LICENSES:
-# - Model: optimum/distilbert-base-uncased-finetuned-ner (ONNX INT8 Quantized)
-#   Source: https://huggingface.co/optimum/distilbert-base-uncased-finetuned-ner
+# - Model: onnx-community/distilbert-NER-ONNX (model_quantized.onnx)
+#   Source: https://huggingface.co/onnx-community/distilbert-NER-ONNX
 #   License: Apache 2.0 (Hugging Face / Optimum)
 #
-# - Tokenizer: distilbert-base-uncased/tokenizer.json
-#   Source: https://huggingface.co/distilbert-base-uncased
+# - Tokenizer: onnx-community/distilbert-NER-ONNX (tokenizer.json)
+#   Source: https://huggingface.co/onnx-community/distilbert-NER-ONNX
 #   License: Apache 2.0 (Hugging Face)
 #
 # NOTE: IronWarden does NOT bundle model weights directly in repository releases.
@@ -49,8 +49,8 @@ verify_checksum() {
     elif command -v shasum >/dev/null 2>&1; then
         actual=$(shasum -a 256 "$file" | awk '{print $1}')
     else
-        echo "⚠️ Warning: Neither sha256sum nor shasum found. Skipping integrity check."
-        return 0
+        echo "❌ Error: Neither sha256sum nor shasum found. Cannot verify integrity."
+        return 1
     fi
 
     if [ "$actual" != "$expected" ]; then

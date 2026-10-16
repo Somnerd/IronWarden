@@ -257,31 +257,42 @@ impl AsyncAuditor {
                     }
                     AuditMessage::PurgeUser(username, ack_tx) => {
                         let res = if let Some(ref c) = conn {
-                            let _ = c.execute("BEGIN IMMEDIATE TRANSACTION", []);
-                            // Cryptographic shredding under GDPR:
-                            // 1. Wipe ephemeral raw logs & encryption keys/nonces
-                            let res1 = c.execute(
-                                "DELETE FROM ephemeral_raw_logs WHERE username = ?1",
-                                [&username],
-                            );
-                            // 2. Redact username in audit_reports to preserve row IDs and cryptographic chain
-                            let res2 = c.execute(
-                                "UPDATE audit_reports SET username = '[REDACTED]' WHERE username = ?1",
-                                [&username],
-                            );
-
-                            if res1.is_err() || res2.is_err() {
-                                let _ = c.execute("ROLLBACK", []);
-                                Err(SovereignError::StorageError(
-                                    "Failed to purge user audit data".into(),
-                                ))
+                            if let Err(e) = c.execute("BEGIN IMMEDIATE TRANSACTION", []) {
+                                Err(SovereignError::StorageError(format!(
+                                    "Failed to begin purge transaction: {}",
+                                    e
+                                )))
                             } else {
-                                let _ = c.execute("COMMIT", []);
-                                info!(
-                                    "GDPR Purge: All audit records for user {} have been cryptographically shredded.",
-                                    username
+                                // Cryptographic shredding under GDPR:
+                                // 1. Wipe ephemeral raw logs & encryption keys/nonces
+                                let res1 = c.execute(
+                                    "DELETE FROM ephemeral_raw_logs WHERE username = ?1",
+                                    [&username],
                                 );
-                                Ok(())
+                                // 2. Redact username in audit_reports to preserve row IDs and cryptographic chain
+                                let res2 = c.execute(
+                                    "UPDATE audit_reports SET username = '[REDACTED]' WHERE username = ?1",
+                                    [&username],
+                                );
+
+                                if res1.is_err() || res2.is_err() {
+                                    let _ = c.execute("ROLLBACK", []);
+                                    Err(SovereignError::StorageError(
+                                        "Failed to purge user audit data".into(),
+                                    ))
+                                } else if let Err(e) = c.execute("COMMIT", []) {
+                                    let _ = c.execute("ROLLBACK", []);
+                                    Err(SovereignError::StorageError(format!(
+                                        "Failed to commit purge transaction: {}",
+                                        e
+                                    )))
+                                } else {
+                                    info!(
+                                        "GDPR Purge: All audit records for user {} have been cryptographically shredded.",
+                                        username
+                                    );
+                                    Ok(())
+                                }
                             }
                         } else {
                             Err(SovereignError::InternalError(
