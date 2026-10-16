@@ -25,7 +25,7 @@ git clone https://github.com/Somnerd/IronWarden.git
 cd IronWarden
 
 # Download local BERT-NER ONNX model weights
-./scripts/setup_models.sh
+./scripts/setup/setup_models.sh
 
 # Build all workspace crates
 cargo build --workspace

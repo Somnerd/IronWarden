@@ -20,9 +20,47 @@ pub struct Entity {
     pub end: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NerMode {
+    Heuristic,
+    Hybrid,
+    RequireHybrid,
+}
+
+impl NerMode {
+    pub fn from_env() -> Result<Self, String> {
+        match std::env::var("WARDEN_NER_MODE").as_deref() {
+            Ok("heuristic") => Ok(Self::Heuristic),
+            Ok("hybrid") | Ok("") | Err(_) => Ok(Self::Hybrid),
+            Ok("require_hybrid") => Ok(Self::RequireHybrid),
+            Ok(other) => Err(format!(
+                "Invalid WARDEN_NER_MODE '{}': expected 'heuristic', 'hybrid', or 'require_hybrid'",
+                other
+            )),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Heuristic => "heuristic",
+            Self::Hybrid => "hybrid",
+            Self::RequireHybrid => "require_hybrid",
+        }
+    }
+}
+
 pub enum NerBackend {
     Onnx(Box<OnnxNer>),
     None,
+}
+
+impl std::fmt::Debug for NerBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Onnx(_) => write!(f, "NerBackend::Onnx"),
+            Self::None => write!(f, "NerBackend::None"),
+        }
+    }
 }
 
 static ORT_INIT: std::sync::Once = std::sync::Once::new();
@@ -259,23 +297,45 @@ impl OnnxNer {
     }
 }
 
+#[derive(Debug)]
 pub struct HybridNer {
     backend: NerBackend,
     #[allow(dead_code)]
     threshold: f64,
+    mode: NerMode,
 }
 
 impl HybridNer {
+    pub fn requested_mode(&self) -> &'static str {
+        self.mode.as_str()
+    }
+
+    pub fn effective_backend(&self) -> &'static str {
+        match self.backend {
+            NerBackend::Onnx(_) => "onnx",
+            NerBackend::None => "heuristic",
+        }
+    }
+
     pub fn new(threshold: f64) -> Result<Self, String> {
+        let mode = NerMode::from_env()?;
         let disable_onnx = std::env::var("WARDEN_DISABLE_ONNX").is_ok()
             || (std::env::var("WARDEN_ENV").as_deref() == Ok("test")
-                && std::env::var("WARDEN_ENABLE_ONNX_TEST").is_err());
+                && std::env::var("WARDEN_ENABLE_ONNX_TEST").is_err()
+                && mode != NerMode::RequireHybrid);
 
-        if disable_onnx {
-            info!("ONNX inference disabled for test environment. Using Heuristic-Only mode.");
+        if mode == NerMode::RequireHybrid && std::env::var("WARDEN_DISABLE_ONNX").is_ok() {
+            return Err(
+                "WARDEN_NER_MODE=require_hybrid conflicts with WARDEN_DISABLE_ONNX".to_string(),
+            );
+        }
+
+        if mode == NerMode::Heuristic || disable_onnx {
+            info!("NER Mode: requested={}, effective=heuristic", mode.as_str());
             return Ok(Self {
                 backend: NerBackend::None,
                 threshold,
+                mode,
             });
         }
 
@@ -291,36 +351,71 @@ impl HybridNer {
             Path::new("../data/models/distilbert-ner/tokenizer.json")
         };
 
+        Self::new_with_paths(threshold, mode, model_path, tokenizer_path)
+    }
+
+    pub fn new_with_paths(
+        threshold: f64,
+        mode: NerMode,
+        model_path: &Path,
+        tokenizer_path: &Path,
+    ) -> Result<Self, String> {
+        if mode == NerMode::Heuristic {
+            return Ok(Self {
+                backend: NerBackend::None,
+                threshold,
+                mode,
+            });
+        }
+
         if model_path.exists() && tokenizer_path.exists() {
             match OnnxNer::new(model_path, tokenizer_path, threshold) {
                 Ok(onnx) => {
-                    info!("ONNX Runtime Inference Engine: ONLINE (DistilBERT-INT8)");
-                    return Ok(Self {
+                    info!(
+                        "ONNX Runtime Inference Engine: ONLINE (requested_mode={}, effective_backend=onnx)",
+                        mode.as_str()
+                    );
+                    Ok(Self {
                         backend: NerBackend::Onnx(Box::new(onnx)),
                         threshold,
-                    });
+                        mode,
+                    })
                 }
                 Err(e) => {
-                    error!(
-                        "ONNX Initialization Failed: {}. Falling back to Heuristic-Only mode.",
-                        e
-                    );
+                    if mode == NerMode::RequireHybrid {
+                        Err(format!(
+                            "ONNX Initialization Failed in require_hybrid mode: {}",
+                            e
+                        ))
+                    } else {
+                        error!(
+                            "ONNX Initialization Failed: {}. Falling back to Heuristic-Only mode.",
+                            e
+                        );
+                        Ok(Self {
+                            backend: NerBackend::None,
+                            threshold,
+                            mode,
+                        })
+                    }
                 }
             }
+        } else if mode == NerMode::RequireHybrid {
+            Err(format!(
+                "ONNX model files required by WARDEN_NER_MODE=require_hybrid but missing at {:?} / {:?}",
+                model_path, tokenizer_path
+            ))
         } else {
             warn!(
                 "ONNX model files not found at {:?} / {:?}. Running in Heuristic-Only mode.",
                 model_path, tokenizer_path
             );
+            Ok(Self {
+                backend: NerBackend::None,
+                threshold,
+                mode,
+            })
         }
-
-        // --- SECURITY FIX (Finding 3): LibTorch removed entirely ---
-        // No LibTorch fallback. If ONNX fails, we run heuristic-only.
-        // This prevents C++ abort() from crashing the gateway on VRAM OOM.
-        Ok(Self {
-            backend: NerBackend::None,
-            threshold,
-        })
     }
 
     pub fn analyze(&self, text: &str) -> Vec<Entity> {
@@ -389,84 +484,5 @@ impl HybridNerPool {
 
     pub fn release(&self, instance: HybridNer) {
         let _ = self.sender.send(instance);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    #[ignore = "ORT rc.12 global allocator races Tokio multi-thread shutdown (teardown SIGSEGV); concurrency logic covered by pool integration via engine tests"]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_ai_pool_concurrent_access() {
-        // This test ensures the HybridNerPool can be accessed concurrently without deadlocks
-        // We'll initialize a pool with 2 instances and spawn 10 concurrent requests.
-        // Note: In an environment without ONNX models, this will fall back to NerBackend::None,
-        // which still tests the concurrency logic of the pool itself (channel send/recv).
-        let pool = Arc::new(HybridNerPool::new(0.85, 2).unwrap());
-
-        let mut handles = vec![];
-        for i in 0..10 {
-            let pool_clone = pool.clone();
-            handles.push(tokio::spawn(async move {
-                // Try to acquire an instance
-                if let Some(instance) = pool_clone.get().await {
-                    // Simulate work
-                    let _ = instance.analyze(&format!("Test input {}", i));
-                    // Yield to simulate async delay
-                    tokio::task::yield_now().await;
-                    // Release instance back to pool
-                    pool_clone.release(instance);
-                    true
-                } else {
-                    false
-                }
-            }));
-        }
-
-        let mut success_count = 0;
-        for handle in handles {
-            if handle.await.unwrap_or(false) {
-                success_count += 1;
-            }
-        }
-
-        // Since we are running concurrently, some might timeout (25ms) if the CI is slow,
-        // but we expect at least SOME successes, and crucially: NO deadlocks or panics.
-        assert!(
-            success_count > 0,
-            "Expected at least one successful pool acquisition"
-        );
-    }
-
-    #[test]
-    #[ignore = "requires dedicated ONNX runtime container environment"]
-    fn test_onnx_model_load_direct() {
-        let model_path = if Path::new("data/models/distilbert-ner/model_quantized.onnx").exists() {
-            Path::new("data/models/distilbert-ner/model_quantized.onnx")
-        } else {
-            Path::new("../data/models/distilbert-ner/model_quantized.onnx")
-        };
-        let tokenizer_path = if Path::new("data/models/distilbert-ner/tokenizer.json").exists() {
-            Path::new("data/models/distilbert-ner/tokenizer.json")
-        } else {
-            Path::new("../data/models/distilbert-ner/tokenizer.json")
-        };
-        println!("Testing direct ONNX model load from {:?}...", model_path);
-        assert!(model_path.exists(), "Model file must exist");
-        assert!(tokenizer_path.exists(), "Tokenizer file must exist");
-        let res = OnnxNer::new(model_path, tokenizer_path, 0.85);
-        match res {
-            Ok(ner) => {
-                println!("Model loaded successfully!");
-                let entities = ner.predict("John Doe works at Apple in London");
-                println!("Predicted {} entities", entities.len());
-                assert!(!entities.is_empty(), "Expected entities detected");
-            }
-            Err(e) => {
-                panic!("Direct ONNX load failed: {}", e);
-            }
-        }
     }
 }
