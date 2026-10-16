@@ -21,5 +21,5 @@ pub use ocr::{OcrWorker, TesseractOcr};
 pub use router::OpenAIGateway;
 pub use storage::WorkerStorage;
 
-#[cfg(test)]
-pub(crate) static TEST_ENV_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+#[doc(hidden)]
+pub static TEST_ENV_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

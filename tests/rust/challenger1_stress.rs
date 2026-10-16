@@ -2,6 +2,8 @@
 //! Empirical testing of R1 (Greek inflections, Greeklish, Tonos/Dialytika, Category)
 //! and R2 (Verb eating elimination, Protected surnames, Exact span boundaries).
 
+extern crate warden as iw_warden;
+
 use iw_core::traits::PiiShield;
 use iw_warden::config::WardenConfig;
 use iw_warden::engine::WardenEngine;

@@ -58,13 +58,11 @@ jobs:
 
       - name: Prepare Test Manifests & Models
         run: |
-          mkdir -p integration_tests data/models/distilbert-ner
-          cp warden/test_manifest_*.yaml integration_tests/ 2>/dev/null || true
-          cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml 2>/dev/null || true
+          mkdir -p data/models/distilbert-ner
           if [ -d "/home/somnerd/Documents/Projects/IronWarden/data/models/distilbert-ner" ]; then
             cp -r /home/somnerd/Documents/Projects/IronWarden/data/models/distilbert-ner/* data/models/distilbert-ner/ 2>/dev/null || true
           fi
-          ./scripts/setup_models.sh
+          ./scripts/setup/setup_models.sh
 
       - name: Run Rust Tests
         run: cargo test --workspace --lib --bins --tests
@@ -75,5 +73,5 @@ jobs:
       - name: Run Python Integration Test Suite
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          pytest test_suites/ --timeout=180 -k "not stress and not benchmark" -v
+          pytest tests/e2e/ --timeout=180 -k "not stress and not benchmark" -v
 

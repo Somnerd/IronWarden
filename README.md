@@ -6,8 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fsomnerd%2Fironwarden-blue?logo=docker)](https://github.com/Somnerd/IronWarden/pkgs/container/ironwarden)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?logo=rust)](Cargo.toml)
-[![Criterion Benchmarks](https://img.shields.io/badge/Criterion%20Benchmarks-Statistically%20Verified-brightgreen)](BENCHMARKS.md)
-[![SSE Rehydration](https://img.shields.io/badge/SSE%20Rehydration-%3C1%C2%B5s%20per%20chunk-blue)](BENCHMARKS.md)
+[![Criterion Benchmarks](https://img.shields.io/badge/Criterion%20Benchmarks-Statistically%20Verified-brightgreen)](docs/BENCHMARKS.md)
+[![SSE Rehydration](https://img.shields.io/badge/SSE%20Rehydration-%3C1%C2%B5s%20per%20chunk-blue)](docs/BENCHMARKS.md)
 
 **IronWarden** is a sovereign, ultra-low-latency AI security reverse proxy and PII firewall written in bare-metal Rust. 
 
@@ -115,7 +115,7 @@ git clone https://github.com/Somnerd/IronWarden.git
 cd IronWarden
 
 # Optional: Download ONNX NER weights (falls back to high-speed heuristic mode if omitted)
-./scripts/setup_models.sh
+./scripts/setup/setup_models.sh
 
 # Run the gateway
 export WARDEN_PEPPER=$(openssl rand -hex 16)
@@ -224,7 +224,7 @@ IronWarden includes a native JSON-RPC 2.0 stdio MCP server for agentic AI archit
 
 ## 📊 Performance Benchmarks
 
-Empirically measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) (100 samples, 1,000+ iterations per sample, 95% confidence intervals) on AMD Ryzen 7 5700X3D (8C/16T, 96MB L3 V-Cache), Linux 6.6 WSL2. All raw data committed in [`benchmarks/raw/criterion_estimates.json`](benchmarks/raw/criterion_estimates.json). See [BENCHMARKS.md](BENCHMARKS.md) for full methodology.
+Empirically measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) (100 samples, 1,000+ iterations per sample, 95% confidence intervals) on AMD Ryzen 7 5700X3D (8C/16T, 96MB L3 V-Cache), Linux 6.6 WSL2. All raw data committed in [`benchmarks/raw/criterion_estimates.json`](benchmarks/raw/criterion_estimates.json). See [BENCHMARKS.md](docs/BENCHMARKS.md) for full methodology.
 
 | Operation / Micro-Benchmark | Median Latency [95% CI] | Architectural Impact |
 | :--- | :---: | :--- |
@@ -254,7 +254,7 @@ Empirically measured across standard datasets and a 100,000-prompt multilingual 
 | **CoNLL-2003 Test Split (Gold Person NER)** | **1,617 gold entities** | Dual-Track Hybrid | **71.2% / 95.5%** | **100.0%** | **0.832 / 0.977** |
 | **WikiGold Test Split (Gold Person NER)** | **934 gold entities** | Dual-Track Hybrid | **60.2% / 92.5%** | **100.0%** | **0.751 / 0.961** |
 
-*100,000 combinatorial prompts processed in 3.50s (~28,571 prompts/sec with 0 leaks). Dual-track ShadowNER gates ambiguous tokens to window-batched INT8 DistilBERT, preventing N+1 latency spikes while achieving zero false positives on SQL queries, code, and system identifiers. See [BENCHMARKS.md](BENCHMARKS.md) for full reproduction.*
+*100,000 combinatorial prompts processed in 3.50s (~28,571 prompts/sec with 0 leaks). Dual-track ShadowNER gates ambiguous tokens to window-batched INT8 DistilBERT, preventing N+1 latency spikes while achieving zero false positives on SQL queries, code, and system identifiers. See [BENCHMARKS.md](docs/BENCHMARKS.md) for full reproduction.*
 
 ---
 

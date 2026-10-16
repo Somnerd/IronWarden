@@ -11,7 +11,7 @@ Try IronWarden immediately without installing Docker, Tesseract OCR, or download
 ```bash
 git clone https://github.com/Somnerd/IronWarden.git
 cd IronWarden
-./scripts/demo.sh
+./scripts/dev/demo.sh
 ```
 
 **What the demo does:**
@@ -157,5 +157,5 @@ docker-compose up -d
 
 ## 📖 Next Steps
 
-* Read [SECURITY.md](SECURITY.md) for our vulnerability disclosure policy.
-* Check out [CONTRIBUTING.md](CONTRIBUTING.md) to set up a local development environment in Rust.
+* Read [SECURITY.md](../SECURITY.md) for our vulnerability disclosure policy.
+* Check out [CONTRIBUTING.md](../CONTRIBUTING.md) to set up a local development environment in Rust.

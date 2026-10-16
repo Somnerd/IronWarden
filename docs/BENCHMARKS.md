@@ -4,7 +4,7 @@ IronWarden is engineered in **safe, high-performance Rust** with zero-copy deser
 
 This document outlines the performance benchmarks, latency overhead, memory footprint, and reproducibility methodology for the IronWarden Universal AI Gateway.
 
-All benchmarks in this document were empirically executed on the hardware environment specified below, using [Criterion.rs](https://github.com/bheisler/criterion.rs) with 100 samples (1,000+ iterations per sample) and 95% confidence intervals. The raw benchmark data is committed in [`benchmarks/raw/criterion_estimates.json`](benchmarks/raw/criterion_estimates.json).
+All benchmarks in this document were empirically executed on the hardware environment specified below, using [Criterion.rs](https://github.com/bheisler/criterion.rs) with 100 samples (1,000+ iterations per sample) and 95% confidence intervals. The raw benchmark data is committed in [`benchmarks/raw/criterion_estimates.json`](../benchmarks/raw/criterion_estimates.json).
 
 ---
 
@@ -78,7 +78,7 @@ In addition to latency and throughput, IronWarden's PII Shield was empirically e
 3. **CoNLL-2003 Test Split**: 2,756 standard news wire sentences (1,025 sentences containing 1,617 gold Person entity annotations).
 4. **WikiGold Test Split**: 1,341 unstructured Wikipedia sentences (541 sentences containing 934 gold Person entity annotations).
 
-All raw results are reproducible via `./scripts/eval_accuracy.sh` and committed to [`benchmarks/raw/accuracy_eval_results.json`](benchmarks/raw/accuracy_eval_results.json).
+All raw results are reproducible via `./scripts/bench/eval_accuracy.sh` and committed to [`benchmarks/raw/accuracy_eval_results.json`](../benchmarks/raw/accuracy_eval_results.json).
 
 ### 🏆 Empirical Detection Scorecard
 
@@ -155,7 +155,7 @@ IronWarden is built on the Tokio multi-threaded asynchronous runtime and Axum/Hy
 
 ### 1. Run All Criterion Benchmarks
 ```bash
-./scripts/bench.sh
+./scripts/bench/bench.sh
 ```
 
 Or execute crate benchmarks individually:
@@ -175,7 +175,7 @@ cargo bench --package iw_worker --bench grounding_benchmark
 
 ### 2. Run Accuracy & Detection Evaluation
 ```bash
-./scripts/eval_accuracy.sh
+./scripts/bench/eval_accuracy.sh
 ```
 Raw empirical accuracy data is committed in `benchmarks/raw/accuracy_eval_results.json`.
 

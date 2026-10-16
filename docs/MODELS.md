@@ -19,7 +19,7 @@ IronWarden does **NOT** bundle proprietary or copyleft model binaries in reposit
 
 ## 🔒 Integrity Verification (SHA-256 Checksums)
 
-When running `./scripts/setup_models.sh`, files are downloaded over HTTPS and verified against cryptographic SHA-256 checksums:
+When running `./scripts/setup/setup_models.sh`, files are downloaded over HTTPS and verified against cryptographic SHA-256 checksums:
 
 ```text
 data/models/distilbert-ner/model_quantized.onnx
@@ -41,4 +41,4 @@ If model weights are not downloaded, IronWarden **automatically runs in Heuristi
   - Aho-Corasick dictionary lookups and multi-lingual homoglyph normalization.
   - Immutable HMAC-SHA256 audit chaining and AES-256-GCM context encryption.
 * **When to enable Hybrid NER mode**:
-  - Run `./scripts/setup_models.sh` when you want contextual entity recognition for arbitrary personal names, organizations, and location entities that cannot be matched by static regex rules alone.
+  - Run `./scripts/setup/setup_models.sh` when you want contextual entity recognition for arbitrary personal names, organizations, and location entities that cannot be matched by static regex rules alone.

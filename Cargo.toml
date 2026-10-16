@@ -7,7 +7,7 @@ members = [
     "worker",
     "app",
     "cli",
-    "integration_tests",
+    "tests",
     "benchmarks/accuracy_suite",
 ]
 

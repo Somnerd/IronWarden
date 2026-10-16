@@ -11,7 +11,8 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use zeroize::Zeroize;
 
-type HmacSha256 = Hmac<Sha256>;
+#[doc(hidden)]
+pub type HmacSha256 = Hmac<Sha256>;
 
 pub enum AuditMessage {
     LogReport(
@@ -69,153 +70,6 @@ impl HttpAuditForwarder {
             endpoint,
             token,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use iw_core::{traits::PiiCategory, EnforcementAction, Redaction};
-    use sha2::Digest;
-    use tempfile::NamedTempFile;
-
-    fn create_test_db(path: &str, genesis: &[u8; 32], hmac_key: &[u8; 32]) {
-        let conn = Connection::open(path).unwrap();
-        conn.execute("CREATE TABLE IF NOT EXISTS audit_reports (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', is_blocked BOOLEAN, redactions_json TEXT, payload_hash TEXT, integrity_hash TEXT)", []).unwrap();
-        conn.execute("CREATE TABLE IF NOT EXISTS ephemeral_raw_logs (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, username TEXT DEFAULT 'unknown', encrypted_data BLOB, nonce BLOB)", []).unwrap();
-
-        let ts = "2023-10-10 10:10:10";
-        let username = "alice";
-        let is_blocked = false;
-        let redactions = vec![Redaction {
-            rule_id: "test_rule".to_string(),
-            action: EnforcementAction::Redact,
-            offset: 0,
-            length: 4,
-            placeholder: "[TEST]".to_string(),
-            category: PiiCategory::Other,
-        }];
-        let redactions_json = serde_json::to_string(&redactions).unwrap();
-        let redactions_bin = bincode::serialize(&redactions).unwrap();
-
-        let payload = b"test payload";
-        let nonce = vec![0u8; 12];
-        let mut hasher = Sha256::new();
-        hasher.update(payload);
-        hasher.update(&nonce);
-        let payload_hash = hasher.finalize();
-
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key).unwrap();
-        mac.update(genesis);
-        mac.update(ts.as_bytes());
-        mac.update(username.as_bytes());
-        mac.update(&[is_blocked as u8]);
-        mac.update(&redactions_bin);
-        mac.update(&payload_hash);
-        let integrity_hash = mac.finalize().into_bytes().to_vec();
-
-        conn.execute(
-            "INSERT INTO ephemeral_raw_logs (id, timestamp, username, encrypted_data, nonce) VALUES (?1, ?2, ?3, ?4, ?5)",
-            (1, ts, username, payload.to_vec(), nonce.clone())
-        ).unwrap();
-
-        conn.execute(
-            "INSERT INTO audit_reports (id, timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            (1, ts, username, is_blocked, &redactions_json, hex::encode(payload_hash), hex::encode(&integrity_hash))
-        ).unwrap();
-
-        AsyncAuditor::update_anchor(path, 1, &integrity_hash).unwrap();
-    }
-
-    #[test]
-    fn test_hmac_chain_integrity_walk_success() {
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap();
-        let genesis = [0u8; 32];
-        let hmac_key = [1u8; 32];
-
-        create_test_db(path, &genesis, &hmac_key);
-
-        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
-        assert!(result.is_ok(), "init_db should succeed on valid DB");
-    }
-
-    #[test]
-    fn test_hmac_chain_integrity_walk_tampered_username() {
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap();
-        let genesis = [0u8; 32];
-        let hmac_key = [1u8; 32];
-
-        create_test_db(path, &genesis, &hmac_key);
-        let conn = Connection::open(path).unwrap();
-        conn.execute("UPDATE audit_reports SET username = 'bob' WHERE id = 1", [])
-            .unwrap();
-        drop(conn);
-
-        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
-        assert!(result.is_err(), "init_db should fail on tampered username");
-    }
-
-    #[test]
-    fn test_hmac_chain_integrity_walk_tampered_is_blocked() {
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap();
-        let genesis = [0u8; 32];
-        let hmac_key = [1u8; 32];
-
-        create_test_db(path, &genesis, &hmac_key);
-        let conn = Connection::open(path).unwrap();
-        conn.execute("UPDATE audit_reports SET is_blocked = 1 WHERE id = 1", [])
-            .unwrap();
-        drop(conn);
-
-        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
-        assert!(
-            result.is_err(),
-            "init_db should fail on tampered is_blocked"
-        );
-    }
-
-    #[test]
-    fn test_aes_256_gcm_payload_binding_tampered_payload() {
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap();
-        let genesis = [0u8; 32];
-        let hmac_key = [1u8; 32];
-
-        create_test_db(path, &genesis, &hmac_key);
-        let conn = Connection::open(path).unwrap();
-        conn.execute(
-            "UPDATE ephemeral_raw_logs SET encrypted_data = x'deadbeef' WHERE id = 1",
-            [],
-        )
-        .unwrap();
-        drop(conn);
-
-        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
-        assert!(result.is_err(), "init_db should fail on tampered payload");
-    }
-
-    #[test]
-    fn test_aes_256_gcm_payload_binding_tampered_nonce() {
-        let tmp = NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap();
-        let genesis = [0u8; 32];
-        let hmac_key = [1u8; 32];
-
-        create_test_db(path, &genesis, &hmac_key);
-        let conn = Connection::open(path).unwrap();
-        // Since nonce was 12 bytes of 0s, 12 bytes of 1s will be a valid length but wrong value
-        conn.execute(
-            "UPDATE ephemeral_raw_logs SET nonce = x'010101010101010101010101' WHERE id = 1",
-            [],
-        )
-        .unwrap();
-        drop(conn);
-
-        let result = AsyncAuditor::init_db(path, &genesis, &hmac_key);
-        assert!(result.is_err(), "init_db should fail on tampered nonce");
     }
 }
 
@@ -680,7 +534,8 @@ impl AsyncAuditor {
         })
     }
 
-    fn init_db(
+    #[doc(hidden)]
+    pub fn init_db(
         path: &str,
         genesis_hash: &[u8; 32],
         hmac_key: &[u8; 32],
@@ -809,7 +664,12 @@ impl AsyncAuditor {
         Ok((conn, last_hash, last_id))
     }
 
-    fn update_anchor(db_path: &str, last_id: i64, last_hash: &[u8]) -> Result<(), SovereignError> {
+    #[doc(hidden)]
+    pub fn update_anchor(
+        db_path: &str,
+        last_id: i64,
+        last_hash: &[u8],
+    ) -> Result<(), SovereignError> {
         if db_path == ":memory:" || db_path == "file::memory:" || db_path.contains(":memory:") {
             return Ok(());
         }
@@ -823,7 +683,8 @@ impl AsyncAuditor {
         Ok(())
     }
 
-    fn check_anchor(
+    #[doc(hidden)]
+    pub fn check_anchor(
         db_path: &str,
         current_last_id: i64,
         current_last_hash: &[u8],
@@ -924,155 +785,8 @@ impl AsyncAuditor {
             ))
         }
     }
-}
-
-#[cfg(test)]
-mod additional_audit_tests {
-    use super::*;
-    use iw_core::{ScrubbingReport, TokenMap};
-    use secrecy::SecretVec;
-
-    #[tokio::test]
-    async fn test_audit_purge_user() {
-        let db_path = format!("audit_test_purge_{}.db", uuid::Uuid::new_v4());
-        let pepper = SecretVec::from(vec![0u8; 32]);
-        let auditor = AsyncAuditor::spawn(&db_path, pepper, None).await.unwrap();
-
-        let report = ScrubbingReport {
-            sanitized_text: "test".into(),
-            is_blocked: false,
-            redactions: vec![],
-            token_map: TokenMap::new(),
-            execution_time_ms: 1,
-            potential_misses: vec![],
-        };
-
-        // Log for User A
-        auditor
-            .log_report(report.clone(), "rawA".into(), "userA".into())
-            .await
-            .unwrap();
-
-        // Log for User B
-        auditor
-            .log_report(report.clone(), "rawB".into(), "userB".into())
-            .await
-            .unwrap();
-
-        // Purge User A
-        auditor.purge_user("userA").await.unwrap();
-
-        let conn = rusqlite::Connection::open(&db_path).unwrap();
-
-        // Check audit_reports
-        let count_a: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM audit_reports WHERE username = 'userA'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(count_a, 0, "User A audit_reports should be deleted");
-
-        let count_b: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM audit_reports WHERE username = 'userB'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(count_b, 1, "User B audit_reports should remain");
-
-        // Check ephemeral_raw_logs
-        let count_raw_a: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM ephemeral_raw_logs WHERE username = 'userA'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            count_raw_a, 0,
-            "User A ephemeral_raw_logs should be deleted"
-        );
-
-        let count_raw_b: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM ephemeral_raw_logs WHERE username = 'userB'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(count_raw_b, 1, "User B ephemeral_raw_logs should remain");
-
-        // Verify cryptographic shredding preserved contiguous rows in audit_reports
-        let count_redacted: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM audit_reports WHERE username = '[REDACTED]'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            count_redacted, 1,
-            "User A record must be pseudonymized/redacted in-place"
-        );
-
-        let total_reports: i64 = conn
-            .query_row("SELECT COUNT(*) FROM audit_reports", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(
-            total_reports, 2,
-            "Total rows must remain 2 to preserve ID sequence"
-        );
-
-        drop(conn);
-
-        // Verify full-chain integrity walk on server restart after GDPR purge
-        let pepper2 = SecretVec::from(vec![0u8; 32]);
-        let auditor2 = AsyncAuditor::spawn(&db_path, pepper2, None).await.unwrap();
-        auditor2
-            .log_report(report.clone(), "rawC".into(), "userC".into())
-            .await
-            .unwrap();
-
-        std::fs::remove_file(&db_path).ok();
-        std::fs::remove_file(format!("{}.anchor", db_path)).ok();
-    }
-
-    #[test]
-    fn test_anchor_in_memory_bypass() {
-        let dummy_hash = [0u8; 32];
-        // :memory:
-        assert!(AsyncAuditor::update_anchor(":memory:", 1, &dummy_hash).is_ok());
-        assert!(AsyncAuditor::check_anchor(":memory:", 1, &dummy_hash).is_ok());
-        assert!(!std::path::Path::new(":memory:.anchor").exists());
-
-        // file::memory:
-        assert!(AsyncAuditor::update_anchor("file::memory:?cache=shared", 1, &dummy_hash).is_ok());
-        assert!(AsyncAuditor::check_anchor("file::memory:?cache=shared", 1, &dummy_hash).is_ok());
-        assert!(!std::path::Path::new("file::memory:?cache=shared.anchor").exists());
-    }
-
-    #[test]
-    fn test_anchor_atomic_disk_write() {
-        let db_path = format!("test_anchor_disk_{}.db", uuid::Uuid::new_v4());
-        let dummy_hash = [42u8; 32];
-        let anchor_path = format!("{}.anchor", db_path);
-        let tmp_pattern = format!("{}.tmp.{}", anchor_path, std::process::id());
-
-        assert!(AsyncAuditor::update_anchor(&db_path, 10, &dummy_hash).is_ok());
-        assert!(std::path::Path::new(&anchor_path).exists());
-        assert!(
-            !std::path::Path::new(&tmp_pattern).exists(),
-            "Temporary anchor file should have been renamed"
-        );
-
-        let content = std::fs::read_to_string(&anchor_path).unwrap();
-        assert_eq!(content, format!("10:{}", hex::encode(dummy_hash)));
-
-        assert!(AsyncAuditor::check_anchor(&db_path, 10, &dummy_hash).is_ok());
-
-        std::fs::remove_file(&anchor_path).ok();
+    #[doc(hidden)]
+    pub async fn shutdown(&self) {
+        let _ = self.sender.send(AuditMessage::Shutdown).await;
     }
 }

@@ -2,7 +2,7 @@
 # =============================================================================
 # IronWarden — Local CI Runner
 # Mirrors .github/workflows/rust_ci.yml exactly.
-# Run from the repo root: ./scripts/ci_local.sh
+# Run from the repo root: ./scripts/ci/ci_local.sh
 #
 # Prerequisites (auto-handled on first run):
 #   - Rust toolchain + protoc (must be pre-installed)
@@ -11,6 +11,9 @@
 # =============================================================================
 
 set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -41,7 +44,7 @@ export ORT_DYLIB_PATH
 
 ARCH=$(uname -m)        # x86_64 | arm64
 OS=$(uname -s)          # Darwin | Linux
-VENV_PATH="$(pwd)/.venv"
+VENV_PATH="$REPO_ROOT/.venv"
 PYTEST="$VENV_PATH/bin/pytest"
 PIP="$VENV_PATH/bin/pip"
 
@@ -59,7 +62,7 @@ for arg in "$@"; do
     --skip-integration) RUN_INTEGRATION=false ;;
     --skip-quality)     RUN_QUALITY=false ;;
     --help|-h)
-      echo "Usage: ./scripts/ci_local.sh [flags]"
+      echo "Usage: ./scripts/ci/ci_local.sh [flags]"
       echo ""
       echo "Flags:"
       echo "  --only-quality       Run only the Code Quality job"
@@ -205,11 +208,7 @@ if $RUN_INTEGRATION; then
     echo "  All Python dependencies present."
   fi
 
-  step "Prepare test manifests"
-  mkdir -p integration_tests
-  cp warden/test_manifest_*.yaml integration_tests/ 2>/dev/null || true
-  cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml 2>/dev/null || true
-  echo "  Done."
+
 
   step "cargo test --package app"
   cargo test --package app
@@ -221,8 +220,8 @@ if $RUN_INTEGRATION; then
     warn "Benchmarks failed to compile (non-blocking)."
   fi
 
-  step "pytest test_suites/"
-  if "$PYTEST" test_suites/ -v; then
+  step "pytest tests/e2e/"
+  if "$PYTEST" tests/e2e/ -v; then
     pass_job "Integration"
   else
     fail_job "Integration (pytest)"

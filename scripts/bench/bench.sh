@@ -6,6 +6,9 @@
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+
 BOLD='\033[1m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'

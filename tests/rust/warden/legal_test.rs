@@ -5,7 +5,7 @@ use iw_warden::WardenConfig;
 #[tokio::test]
 async fn test_legal_rules_loading() {
     let _config_dir = "../config/rules";
-    let mut config = WardenConfig::from_manifest("test_manifest_legal.yaml")
+    let mut config = WardenConfig::from_manifest("fixtures/manifests/test_manifest_legal.yaml")
         .expect("Failed to load config manifest")
         .0;
     config.ai_enabled = false;
@@ -33,7 +33,7 @@ async fn test_legal_rules_loading() {
 #[tokio::test]
 async fn test_legal_pii_redaction() {
     let _config_dir = "../config/rules";
-    let mut config = WardenConfig::from_manifest("test_manifest_legal.yaml")
+    let mut config = WardenConfig::from_manifest("fixtures/manifests/test_manifest_legal.yaml")
         .expect("Failed to load config manifest")
         .0;
     config.ai_enabled = false;

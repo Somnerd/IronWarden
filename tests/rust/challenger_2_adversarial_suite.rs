@@ -6,6 +6,8 @@
 //! 3. Negative controls (imperative verbs, geographic proper nouns, role titles, zero false positive rate)
 //! 4. Roundtrip cryptographic restoration integrity
 
+extern crate warden as iw_warden;
+
 use iw_core::traits::PiiShield;
 use iw_warden::config::WardenConfig;
 use iw_warden::engine::WardenEngine;

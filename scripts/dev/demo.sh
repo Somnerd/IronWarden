@@ -6,10 +6,13 @@
 # dependencies (no Docker, no Tesseract OCR, no ML model weight downloads).
 #
 # Usage:
-#   ./scripts/demo.sh
+#   ./scripts/dev/demo.sh
 # ==============================================================================
 
 set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
 
 # ANSI Color Codes
 GREEN='\033[0;32m'

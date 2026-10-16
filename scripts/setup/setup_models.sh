@@ -20,6 +20,9 @@
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO_ROOT"
+
 MODEL_DIR="data/models/distilbert-ner"
 MODEL_URL="https://huggingface.co/onnx-community/distilbert-NER-ONNX/resolve/main/onnx/model_quantized.onnx"
 TOKENIZER_URL="https://huggingface.co/onnx-community/distilbert-NER-ONNX/resolve/main/tokenizer.json"

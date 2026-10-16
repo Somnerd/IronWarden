@@ -8,6 +8,8 @@
 //! 5. Adversarial negative controls with zero false positives (AC4)
 //! 6. Reversible cryptographic token rehydration roundtrip
 
+extern crate warden as iw_warden;
+
 use iw_core::traits::PiiShield;
 use iw_warden::config::WardenConfig;
 use iw_warden::engine::WardenEngine;
