@@ -39,7 +39,9 @@ jobs:
 
       - name: Set up Rust Toolchain
         run: |
-          rustup default stable
+          if command -v rustup >/dev/null 2>&1; then
+            rustup default stable
+          fi
 
       - name: Build Release Binaries
         run: |
