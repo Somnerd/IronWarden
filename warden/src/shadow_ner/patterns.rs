@@ -38,7 +38,7 @@ pub static ARABIC_MORPHOLOGICAL_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub static CONVERSATIONAL_INTRO_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)(?:\b(?:my\s+name\s+is|i\s+am|i'm|contact|email|ping|dm|ask|cc|attn[:\.]?|per|patient|client|mr\.?|mrs\.?|ms\.?|dr\.?|directly\s+to|send\s+(?:the\s+[\w\s]+\s+)?(?:directly\s+)?to)\s+|@)(['"]?[a-z\u{0386}-\u{03CE}]{2,}(?:[\s\-']+[a-z\u{0386}-\u{03CE}]{2,}){0,2}['"]?)\b"#).unwrap()
+    Regex::new(r#"(?i)(?:\b(?:who\s+(?:is|was|are|were)|who's|tell\s+me\s+about|my\s+name\s+is|i\s+am|i'm|contact|(?:my\s+)?(?:friend|colleague|coworker|partner|brother|sister|wife|husband|boss|manager)|(?:email|send|forward)\s+(?:the\s+[\w\s]+\s+)?(?:directly\s+)?to|email|ping|dm|ask|cc|attn[:\.]?|per|patient|client|mr\.?|mrs\.?|ms\.?|dr\.?|directly\s+to)\s+|@)(['"]?[a-z\u{0386}-\u{03CE}]{2,}(?:[\s\-']+[a-z\u{0386}-\u{03CE}]{2,}){0,2}['"]?)\b"#).unwrap()
 });
 
 pub static LOWERCASE_STOPWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {

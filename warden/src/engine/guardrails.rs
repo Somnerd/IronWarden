@@ -19,8 +19,6 @@ pub(crate) static INJECTION_BLOCKLIST: LazyLock<AhoCorasick> = LazyLock::new(|| 
             "ignorepreviousinstructions",
             "disregardinstructions",
             "bypassconstraints",
-            "systemprompt",
-            "youarenow",
             "forgetall",
             "printyour",
         ])

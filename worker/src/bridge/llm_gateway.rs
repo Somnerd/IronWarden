@@ -33,16 +33,27 @@ pub(crate) async fn process_and_audit_text(
     auth: &AuthenticatedUser,
     text: &str,
     combined_token_map: &mut TokenMap,
+    check_injection: bool,
 ) -> Result<String, (StatusCode, String)> {
     let report = match state
         .shield
-        .sanitize_prompt(text, Some(&auth.session))
+        .sanitize_prompt_opts(text, Some(&auth.session), check_injection)
         .await
     {
         Ok(r) => r,
         Err(e) => {
             let status = match e {
                 SovereignError::PiiViolation(_) => StatusCode::BAD_REQUEST,
+                SovereignError::UnauthorizedAccess(ref msg) => {
+                    state
+                        .metrics
+                        .injections_blocked
+                        .fetch_add(1, Ordering::Relaxed);
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        format!("[POLICY VIOLATION] {}", msg),
+                    ));
+                }
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
             return Err((status, e.to_string()));
@@ -88,32 +99,60 @@ pub(crate) fn process_and_audit_content_value<'a>(
     auth: &'a AuthenticatedUser,
     content: &'a mut serde_json::Value,
     combined_token_map: &'a mut TokenMap,
+    check_injection: bool,
 ) -> ProcessContentFuture<'a> {
     Box::pin(async move {
         match content {
             serde_json::Value::String(s) => {
-                let sanitized = process_and_audit_text(state, auth, s, combined_token_map).await?;
+                let sanitized =
+                    process_and_audit_text(state, auth, s, combined_token_map, check_injection)
+                        .await?;
                 *s = sanitized;
             }
             serde_json::Value::Array(items) => {
                 for item in items.iter_mut() {
-                    process_and_audit_content_value(state, auth, item, combined_token_map).await?;
+                    process_and_audit_content_value(
+                        state,
+                        auth,
+                        item,
+                        combined_token_map,
+                        check_injection,
+                    )
+                    .await?;
                 }
             }
             serde_json::Value::Object(map) => {
                 if let Some(text_val) = map.get_mut("text") {
                     if let serde_json::Value::String(s) = text_val {
-                        let sanitized =
-                            process_and_audit_text(state, auth, s, combined_token_map).await?;
+                        let sanitized = process_and_audit_text(
+                            state,
+                            auth,
+                            s,
+                            combined_token_map,
+                            check_injection,
+                        )
+                        .await?;
                         *s = sanitized;
                     } else {
-                        process_and_audit_content_value(state, auth, text_val, combined_token_map)
-                            .await?;
+                        process_and_audit_content_value(
+                            state,
+                            auth,
+                            text_val,
+                            combined_token_map,
+                            check_injection,
+                        )
+                        .await?;
                     }
                 }
                 if let Some(content_val) = map.get_mut("content") {
-                    process_and_audit_content_value(state, auth, content_val, combined_token_map)
-                        .await?;
+                    process_and_audit_content_value(
+                        state,
+                        auth,
+                        content_val,
+                        combined_token_map,
+                        check_injection,
+                    )
+                    .await?;
                 }
             }
             _ => {}
@@ -141,11 +180,13 @@ pub async fn handle_openai_chat_completions(
     // 2. Pre-flight scrub all messages (both string and structured array content blocks)
     let mut combined_token_map = TokenMap::new();
     for msg in payload.messages.iter_mut() {
+        let is_user = msg.role.eq_ignore_ascii_case("user");
         if let Err((status, msg_err)) = process_and_audit_content_value(
             &state,
             &auth,
             &mut msg.content,
             &mut combined_token_map,
+            is_user,
         )
         .await
         {
@@ -261,9 +302,14 @@ pub async fn handle_openai_legacy_completions(
 
     // 2. Pre-flight scrub prompts (string or array)
     let mut combined_token_map = TokenMap::new();
-    if let Err((status, msg_err)) =
-        process_and_audit_content_value(&state, &auth, &mut payload.prompt, &mut combined_token_map)
-            .await
+    if let Err((status, msg_err)) = process_and_audit_content_value(
+        &state,
+        &auth,
+        &mut payload.prompt,
+        &mut combined_token_map,
+        true,
+    )
+    .await
     {
         return (status, msg_err).into_response();
     }
@@ -390,10 +436,12 @@ pub async fn handle_anthropic_messages(
 
     let mut combined_token_map = TokenMap::new();
 
-    // Sanitize system prompt
+    // Sanitize system prompt (injection check disabled for system prompt)
     if let Some(ref system) = payload.system.clone() {
         let sanitized =
-            match process_and_audit_text(&state, &auth, system, &mut combined_token_map).await {
+            match process_and_audit_text(&state, &auth, system, &mut combined_token_map, false)
+                .await
+            {
                 Ok(s) => s,
                 Err((status, msg_err)) => return (status, msg_err).into_response(),
             };
@@ -402,11 +450,13 @@ pub async fn handle_anthropic_messages(
 
     // Sanitize messages — support both string and content-block array formats
     for msg in payload.messages.iter_mut() {
+        let is_user = msg.role.eq_ignore_ascii_case("user");
         if let Err((status, msg_err)) = process_and_audit_content_value(
             &state,
             &auth,
             &mut msg.content,
             &mut combined_token_map,
+            is_user,
         )
         .await
         {

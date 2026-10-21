@@ -23,41 +23,52 @@ impl PiiShield for WardenEngine {
         input: &str,
         session: Option<&SessionContext>,
     ) -> Result<ScrubbingReport, SovereignError> {
+        self.sanitize_prompt_opts(input, session, true).await
+    }
+
+    async fn sanitize_prompt_opts(
+        &self,
+        input: &str,
+        session: Option<&SessionContext>,
+        check_injection: bool,
+    ) -> Result<ScrubbingReport, SovereignError> {
         // --- SECURITY FIX (Finding 4): Dual-Layer Prompt Injection Guardrails ---
-        // Layer 1: Robust Heuristic Tree
-        let has_match = NORMALIZATION_BUFFER.with(|buf_cell| {
-            let mut buf = buf_cell.borrow_mut();
-            buf.clear();
-            for c in input.chars() {
-                if c.is_alphanumeric() {
-                    for lowercase_c in c.to_lowercase() {
-                        buf.push(lowercase_c);
+        if check_injection {
+            // Layer 1: Robust Heuristic Tree
+            let has_match = NORMALIZATION_BUFFER.with(|buf_cell| {
+                let mut buf = buf_cell.borrow_mut();
+                buf.clear();
+                for c in input.chars() {
+                    if c.is_alphanumeric() {
+                        for lowercase_c in c.to_lowercase() {
+                            buf.push(lowercase_c);
+                        }
                     }
                 }
+                let input_search = aho_corasick::Input::new(&*buf);
+                INJECTION_BLOCKLIST.find(input_search).is_some()
+            });
+
+            if has_match {
+                return Err(SovereignError::UnauthorizedAccess(
+                    "Prompt injection attempt blocked by Layer 1 Heuristic Guardrail".into(),
+                ));
             }
-            let input_search = aho_corasick::Input::new(&*buf);
-            INJECTION_BLOCKLIST.find(input_search).is_some()
-        });
 
-        if has_match {
-            return Err(SovereignError::UnauthorizedAccess(
-                "Prompt injection attempt blocked by Layer 1 Heuristic Guardrail".into(),
-            ));
-        }
+            // Layer 1.5: Shannon Entropy Analyzer (Base64 Smuggling Detection)
+            if Self::check_shannon_entropy_smuggling(input) {
+                return Err(SovereignError::UnauthorizedAccess(
+                    "Prompt injection attempt blocked by Layer 1.5 Entropy Guardrail (Token Smuggling)"
+                        .into(),
+                ));
+            }
 
-        // Layer 1.5: Shannon Entropy Analyzer (Base64 Smuggling Detection)
-        if Self::check_shannon_entropy_smuggling(input) {
-            return Err(SovereignError::UnauthorizedAccess(
-                "Prompt injection attempt blocked by Layer 1.5 Entropy Guardrail (Token Smuggling)"
-                    .into(),
-            ));
-        }
-
-        // Layer 2: ML Classifier Sidecar
-        if check_ml_sidecar(input).await? {
-            return Err(SovereignError::UnauthorizedAccess(
-                "Prompt injection attempt blocked by Layer 2 ML Guardrail".into(),
-            ));
+            // Layer 2: ML Classifier Sidecar
+            if check_ml_sidecar(input).await? {
+                return Err(SovereignError::UnauthorizedAccess(
+                    "Prompt injection attempt blocked by Layer 2 ML Guardrail".into(),
+                ));
+            }
         }
 
         let start_time = Instant::now();

@@ -214,7 +214,21 @@ pub trait PiiShield: Send + Sync {
         &self,
         prompt: &str,
         session: Option<&SessionContext>,
-    ) -> Result<ScrubbingReport, SovereignError>;
+    ) -> Result<ScrubbingReport, SovereignError> {
+        self.sanitize_prompt_opts(prompt, session, true).await
+    }
+
+    /// Sanitizes a prompt with optional prompt injection guardrails.
+    /// By default, delegates to `sanitize_prompt`. Implementors with injection detection
+    /// should override this to bypass injection checks when `check_injection` is false.
+    async fn sanitize_prompt_opts(
+        &self,
+        prompt: &str,
+        session: Option<&SessionContext>,
+        _check_injection: bool,
+    ) -> Result<ScrubbingReport, SovereignError> {
+        self.sanitize_prompt(prompt, session).await
+    }
 
     /// Restores sensitized tokens in an LLM response with their original values.
     fn restore_prompt(&self, response: &str, map: &TokenMap) -> Result<String, SovereignError>;

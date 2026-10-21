@@ -132,6 +132,95 @@ mod shadow_ner_tests {
     }
 
     #[test]
+    fn test_interrogative_and_lowercase_names_comprehensive_suite() {
+        let ner = ShadowNer::new(vec![]);
+
+        // 1. Interrogative Pointers: "who is / was / were / who's / tell me about"
+        let interrogative_cases = vec![
+            ("who is micheal jordan", "micheal jordan"),
+            ("who is micheal jordan?", "micheal jordan"),
+            ("who was alexander the great", "alexander"),
+            ("who was alexander the great?", "alexander"),
+            ("who's john doe", "john doe"),
+            ("who was napoleon bonaparte", "napoleon bonaparte"),
+            ("who were john lennon and paul mccartney", "john lennon"),
+            ("tell me about elon musk", "elon musk"),
+        ];
+
+        for (prompt, expected_cand) in interrogative_cases {
+            let cands = ner.find_ambiguous_tokens(prompt, &[]);
+            let cand_texts: Vec<&str> = cands.iter().map(|c| c.text.as_str()).collect();
+            assert!(
+                cand_texts.contains(&expected_cand),
+                "For prompt '{}', expected candidate '{}' in {:?}",
+                prompt,
+                expected_cand,
+                cand_texts
+            );
+            for c in &cands {
+                if c.text == expected_cand {
+                    assert!(
+                        c.needs_synthetic_casing,
+                        "Candidate '{}' in '{}' must have needs_synthetic_casing: true",
+                        expected_cand, prompt
+                    );
+                }
+            }
+        }
+
+        // 2. Additional Conversational & Relationship Cues
+        let conversational_cases = vec![
+            ("my name is nikolas alexandrakis", "nikolas alexandrakis"),
+            ("contact jane smith", "jane smith"),
+            ("email directly to robert frost", "robert frost"),
+            ("attn: linus torvalds", "linus torvalds"),
+            ("me and my friend john went for coffee", "john"),
+            ("me and my friend john smith went for coffee", "john smith"),
+            ("my colleague alice went to the meeting", "alice"),
+            ("my brother alex went home", "alex"),
+        ];
+
+        for (prompt, expected_cand) in conversational_cases {
+            let cands = ner.find_ambiguous_tokens(prompt, &[]);
+            let cand_texts: Vec<&str> = cands.iter().map(|c| c.text.as_str()).collect();
+            assert!(
+                cand_texts.contains(&expected_cand),
+                "For prompt '{}', expected candidate '{}' in {:?}",
+                prompt,
+                expected_cand,
+                cand_texts
+            );
+            for c in &cands {
+                if c.text == expected_cand {
+                    assert!(c.needs_synthetic_casing);
+                }
+            }
+        }
+
+        // 3. Strict Negative Controls: Stopwords, common roles & questions must NOT produce candidates
+        let negative_controls = vec![
+            "who is the best developer",
+            "who was responsible for the delay",
+            "who is online",
+            "who is offline",
+            "who is available",
+            "who was in the meeting today",
+            "who are they",
+            "i am ready to contact support about the patient portal",
+        ];
+
+        for negative in negative_controls {
+            let cands = ner.find_ambiguous_tokens(negative, &[]);
+            assert!(
+                cands.is_empty(),
+                "Expected 0 candidates for negative control '{}', but got: {:?}",
+                negative,
+                cands
+            );
+        }
+    }
+
+    #[test]
     fn test_sql_and_tech_stopwords_ignored() {
         let ner = ShadowNer::new(vec![]);
         let sql = "SELECT User, Client FROM Accounts WHERE Status = 'Active'";

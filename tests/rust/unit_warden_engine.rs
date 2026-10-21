@@ -630,4 +630,37 @@ async fn test_lowercase_conversational_hybrid_defense() {
         report_stopwords.sanitized_text
     );
     assert_eq!(report_stopwords.sanitized_text, prompt_stopwords);
+
+    // 3. Interrogative lowercase phrase with name: "who is micheal jordan" -> redacted
+    let prompt_who = "who is micheal jordan";
+    let report_who = engine.sanitize_prompt(prompt_who, None).await.unwrap();
+    assert!(
+        !report_who.sanitized_text.contains("micheal jordan"),
+        "Expected 'micheal jordan' to be redacted, got: {}",
+        report_who.sanitized_text
+    );
+    assert_eq!(
+        report_who.redactions.len(),
+        1,
+        "Expected exactly 1 redaction, got {:?}",
+        report_who.redactions
+    );
+
+    // 4. Interrogative stopwords / status questions: should produce 0 redactions
+    for prompt_neg in &[
+        "who is the best developer",
+        "who was responsible for the delay",
+        "who is online",
+        "who are they",
+    ] {
+        let report_neg = engine.sanitize_prompt(prompt_neg, None).await.unwrap();
+        assert_eq!(
+            report_neg.redactions.len(),
+            0,
+            "Expected 0 redactions for '{}', got: {}",
+            prompt_neg,
+            report_neg.sanitized_text
+        );
+        assert_eq!(&report_neg.sanitized_text, prompt_neg);
+    }
 }

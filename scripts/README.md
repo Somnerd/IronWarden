@@ -12,7 +12,9 @@ All scripts automatically resolve the repository root via `$(dirname "${BASH_SOU
 scripts/
 ├── bench/
 │   ├── bench.sh            # Criterion.rs latency and throughput benchmarks
-│   └── eval_accuracy.sh    # Accuracy & recall evaluation harness across benchmark datasets
+│   ├── eval_accuracy.sh    # Accuracy & recall evaluation harness across benchmark datasets
+│   ├── track.sh            # Longitudinal telemetry tracker saving date/time metrics to CSV
+│   └── track_history.py    # Python telemetry parsing, delta comparison, and CSV aggregation engine
 ├── ci/
 │   └── ci_local.sh         # Complete local CI runner mirroring GitHub Actions
 ├── dev/
@@ -94,6 +96,32 @@ Raw JSON benchmark outputs are stored in `benchmarks/raw/accuracy_eval_results.j
 **Usage:**
 ```bash
 ./scripts/bench/eval_accuracy.sh
+```
+
+#### `track.sh` (Longitudinal Telemetry & Regression Tracker)
+Automates end-to-end execution of unit/integration tests, Criterion microbenchmarks, and accuracy evaluations, appending date-and-time indexed metrics into `benchmarks/history/benchmark_history.csv`.
+
+Provides real-time terminal delta comparisons against previous runs, highlighting regressions or performance drifts.
+
+**Usage:**
+```bash
+# Run everything (tests, microbenchmarks, accuracy evaluation) and record to CSV
+./scripts/bench/track.sh --note "Nightly verification"
+
+# Record tests only
+./scripts/bench/track.sh --mode test
+
+# Record microbenchmarks only
+./scripts/bench/track.sh --mode bench
+
+# Record accuracy evaluation only
+./scripts/bench/track.sh --mode accuracy
+
+# Collect and append metrics from the most recent run without re-executing
+./scripts/bench/track.sh --mode collect-only --note "Post-PR verification"
+
+# Display chronological trends and history table from the CSV
+./scripts/bench/track.sh --mode report
 ```
 
 ---

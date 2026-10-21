@@ -383,21 +383,24 @@ pub async fn resolve_upstream_url(
             None,
         ));
     }
-    if m.starts_with("llama")
-        || m.starts_with("mistral")
-        || m.starts_with("phi")
-        || m.starts_with("gemma")
-        || m.starts_with("qwen")
+    let model_name = m.rsplit('/').next().unwrap_or(&m);
+    if model_name.starts_with("llama")
+        || model_name.starts_with("mistral")
+        || model_name.starts_with("phi")
+        || model_name.starts_with("gemma")
+        || model_name.starts_with("qwen")
     {
         return Ok((
-            std::env::var("OLLAMA_BASE_URL")
+            std::env::var("UPSTREAM_LLM")
+                .or_else(|_| std::env::var("LMSTUDIO_BASE_URL"))
+                .or_else(|_| std::env::var("OLLAMA_BASE_URL"))
                 .unwrap_or_else(|_| "http://localhost:11434/v1/chat/completions".to_string()),
             None,
         ));
     }
     Ok((
-        std::env::var("OPENAI_BASE_URL")
-            .or_else(|_| std::env::var("UPSTREAM_LLM"))
+        std::env::var("UPSTREAM_LLM")
+            .or_else(|_| std::env::var("OPENAI_BASE_URL"))
             .or_else(|_| std::env::var("UPSTREAM_OPENAI_URL"))
             .unwrap_or_else(|_| "https://api.openai.com/v1/chat/completions".to_string()),
         None,
