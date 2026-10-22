@@ -129,7 +129,7 @@ from openai import OpenAI
 # Point client to IronWarden — zero code modifications required
 client = OpenAI(
     api_key="sk-mock-or-real",
-    base_url="http://localhost:14141/v1",
+    base_url="http://localhost:8080/v1",
     default_headers={"Authorization": "Bearer <your-jwt-or-key>"}
 )
 
@@ -156,7 +156,7 @@ import anthropic
 
 client = anthropic.Anthropic(
     api_key="sk-ant-...",
-    base_url="http://localhost:14141",
+    base_url="http://localhost:8080",
     default_headers={
         "Authorization": "Bearer <your-jwt-or-key>",
         "X-IronWarden-Upstream-Key": "sk-ant-..."
@@ -170,6 +170,8 @@ message = client.messages.create(
 )
 print(message.content[0].text)
 ```
+
+> **Port Note:** By default, IronWarden binds its high-concurrency reverse proxy to port `8080` (`PORT=8080`, `BRIDGE_PORT=8080`). Port `14141` is also supported as an alternative gateway port in Docker Compose.
 
 ### Dynamic Upstream Routing Headers
 
@@ -190,9 +192,14 @@ print(message.content[0].text)
 ### 1. Real-Time Streaming SSE Token Rehydration
 Unlike standard proxies that buffer the entire response to replace tokens (introducing massive latency and breaking streaming UI), IronWarden implements an **asynchronous SSE sliding-window state machine** (`SseRehydrator`). It dynamically stitches split tokens across partial HTTP chunks in under **1 µs** per chunk (503 ns – 822 ns Criterion median on AMD Ryzen 7 5700X3D).
 
-### 2. Hybrid Intelligence PII Shield
-- **Deterministic Layer (Aho-Corasick + Entropy Smuggling Protection)**: Ultra-fast regex and entropy heuristics for Credit Cards, SSNs, Emails, Phone Numbers, IBANs, and International IDs (including Greek AMKA/AFM and EU identifiers).
-- **Probabilistic Layer (Local ONNX NER)**: In-process DistilBERT Named Entity Recognition for contextual Names, Organizations, and Locations.
+### 2. Hybrid Intelligence PII Shield & ShadowNER
+- **Deterministic Layer (Aho-Corasick + Shannon Entropy Smuggling Defense)**: Ultra-fast compiled regex and entropy heuristics for Credit Cards, SSNs, Emails, Phone Numbers, IBANs, and International IDs (including Greek AMKA/AFM, US, and EU identifiers).
+- **Dual-Track Conversational ShadowNER**: Sub-microsecond regex scanning augmented with Track A conversational relationship heuristics (detecting person names following relational markers such as `"my friend X"`, `"spoken with X"`, `"contacted by X"`, and interrogatives like `"who/whom/whose X"`), with full support for Greek inflections and lower-case sentence-interior tokens.
+- **Probabilistic Layer (In-Process ONNX DistilBERT)**: Window-batched INT8 Named Entity Recognition inference for ambiguous tokens and complex sentence structures, achieving zero false positives on code, SQL queries, and system commands.
+- **Explicit NER Operating Modes (`WARDEN_NER_MODE`)**:
+  - `hybrid` (Default): High-speed dual-track inference. Opportunistically runs in-process INT8 DistilBERT ONNX for ambiguous candidates; gracefully falls back to heuristic engine if model weights are missing.
+  - `require_hybrid`: Production fail-closed. Fails fast on gateway startup if ONNX model weights or `libonnxruntime.so` are missing. Recommended for enterprise deployments requiring guaranteed deep learning entity detection.
+  - `heuristic`: Lightweight zero-model mode. Forces pure SIMD Aho-Corasick + ShadowNER regex engine (<1 µs latency, zero ONNX/PyTorch dependencies).
 
 ### 3. Cryptographic Audit Vault & Strict Fail-Closed Invariants
 - **AES-256-GCM Encryption**: Prompt and redaction records are encrypted at rest using your cryptographic pepper.
@@ -276,6 +283,9 @@ See [`tests/README.md`](tests/README.md) for full test documentation and executi
 ```bash
 # Run all unified Rust integration & unit tests
 cargo test -p iw-integration-tests
+
+# Run all workspace unit & integration tests with fail-closed hybrid NER
+WARDEN_NER_MODE=require_hybrid cargo test --workspace
 
 # Run Python black-box E2E test suite
 pytest tests/e2e/ -v

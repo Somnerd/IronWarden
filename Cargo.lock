@@ -186,7 +186,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -3274,7 +3274,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "iw-accuracy-suite"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "iw-warden",
  "iw_core",
@@ -3287,7 +3287,7 @@ dependencies = [
 
 [[package]]
 name = "iw-cli"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "bincode",
  "clap",
@@ -3303,7 +3303,7 @@ dependencies = [
 
 [[package]]
 name = "iw-integration-tests"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "aead",
  "aes-gcm",
@@ -3346,7 +3346,7 @@ dependencies = [
 
 [[package]]
 name = "iw-warden"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "aead",
  "aes-gcm",
@@ -3378,7 +3378,7 @@ dependencies = [
 
 [[package]]
 name = "iw_core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "aead",
  "aes-gcm",
@@ -3401,7 +3401,7 @@ dependencies = [
 
 [[package]]
 name = "iw_mcp"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "async-trait",
  "hex",
@@ -3419,7 +3419,7 @@ dependencies = [
 
 [[package]]
 name = "iw_worker"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "arrow-array",

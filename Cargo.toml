@@ -12,20 +12,20 @@ members = [
 ]
 
 [workspace.package]
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 authors = ["IronWarden Maintainers <maintainers@ironwarden.dev>"]
 license = "MIT"
 
 [workspace.dependencies]
 # Internal workspace crates
-iw_core = { path = "core", version = "1.0.0" }
-iw-warden = { path = "warden", version = "1.0.0" }
-iw_worker = { path = "worker", version = "1.0.0" }
-iw_mcp = { path = "mcp", version = "1.0.0" }
-warden = { package = "iw-warden", path = "warden", version = "1.0.0" }
-worker = { package = "iw_worker", path = "worker", version = "1.0.0" }
-mcp = { package = "iw_mcp", path = "mcp", version = "1.0.0" }
+iw_core = { path = "core", version = "1.2.0" }
+iw-warden = { path = "warden", version = "1.2.0" }
+iw_worker = { path = "worker", version = "1.2.0" }
+iw_mcp = { path = "mcp", version = "1.2.0" }
+warden = { package = "iw-warden", path = "warden", version = "1.2.0" }
+worker = { package = "iw_worker", path = "worker", version = "1.2.0" }
+mcp = { package = "iw_mcp", path = "mcp", version = "1.2.0" }
 
 # Async & Runtime
 tokio = { version = "1.43", features = ["rt", "macros", "rt-multi-thread"] }
