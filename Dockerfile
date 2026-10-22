@@ -23,15 +23,14 @@ COPY worker ./worker
 COPY mcp ./mcp
 COPY app ./app
 COPY cli ./cli
-COPY integration_tests ./integration_tests
+COPY tests ./tests
+COPY benchmarks ./benchmarks
 COPY config ./config
 COPY scripts ./scripts
 COPY monitoring ./monitoring
 
-
-
-# Build release binary
-RUN cargo build --release -p app
+# Build release binaries
+RUN cargo build --release -p app -p cli
 
 # --- Runtime Stage ---
 FROM debian:trixie-slim AS runner
@@ -45,29 +44,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ONNX Runtime 1.20.1 (required by ort crate with load-dynamic feature)
+# Install ONNX Runtime 1.21.0 (required by ort crate with load-dynamic feature)
 RUN curl -fsSL \
-    "https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz" \
+    "https://github.com/microsoft/onnxruntime/releases/download/v1.21.0/onnxruntime-linux-x64-1.21.0.tgz" \
     -o /tmp/ort.tgz \
     && tar -xzf /tmp/ort.tgz -C /tmp \
-    && cp /tmp/onnxruntime-linux-x64-1.20.1/lib/libonnxruntime.so.1.20.1 /usr/lib/x86_64-linux-gnu/ \
-    && ln -s /usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.20.1 /usr/lib/x86_64-linux-gnu/libonnxruntime.so \
-    && rm -rf /tmp/ort.tgz /tmp/onnxruntime-linux-x64-1.20.1
+    && cp -a /tmp/onnxruntime-linux-x64-1.21.0/lib/libonnxruntime.so* /usr/lib/x86_64-linux-gnu/ \
+    && rm -rf /tmp/ort.tgz /tmp/onnxruntime-linux-x64-1.21.0
 
 WORKDIR /app
 
 # Copy binary and default configuration from builder
 COPY --from=builder /usr/src/ironwarden/target/release/app /usr/local/bin/ironwarden
+COPY --from=builder /usr/src/ironwarden/target/release/iw-cli /usr/local/bin/iw-cli
 COPY --from=builder /usr/src/ironwarden/config /app/config
 
 # Default configuration mounts & data directories
 RUN mkdir -p /app/data/models /app/logs
 
-EXPOSE 14141 8080
+EXPOSE 8080 14141
 
 ENV WARDEN_ENV=production \
     WARDEN_MODE=bridge \
-    PORT=14141 \
+    PORT=8080 \
+    BRIDGE_PORT=8080 \
+    BRIDGE_ADDR=0.0.0.0 \
+    LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
     ALLOW_FALLBACK=true \
     RUST_LOG=info \
     WARDEN_MCP_SECRET=default_mcp_secret_change_in_production
