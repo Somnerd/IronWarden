@@ -294,12 +294,15 @@ pytest tests/e2e/ -v
 ---
 
 ### 🛠️ Need Custom High-Performance Systems or Sovereign AI Infrastructure?
-I partner with engineering teams and startups on fractional consulting and dedicated infrastructure sprints:
-* **The 1-Week Sovereign AI Gateway Sprint (€4,500 flat fee)**: VPC deployment, custom PII rules, and sub-millisecond gateway processing overhead.
+I partner with healthcare organizations, clinics, fintechs, and engineering teams on fractional systems architecture and dedicated infrastructure sprints:
+* **The 1-Week Sovereign AI Gateway Sprint (€4,500 flat fee)**: Turnkey Docker/Kubernetes VPC deployment, custom GDPR Article 9 & 32 clinical/financial PII entity packs (EHR codes, Greek AMKA/AFM, EU IBANs), SSE streaming token rehydration, HMAC-SHA256 audit ledger, and sub-microsecond Criterion latency benchmark report.
+* **Ongoing Systems & Compliance Retainers**:
+  * **Standard Maintenance Retainer (€500 / month)**: Continuous upstream security patching, monthly PII regex & entity updates, automated latency/drift health checks, 48-hr L2 support.
+  * **Priority Engineering SLA Retainer (€1,000 / month)**: Dedicated 12-hr priority SLA, weekly custom entity packs, continuous clinical benchmark tuning, and active DPO/DPIA technical audit support.
 * **Custom Rust Reverse Proxies & Protocol Gateways** (HTTP/2, Tokio, Axum, L2.5–L7 signaling).
 * **Backend Performance Audits & Python-to-Rust Migrations**.
 
-👉 **[Contact Nikolas Alexandrakis for Architecture & Consulting Inquiries](mailto:nikolasalexandrakis.work@gmail.com?subject=Consulting%20Inquiry%20-%20Systems%20Architecture)**
+👉 **[Contact Nikolas Alexandrakis for Architecture & Consulting Inquiries](mailto:nikolasalexandrakis.work@gmail.com?subject=Consulting%20Inquiry%20-%20Sovereign%20AI%20Architecture)**
 
 ---
 
