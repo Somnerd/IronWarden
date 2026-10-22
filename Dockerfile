@@ -30,7 +30,7 @@ COPY scripts ./scripts
 COPY monitoring ./monitoring
 
 # Build release binaries
-RUN cargo build --release -p app -p cli
+RUN cargo build --release -p app -p iw-cli
 
 # --- Runtime Stage ---
 FROM debian:trixie-slim AS runner
