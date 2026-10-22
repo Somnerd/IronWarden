@@ -63,51 +63,56 @@ impl std::fmt::Debug for NerBackend {
     }
 }
 
-static ORT_INIT: std::sync::Once = std::sync::Once::new();
-
 #[repr(C)]
 struct OrtApiBase {
     get_api: unsafe extern "C" fn(u32) -> *const ort_sys::OrtApi,
     get_version_string: unsafe extern "C" fn() -> *const std::ffi::c_char,
 }
 
-fn ensure_ort_initialized() {
-    ORT_INIT.call_once(|| {
-        let home_lib = std::env::var("HOME")
-            .map(|h| format!("{}/lib/libonnxruntime.so", h))
-            .unwrap_or_default();
-        let candidates = [
-            std::env::var("ORT_DYLIB_PATH").unwrap_or_default(),
-            home_lib,
-            "/usr/lib/libonnxruntime.so".to_string(),
-            "/usr/local/lib/libonnxruntime.so".to_string(),
-            "libonnxruntime.so".to_string(),
-        ];
-        for cand in &candidates {
-            if !cand.is_empty() && (Path::new(cand).exists() || cand == "libonnxruntime.so") {
-                if let Ok(c_path) = std::ffi::CString::new(cand.as_str()) {
-                    let handle = unsafe {
-                        libc::dlopen(
-                            c_path.as_ptr(),
-                            libc::RTLD_NOW | libc::RTLD_GLOBAL | libc::RTLD_NODELETE,
-                        )
-                    };
-                    if !handle.is_null() {
-                        let sym = unsafe { libc::dlsym(handle, c"OrtGetApiBase".as_ptr()) };
-                        if !sym.is_null() {
-                            let get_api_base: unsafe extern "C" fn() -> *const OrtApiBase =
-                                unsafe { std::mem::transmute(sym) };
-                            let base = unsafe { &*get_api_base() };
-                            let api = unsafe { &*(base.get_api)(20) };
-                            let _ = ort::set_api(api.clone());
-                            return;
+fn ensure_ort_initialized() -> Result<(), String> {
+    static INIT_RESULT: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+    INIT_RESULT
+        .get_or_init(|| {
+            let home_lib = std::env::var("HOME")
+                .map(|h| format!("{}/lib/libonnxruntime.so", h))
+                .unwrap_or_default();
+            let candidates = [
+                std::env::var("ORT_DYLIB_PATH").unwrap_or_default(),
+                home_lib,
+                format!(
+                    "{}/.ort/lib/libonnxruntime.so",
+                    std::env::var("HOME").unwrap_or_default()
+                ),
+                "/usr/lib/libonnxruntime.so".to_string(),
+                "/usr/local/lib/libonnxruntime.so".to_string(),
+                "libonnxruntime.so".to_string(),
+            ];
+            for cand in &candidates {
+                if !cand.is_empty() && (Path::new(cand).exists() || cand == "libonnxruntime.so") {
+                    if let Ok(c_path) = std::ffi::CString::new(cand.as_str()) {
+                        let handle = unsafe {
+                            libc::dlopen(
+                                c_path.as_ptr(),
+                                libc::RTLD_NOW | libc::RTLD_GLOBAL | libc::RTLD_NODELETE,
+                            )
+                        };
+                        if !handle.is_null() {
+                            let sym = unsafe { libc::dlsym(handle, c"OrtGetApiBase".as_ptr()) };
+                            if !sym.is_null() {
+                                let get_api_base: unsafe extern "C" fn() -> *const OrtApiBase =
+                                    unsafe { std::mem::transmute(sym) };
+                                let base = unsafe { &*get_api_base() };
+                                let api = unsafe { &*(base.get_api)(20) };
+                                let _ = ort::set_api(api.clone());
+                                return Ok(());
+                            }
                         }
                     }
                 }
             }
-        }
-        let _ = ort::init().commit();
-    });
+            Err("Failed to locate libonnxruntime.so in candidate paths ($HOME/lib, ~/.ort/lib, /usr/lib, /usr/local/lib)".to_string())
+        })
+        .clone()
 }
 
 pub struct OnnxNer {
@@ -117,7 +122,7 @@ pub struct OnnxNer {
 }
 impl OnnxNer {
     pub fn new(model_path: &Path, tokenizer_path: &Path, threshold: f64) -> Result<Self, String> {
-        ensure_ort_initialized();
+        ensure_ort_initialized()?;
 
         let builder =
             Session::builder().map_err(|e| format!("Failed to create ONNX builder: {}", e))?;

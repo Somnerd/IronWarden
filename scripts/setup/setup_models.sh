@@ -91,7 +91,37 @@ download_file() {
 download_file "$MODEL_URL" "$MODEL_FILE" "$MODEL_SHA256"
 download_file "$TOKENIZER_URL" "$TOKENIZER_FILE" "$TOKENIZER_SHA256"
 
+# ------------------------------------------------------------------------------
+# ONNX Runtime Dynamic Library (libonnxruntime.so)
+# ------------------------------------------------------------------------------
+ORT_VERSION="1.21.0"
+HOME_LIB="$HOME/lib"
+OS=$(uname -s)
+ARCH=$(uname -m)
+
+if [ ! -f "$HOME_LIB/libonnxruntime.so" ] && [ ! -f "/usr/lib/libonnxruntime.so" ] && [ ! -f "/usr/local/lib/libonnxruntime.so" ] && [ -z "${ORT_DYLIB_PATH:-}" ]; then
+    echo "⬇️ Downloading official Microsoft ONNX Runtime v${ORT_VERSION} library..."
+    mkdir -p "$HOME_LIB"
+    if [[ "$OS" == "Linux" && "$ARCH" == "x86_64" ]]; then
+        ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+        curl -fsSL "$ORT_URL" -o "/tmp/ort.tgz"
+        tar -xzf "/tmp/ort.tgz" -C /tmp/
+        cp -a /tmp/onnxruntime-linux-x64-${ORT_VERSION}/lib/libonnxruntime.so* "$HOME_LIB/"
+        rm -rf /tmp/ort.tgz /tmp/onnxruntime-linux-x64-${ORT_VERSION}
+        echo "✅ Installed libonnxruntime.so to $HOME_LIB"
+    elif [[ "$OS" == "Darwin" ]]; then
+        DARWIN_ARCH="x86_64"
+        [ "$ARCH" == "arm64" ] && DARWIN_ARCH="arm64"
+        ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-${DARWIN_ARCH}-${ORT_VERSION}.tgz"
+        curl -fsSL "$ORT_URL" -o "/tmp/ort.tgz"
+        tar -xzf "/tmp/ort.tgz" -C /tmp/
+        cp -a /tmp/onnxruntime-osx-*/lib/libonnxruntime.* "$HOME_LIB/"
+        rm -rf /tmp/ort.tgz /tmp/onnxruntime-osx-*
+        echo "✅ Installed libonnxruntime.dylib to $HOME_LIB"
+    fi
+fi
+
 echo "=========================================================="
-echo "✅ Setup complete! Models ready for Hybrid NER mode."
+echo "✅ Setup complete! Models and ORT runtime ready for Hybrid NER mode."
 echo "💡 Tip: Without these weights, IronWarden runs in Heuristic-Only demo mode."
 echo "=========================================================="

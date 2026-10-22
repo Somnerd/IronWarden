@@ -10,10 +10,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   WARDEN_MCP_SECRET: "dummy_mcp_secret_value_for_testing_purposes"
+  LD_LIBRARY_PATH: "$HOME/lib:/usr/local/lib:/usr/lib"
 
 jobs:
   lint:
     name: Format & Clippy
+    timeout-minutes: 20
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - name: Checkout Code
@@ -66,6 +68,7 @@ jobs:
   test:
     name: Test Suite (Unit & Integration)
     needs: lint
+    timeout-minutes: 45
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - name: Checkout Code
