@@ -25,8 +25,23 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Configure Cargo PATH
+        run: |
+          if [ -d "$HOME/.cargo/bin" ]; then
+            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          fi
+          if [ -d "/home/somnerd/.cargo/bin" ]; then
+            echo "/home/somnerd/.cargo/bin" >> $GITHUB_PATH
+          fi
+          if [ -d "/home/somnerd/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin" ]; then
+            echo "/home/somnerd/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin" >> $GITHUB_PATH
+          fi
+
       - name: Set up Rust Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        run: |
+          if command -v rustup >/dev/null 2>&1; then
+            rustup default stable
+          fi
 
       - name: Build Release Binaries
         run: |
@@ -43,7 +58,7 @@ jobs:
           cp "target/release/iw-cli" "$RELEASE_DIR/iw-cli"
           
           # Copy configuration templates & documentation
-          cp example.env "$RELEASE_DIR/example.env"
+          cp .env.example "$RELEASE_DIR/.env.example"
           cp LICENSE "$RELEASE_DIR/LICENSE"
           cp README.md "$RELEASE_DIR/README.md"
           

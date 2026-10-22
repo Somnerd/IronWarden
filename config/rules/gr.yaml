@@ -8,5 +8,6 @@ rules:
 
 heuristics:
   - label: "POTENTIAL_GREEK_NAME"
-    pattern: '\b[Α-ΩΆΈΉΊΌΎΏ][α-ωάέήίόύώϊϋΐΰ]+(?:ης|ου|ος|ας|α|ων)\b'
+    pattern: '\b[Α-ΩΆΈΉΊΌΎΏ][α-ωάέήίόύώϊϋΐΰ]+(?:ης|ου|ος|ας|α|ων|η)\b'
     skip_sentence_start: true
+    category: "IndividualName"

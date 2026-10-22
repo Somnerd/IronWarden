@@ -6,8 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Fsomnerd%2Fironwarden-blue?logo=docker)](https://github.com/Somnerd/IronWarden/pkgs/container/ironwarden)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?logo=rust)](Cargo.toml)
-[![Criterion Benchmarks](https://img.shields.io/badge/Criterion%20Benchmarks-Statistically%20Verified-brightgreen)](BENCHMARKS.md)
-[![SSE Rehydration](https://img.shields.io/badge/SSE%20Rehydration-%3C1%C2%B5s%20per%20chunk-blue)](BENCHMARKS.md)
+[![Criterion Benchmarks](https://img.shields.io/badge/Criterion%20Benchmarks-Statistically%20Verified-brightgreen)](benchmarks/raw/criterion_estimates.json)
+[![SSE Rehydration](https://img.shields.io/badge/SSE%20Rehydration-%3C1%C2%B5s%20per%20chunk-blue)](benchmarks/raw/criterion_estimates.json)
 
 **IronWarden** is a sovereign, ultra-low-latency AI security reverse proxy and PII firewall written in bare-metal Rust. 
 
@@ -21,9 +21,9 @@ Point any **OpenAI**, **Anthropic**, or **Ollama/vLLM** SDK client at IronWarden
 | :--- | :---: | :---: | :---: | :---: |
 | **Language & Concurrency** | **Safe Rust (Tokio / Axum async)** | Python (FastAPI / Uvicorn) | Node.js (TypeScript / V8) | OpenResty (Nginx / Lua) or Go |
 | **Memory Safety & Runtime** | **Zero GC pauses, compile-time borrow checks** | GIL lock, garbage collection overhead | Single-threaded event loop, GC sweeps | Manual memory (C/Lua) or Go GC |
-| **Streaming PII Redaction** | **Real-Time Sliding-Window SSE (<1 µs/chunk)** | Buffers stream or high-latency regex | Buffers stream or post-hoc inspection | Plugin-dependent / Lua regex |
+| **Streaming PII Redaction** | **Real-Time Sliding-Window SSE (<1 µs/chunk)** | Full-stream Python buffering | Edge / Cloud proxy hop | Lua plugin regex pass |
 | **Audit Log Integrity** | **Cryptographic HMAC-SHA256 Ledger Chaining** | Plaintext JSON files | Cloud SaaS telemetry | Standard web access logs |
-| **Base Memory Footprint** | **~28.4 MB RSS (Heuristic) / ~142 MB (Hybrid NER)** | ~140 MB+ baseline | ~110 MB+ baseline | ~85 MB baseline |
+| **Memory Architecture** | **Deterministic compile-time ownership, zero GC pauses** | Runtime GC & GIL contention | Runtime GC sweeps (V8 heap) | Manual allocation or Go GC |
 | **Data Sovereignty** | **100% Local / Air-Gapped / Private VPC** | Self-hosted or SaaS | SaaS-dependent cloud routing | Self-hosted or Enterprise Cloud |
 
 ---
@@ -60,13 +60,14 @@ Point any **OpenAI**, **Anthropic**, or **Ollama/vLLM** SDK client at IronWarden
        │                                     ▼                       │
        │  ┌────────────────────────────────────────────────────────┐ │
        │  │ Tamper-Proof Audit Chaining (HMAC-SHA256 Merkle Chain) │ │
-       │  │  • Verifiable cryptographic audit trail for EU AI Act  │ │
+       │  │  • Verifiable cryptographic audit trail & integrity log│ │
        │  └────────────────────────────────────────────────────────┘ │
        └───────────────────────────────┬─────────────────────────────┘
                                        │ (Redacted Outbound TX)
                                        ▼
                  [ Upstream LLMs: OpenAI / Anthropic / Local Ollama ]
 ```
+
 
 ---
 
@@ -102,20 +103,13 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 docker compose up -d
 ```
 
-### 4. Deploy to Kubernetes with Helm
-```bash
-helm install ironwarden ./deploy/helm/ironwarden \
-  --set secrets.wardenPepper="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" \
-  --set secrets.openaiApiKey="sk-..."
-```
-
-### 5. Build & Run from Source
+### 4. Build & Run from Source
 ```bash
 git clone https://github.com/Somnerd/IronWarden.git
 cd IronWarden
 
 # Optional: Download ONNX NER weights (falls back to high-speed heuristic mode if omitted)
-./scripts/setup_models.sh
+./scripts/setup/setup_models.sh
 
 # Run the gateway
 export WARDEN_PEPPER=$(openssl rand -hex 16)
@@ -205,14 +199,14 @@ Unlike standard proxies that buffer the entire response to replace tokens (intro
 - **HMAC-SHA256 Hash Chaining**: Every log entry is cryptographically linked to the previous record with continuous full-chain integrity walk verification.
 - **Fail-Closed Security**: If storage fills up or audit logging fails, IronWarden physically halts upstream egress to prevent un-audited data leakage.
 
-### 4. Turnkey Compliance Presets
-Pre-configured, zero-touch regulatory rule sets ready to deploy:
-- **Middle East & GCC Sovereignty** (`config/rules/me.yaml`): Saudi Arabia PDPL (SDAIA), UAE Federal Decree-Law No. 45/2021, Qatar. Emirates ID, Saudi National ID/Iqama, Saudi & UAE IBANs, GCC mobile numbers, Arabic name heuristics.
-- **East Asia Sovereignty** (`config/rules/east_asia.yaml`): China PIPL / CSL, Japan APPI, South Korea PIPA, Singapore PDPA. China Resident ID, USCC, China Mobile, Japan My Number, Korea RRN, Singapore NRIC.
-- **India DPDP Act 2023** (`config/rules/in.yaml`): PAN cards, Aadhaar numbers, GSTIN, Voter ID (EPIC), Indian Passports, Indian Mobile.
-- **GDPR & European Sovereignty** (`config/rules/eu.yaml`, `config/rules/gr.yaml`): EU & Greek national IDs (AMKA, AFM), EU IBANs, Passports, Driving Licenses.
-- **HIPAA** (`config/rules/rules_medical.yaml`): Medical records, Patient IDs, MRNs, SSNs.
-- **PCI-DSS** (`config/rules/rules.yaml`): Primary Account Numbers (PANs), CVVs, track data.
+### 4. Turnkey Rule Presets & Identifier Filtering
+Pre-configured rule manifests targeting identifiers referenced across major data privacy frameworks (rule presets targeting HIPAA/GDPR/PCI-DSS identifiers and cryptographic hash-chained audit logs; not a formal regulatory certification):
+- **Middle East & GCC Identifiers** (`config/rules/me.yaml`): Targets identifiers referenced under Saudi Arabia PDPL (SDAIA), UAE Federal Decree-Law No. 45/2021, and Qatar. Emirates ID, Saudi National ID/Iqama, Saudi & UAE IBANs, GCC mobile numbers, Arabic name heuristics.
+- **East Asia Identifiers** (`config/rules/east_asia.yaml`): Targets identifiers referenced under China PIPL / CSL, Japan APPI, South Korea PIPA, and Singapore PDPA. China Resident ID, USCC, China Mobile, Japan My Number, Korea RRN, Singapore NRIC.
+- **India DPDP Act 2023 Identifiers** (`config/rules/in.yaml`): PAN cards, Aadhaar numbers, GSTIN, Voter ID (EPIC), Indian Passports, Indian Mobile.
+- **GDPR & European Sovereign Identifiers** (`config/rules/eu.yaml`, `config/rules/gr.yaml`): EU & Greek national IDs (AMKA, AFM), EU IBANs, Passports, Driving Licenses.
+- **HIPAA Identifiers** (`config/rules/rules_medical.yaml`): Protected Health Information (PHI) patterns, Medical records, Patient IDs, MRNs, SSNs.
+- **PCI-DSS Identifiers** (`config/rules/rules.yaml`): Primary Account Numbers (PANs) with Luhn validation, CVVs, magnetic stripe track data.
 
 ### 5. Model Context Protocol (MCP) Server
 IronWarden includes a native JSON-RPC 2.0 stdio MCP server for agentic AI architectures (Claude Desktop, Cursor, AI agents) with session isolation and prompt sanitization tools:
@@ -224,7 +218,7 @@ IronWarden includes a native JSON-RPC 2.0 stdio MCP server for agentic AI archit
 
 ## 📊 Performance Benchmarks
 
-Empirically measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) (100 samples, 1,000+ iterations per sample, 95% confidence intervals) on AMD Ryzen 7 5700X3D (8C/16T, 96MB L3 V-Cache), Linux 6.6 WSL2. All raw data committed in [`benchmarks/raw/criterion_estimates.json`](benchmarks/raw/criterion_estimates.json). See [BENCHMARKS.md](BENCHMARKS.md) for full methodology.
+Empirically measured using [Criterion.rs](https://github.com/bheisler/criterion.rs) (100 samples, 1,000+ iterations per sample, 95% confidence intervals) on AMD Ryzen 7 5700X3D (8C/16T, 96MB L3 V-Cache), Linux 6.6 WSL2. All raw data committed in [`benchmarks/raw/criterion_estimates.json`](benchmarks/raw/criterion_estimates.json).
 
 | Operation / Micro-Benchmark | Median Latency [95% CI] | Architectural Impact |
 | :--- | :---: | :--- |
@@ -237,8 +231,23 @@ Empirically measured using [Criterion.rs](https://github.com/bheisler/criterion.
 | **ShadowNER Boundary Token Scan** | **1.01 µs** [1.01 – 1.03 µs] | Sub-microsecond heuristic pre-filter |
 | **Lock-Free Atomic Metric Record** | **1.77 ns** [1.76 – 1.77 ns] | Zero lock contention telemetry |
 | **Prometheus Exposition Render** | **292.8 ns** [292.2 – 293.7 ns] | Near-zero overhead monitoring |
-| **Base Memory Footprint (Heuristic Mode)** | **28.4 MB RSS** | Minimal footprint for micro-containers |
-| **Base Memory Footprint (Hybrid ONNX NER Mode)** | **142.0 MB RSS** | Loaded ONNX Runtime engine & tensor buffers |
+
+### 🎯 Detection Accuracy & Recall Scorecard
+
+Empirically measured across standard datasets and a 100,000-prompt multilingual matrix. Raw data in [`benchmarks/raw/accuracy_eval_results.json`](benchmarks/raw/accuracy_eval_results.json).
+
+| Benchmark Suite | Samples / Support | Detection Mode | Recall (Heur / Hyb) | Precision | F1 Score (Heuristic / Hybrid) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **100,000 Multilingual Matrix (GR/EN/AR/ZH)** | **100,000 prompts** | Heuristic (SIMD) | **98.13% / 98.13%** | **100.0%** | **0.991 / 0.991** |
+| **National IDs (US SSN, Greek AFM, AMKA)** | **100 cases** | Heuristic / Hybrid | **100.0% / 100.0%** | **100.0%** | **1.000 / 1.000** |
+| **Financial (Luhn Cards, EU IBANs)** | **100 cases** | Heuristic / Hybrid | **100.0% / 100.0%** | **100.0%** | **1.000 / 1.000** |
+| **Structural Secrets (API Keys, JWTs, AWS)** | **100 cases** | Heuristic / Hybrid | **100.0% / 100.0%** | **100.0%** | **1.000 / 1.000** |
+| **Negative Controls (SQL, Code, Geographies)** | **100 cases** | Heuristic / Hybrid | **100.0% / 100.0%** | **100.0%** | **1.000 / 1.000 (0 FP)** |
+| **CoNLL-2003 Test Split (Gold Person NER)** | **1,617 gold entities** | Dual-Track Hybrid | **66.54% / 94.62%** | **100.0%** | **0.799 / 0.972** |
+| **WikiGold Test Split (Gold Person NER)** | **934 gold entities** | Dual-Track Hybrid | **56.21% / 92.18%** | **100.0%** | **0.720 / 0.959** |
+| **Adversarial Torture Suite (Eval 5)** | **1,000 cases** | Dual-Track Hybrid | **100.0% / 100.0%** | **99.80%** | **0.999 / 0.999** |
+
+*100,000 combinatorial prompts evaluated across 4 languages with 98.13% overall recall (100% in English/Greek, 99.24% in Arabic, 93.26% in Chinese) and 0 false positives. Dual-track ShadowNER gates ambiguous tokens to window-batched INT8 DistilBERT, preventing N+1 latency spikes while achieving zero false positives on SQL queries, code, and system identifiers. All empirical measurements are backed by [`benchmarks/raw/accuracy_eval_results.json`](benchmarks/raw/accuracy_eval_results.json).*
 
 ---
 
@@ -259,6 +268,21 @@ Visit **`http://localhost:3000`** (admin/admin) to view real-time gateway traffi
 
 ---
 
+## 🧪 Testing & Verification
+
+IronWarden maintains a comprehensive multi-tier test suite including multi-crate Rust unit and integration tests, deterministic adversarial/torture suites, and Python black-box E2E suites.
+
+See [`tests/README.md`](tests/README.md) for full test documentation and execution instructions:
+```bash
+# Run all unified Rust integration & unit tests
+cargo test -p iw-integration-tests
+
+# Run Python black-box E2E test suite
+pytest tests/e2e/ -v
+```
+
+---
+
 ### 🛠️ Need Custom High-Performance Systems or Sovereign AI Infrastructure?
 I partner with engineering teams and startups on fractional consulting and dedicated infrastructure sprints:
 * **The 1-Week Sovereign AI Gateway Sprint (€4,500 flat fee)**: VPC deployment, custom PII rules, and sub-millisecond gateway processing overhead.
@@ -273,7 +297,6 @@ I partner with engineering teams and startups on fractional consulting and dedic
 
 * **Contributing:** Please read our [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 * **Security Disclosures:** For vulnerability reporting, please see [SECURITY.md](SECURITY.md).
-* **Maintainer Notes:** See [MAINTAINER_NOTES.md](MAINTAINER_NOTES.md).
 * **License:** Licensed under the [MIT License](LICENSE). 100% free and open-source software for commercial and private use.
 * **Enterprise Services & Support:** For custom PII rule modeling, compliance readiness, or dedicated architecture sprints, see [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md).
 * **Copyright:** Copyright (c) 2026 IronWarden Maintainers.

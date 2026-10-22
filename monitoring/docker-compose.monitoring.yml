@@ -1,22 +1,4 @@
-version: '3.8'
-
 services:
-  ironwarden:
-    image: ghcr.io/somnerd/ironwarden:latest
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    container_name: ironwarden-gateway
-    environment:
-      - WARDEN_PEPPER=0000000000000000000000000000000000000000000000000000000000000000
-      - WARDEN_BRIDGE_ADDR=0.0.0.0
-      - WARDEN_BRIDGE_PORT=8080
-      - WARDEN_STRICT_MODE=false
-      - RUST_LOG=info
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
-
   prometheus:
     image: prom/prometheus:latest
     container_name: ironwarden-prometheus
@@ -27,14 +9,15 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "9090:9090"
-    depends_on:
-      - ironwarden
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.4.0
     container_name: ironwarden-grafana
     environment:
       - GF_SECURITY_ADMIN_USER=admin
@@ -44,6 +27,8 @@ services:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "3000:3000"
     depends_on:

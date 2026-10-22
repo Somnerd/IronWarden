@@ -1,3 +1,5 @@
+#![allow(clippy::double_must_use)]
+
 pub mod ai;
 pub mod config;
 pub mod configurator;
@@ -7,6 +9,7 @@ pub mod pii;
 pub mod shadow_ner;
 pub mod vision;
 
+pub use ai::NerMode;
 pub use config::{RuleConfig, RuleType, WardenConfig};
 pub use configurator::GlobalConfig;
 pub use engine::WardenEngine;

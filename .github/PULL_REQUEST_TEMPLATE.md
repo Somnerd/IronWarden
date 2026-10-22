@@ -25,4 +25,4 @@ IronWarden operates under a **Zero-Failure / Fail-Closed** mandate. Please check
 - [ ] Clippy checks pass with zero warnings (`cargo clippy --workspace --all-targets -- -D warnings`)
 - [ ] All unit and integration tests pass (`cargo test --workspace`)
 - [ ] No hardcoded secrets, keys, or credentials committed
-- [ ] Documentation updated (`README.md`, `SECURITY.md`, `MODELS.md`, etc. if applicable)
+- [ ] Documentation updated (`README.md`, `SECURITY.md`, etc. if applicable)

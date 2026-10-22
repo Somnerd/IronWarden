@@ -23,6 +23,18 @@ impl iw_core::PiiShield for DynamicShield {
         engine.sanitize_prompt(input, session).await
     }
 
+    async fn sanitize_prompt_opts(
+        &self,
+        input: &str,
+        session: Option<&iw_core::SessionContext>,
+        check_injection: bool,
+    ) -> Result<iw_core::ScrubbingReport, iw_core::SovereignError> {
+        let engine = self.engine.load();
+        engine
+            .sanitize_prompt_opts(input, session, check_injection)
+            .await
+    }
+
     fn restore_prompt(
         &self,
         response: &str,

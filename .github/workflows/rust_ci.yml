@@ -10,24 +10,57 @@ on:
 env:
   CARGO_TERM_COLOR: always
   WARDEN_MCP_SECRET: "dummy_mcp_secret_value_for_testing_purposes"
+  LD_LIBRARY_PATH: "$HOME/lib:/usr/local/lib:/usr/lib"
 
 jobs:
   lint:
     name: Format & Clippy
-    runs-on: [self-hosted, linux]
+    timeout-minutes: 20
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Rust Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          components: clippy, rustfmt
-          cache: true
+      - name: Configure Cargo PATH
+        run: |
+          if [ -d "$HOME/.cargo/bin" ]; then
+            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          fi
+          if [ -d "/home/somnerd/.cargo/bin" ]; then
+            echo "/home/somnerd/.cargo/bin" >> $GITHUB_PATH
+          fi
+          if [ -d "/home/somnerd/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin" ]; then
+            echo "/home/somnerd/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin" >> $GITHUB_PATH
+          fi
 
+      - name: Install System Dependencies
+        run: |
+          if ! command -v protoc >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y protobuf-compiler
+          fi
+
+      - name: Set up Rust Toolchain
+        run: |
+          if command -v rustup >/dev/null 2>&1; then
+            rustup default stable
+            rustup component add clippy rustfmt
+          fi
+
+      - name: Rust Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Check Code Formatting
-        run: cargo fmt --check
+        run: cargo fmt --all -- --check
 
       - name: Run Clippy Linter
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -35,16 +68,49 @@ jobs:
   test:
     name: Test Suite (Unit & Integration)
     needs: lint
-    runs-on: [self-hosted, linux]
+    timeout-minutes: 45
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Rust Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: true
+      - name: Configure Cargo PATH
+        run: |
+          if [ -d "$HOME/.cargo/bin" ]; then
+            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          fi
+          if [ -d "/home/somnerd/.cargo/bin" ]; then
+            echo "/home/somnerd/.cargo/bin" >> $GITHUB_PATH
+          fi
+          if [ -d "/home/somnerd/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin" ]; then
+            echo "/home/somnerd/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin" >> $GITHUB_PATH
+          fi
 
+      - name: Install System Dependencies
+        run: |
+          if ! command -v protoc >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y protobuf-compiler
+          fi
+
+      - name: Set up Rust Toolchain
+        run: |
+          if command -v rustup >/dev/null 2>&1; then
+            rustup default stable
+            rustup component add clippy rustfmt
+          fi
+
+      - name: Rust Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -56,13 +122,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest pytest-timeout pyjwt cryptography requests httpx redis PyYAML
 
-      - name: Prepare Test Manifests
+      - name: Prepare Test Manifests & Models
         run: |
-          mkdir -p integration_tests
-          cp warden/test_manifest_*.yaml integration_tests/ 2>/dev/null || true
-          cp app/test_manifest_legal.yaml /tmp/manifest_legal.yaml 2>/dev/null || true
+          ./scripts/setup/setup_models.sh
 
       - name: Run Rust Tests
+        env:
+          WARDEN_NER_MODE: require_hybrid
         run: cargo test --workspace --lib --bins --tests
 
       - name: Build App Binary
@@ -71,5 +137,4 @@ jobs:
       - name: Run Python Integration Test Suite
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          pytest test_suites/ --timeout=180 -k "not stress and not benchmark" -v
-
+          pytest tests/e2e/ --timeout=180 -k "not stress and not benchmark" -v
