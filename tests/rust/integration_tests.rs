@@ -43,6 +43,8 @@ mod worker {
     mod audit_integrity;
     #[path = "auditor_concurrency_test.rs"]
     mod auditor_concurrency_test;
+    #[path = "chaos_wal_recovery.rs"]
+    mod chaos_wal_recovery;
     #[path = "ha_verification.rs"]
     mod ha_verification;
     #[path = "librarian_scrub_test.rs"]

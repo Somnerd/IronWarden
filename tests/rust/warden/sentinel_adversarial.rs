@@ -14,7 +14,7 @@ rules:
     action: "Block"
 "#;
 
-    let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: WardenConfig = serde_yml::from_str(yaml).unwrap();
     let pepper = SecretVec::new(vec![0u8; 32]);
     let engine = config.compile_engine(&pepper).unwrap();
 
@@ -42,7 +42,7 @@ heuristics:
     action: "Redact"
 "#;
 
-    let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: WardenConfig = serde_yml::from_str(yaml).unwrap();
     let pepper = SecretVec::new(vec![0u8; 32]);
     let engine = config.compile_engine(&pepper).unwrap();
 
@@ -72,7 +72,7 @@ async fn test_semantic_cache_homoglyph_collision() {
 rules: []
 confidence_threshold: 0.9
 "#;
-    let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: WardenConfig = serde_yml::from_str(yaml).unwrap();
     let pepper = SecretVec::new(vec![0u8; 32]);
     let _engine = config.compile_engine(&pepper).unwrap();
 
@@ -92,7 +92,7 @@ heuristics:
     pattern: "Alice"
     action: "Redact"
 "#;
-    let config2: WardenConfig = serde_yaml::from_str(yaml2).unwrap();
+    let config2: WardenConfig = serde_yml::from_str(yaml2).unwrap();
     let engine2 = config2.compile_engine(&pepper).unwrap();
 
     let report1 = engine2
@@ -142,7 +142,7 @@ rules:
     action: "Block"
     category: "Other"
 "#;
-    let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: WardenConfig = serde_yml::from_str(yaml).unwrap();
     let pepper = SecretVec::new(vec![0u8; 32]);
     let engine = config.compile_engine(&pepper).unwrap();
 

@@ -258,12 +258,20 @@ mod configurator_tests {
         let orig_pepper = env::var("WARDEN_PEPPER");
         let orig_manifest = env::var("WARDEN_MANIFEST_PATH");
         let orig_key = env::var("OPENAI_API_KEY");
+        let orig_tier = env::var("DEPLOYMENT_TIER");
+        let orig_redis = env::var("REDIS_URL");
+        let orig_db = env::var("DATABASE_URL");
+        let orig_remote_audit = env::var("REMOTE_AUDIT_ENDPOINT");
 
         env::remove_var("WARDEN_ENV");
         env::set_var("ALLOW_FALLBACK", "false");
         env::remove_var("WARDEN_PEPPER");
         env::remove_var("WARDEN_MANIFEST_PATH");
         env::remove_var("OPENAI_API_KEY");
+        env::remove_var("DEPLOYMENT_TIER");
+        env::remove_var("REDIS_URL");
+        env::remove_var("DATABASE_URL");
+        env::remove_var("REMOTE_AUDIT_ENDPOINT");
 
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(setup));
 
@@ -292,6 +300,26 @@ mod configurator_tests {
             env::set_var("OPENAI_API_KEY", val);
         } else {
             env::remove_var("OPENAI_API_KEY");
+        }
+        if let Ok(val) = orig_tier {
+            env::set_var("DEPLOYMENT_TIER", val);
+        } else {
+            env::remove_var("DEPLOYMENT_TIER");
+        }
+        if let Ok(val) = orig_redis {
+            env::set_var("REDIS_URL", val);
+        } else {
+            env::remove_var("REDIS_URL");
+        }
+        if let Ok(val) = orig_db {
+            env::set_var("DATABASE_URL", val);
+        } else {
+            env::remove_var("DATABASE_URL");
+        }
+        if let Ok(val) = orig_remote_audit {
+            env::set_var("REMOTE_AUDIT_ENDPOINT", val);
+        } else {
+            env::remove_var("REMOTE_AUDIT_ENDPOINT");
         }
 
         if let Err(e) = res {
@@ -395,6 +423,146 @@ mod configurator_tests {
                 config.openai_api_key.expose_secret(),
                 "sk-proj-test-secret-key-12345"
             );
+        });
+    }
+
+    #[test]
+    fn test_deployment_tier_standalone_default() {
+        run_with_env(|| {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let config_yaml = temp_dir.path().join("config.yaml");
+            fs::write(&config_yaml, "warden_mode: hybrid\nallow_fallback: true\n").unwrap();
+
+            env::set_var("ALLOW_FALLBACK", "true");
+            env::set_var("WARDEN_PEPPER", "12345678901234567890123456789012");
+
+            // 1. Unset DEPLOYMENT_TIER defaults to "standalone"
+            env::remove_var("DEPLOYMENT_TIER");
+            let config = GlobalConfig::resolve_with_path(Some(&config_yaml))
+                .expect("Default config should resolve");
+            assert_eq!(config.deployment_tier, "standalone");
+
+            // 2. Explicit "standalone" resolves cleanly without Redis or Database URLs
+            env::set_var("DEPLOYMENT_TIER", "standalone");
+            let config_explicit = GlobalConfig::resolve_with_path(Some(&config_yaml))
+                .expect("Explicit standalone tier should resolve");
+            assert_eq!(config_explicit.deployment_tier, "standalone");
+        });
+    }
+
+    #[test]
+    fn test_deployment_tier_enterprise_ha_requires_redis_and_durable_audit() {
+        run_with_env(|| {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let config_yaml = temp_dir.path().join("config.yaml");
+            fs::write(&config_yaml, "warden_mode: hybrid\nallow_fallback: true\n").unwrap();
+
+            env::set_var("ALLOW_FALLBACK", "true");
+            env::set_var("WARDEN_PEPPER", "12345678901234567890123456789012");
+            env::set_var("DEPLOYMENT_TIER", "enterprise_ha");
+
+            // 1. Missing REDIS_URL -> must fail
+            env::remove_var("REDIS_URL");
+            env::remove_var("DATABASE_URL");
+            env::remove_var("REMOTE_AUDIT_ENDPOINT");
+            let res_no_redis = GlobalConfig::resolve_with_path(Some(&config_yaml));
+            assert!(
+                res_no_redis.is_err(),
+                "Enterprise HA must require REDIS_URL"
+            );
+            assert!(
+                res_no_redis.unwrap_err().to_string().contains("REDIS_URL"),
+                "Error message must specify REDIS_URL requirement"
+            );
+
+            // 2. Invalid REDIS_URL schema (e.g. http://) -> must fail
+            env::set_var("REDIS_URL", "http://127.0.0.1:6379");
+            let res_bad_redis = GlobalConfig::resolve_with_path(Some(&config_yaml));
+            assert!(
+                res_bad_redis.is_err(),
+                "Enterprise HA must reject non-redis schema"
+            );
+            assert!(res_bad_redis.unwrap_err().to_string().contains("REDIS_URL"));
+
+            // 3. Valid REDIS_URL, but missing both DATABASE_URL and REMOTE_AUDIT_ENDPOINT -> must fail
+            env::set_var("REDIS_URL", "redis://127.0.0.1:6379");
+            env::remove_var("DATABASE_URL");
+            env::remove_var("REMOTE_AUDIT_ENDPOINT");
+            let res_no_durable = GlobalConfig::resolve_with_path(Some(&config_yaml));
+            assert!(
+                res_no_durable.is_err(),
+                "Enterprise HA must require durable audit destination"
+            );
+            let err_msg = res_no_durable.unwrap_err().to_string();
+            assert!(
+                err_msg.contains("DATABASE_URL") || err_msg.contains("REMOTE_AUDIT_ENDPOINT"),
+                "Expected mention of durable audit requirement, got: {}",
+                err_msg
+            );
+
+            // 4. Invalid DATABASE_URL protocol (e.g. mysql://) -> must fail
+            env::set_var("DATABASE_URL", "mysql://root:secret@localhost:3306/warden");
+            let res_bad_db = GlobalConfig::resolve_with_path(Some(&config_yaml));
+            assert!(
+                res_bad_db.is_err(),
+                "Enterprise HA must reject non-PostgreSQL DATABASE_URL"
+            );
+            assert!(res_bad_db.unwrap_err().to_string().contains("PostgreSQL"));
+
+            // 5. Valid REDIS_URL with valid PostgreSQL DATABASE_URL -> succeeds
+            env::set_var(
+                "DATABASE_URL",
+                "postgresql://user:pass@127.0.0.1:5432/ironwarden",
+            );
+            let res_ok_pg = GlobalConfig::resolve_with_path(Some(&config_yaml));
+            assert!(
+                res_ok_pg.is_ok(),
+                "Enterprise HA with valid Redis and Postgres must resolve: {:?}",
+                res_ok_pg.err()
+            );
+            assert_eq!(res_ok_pg.unwrap().deployment_tier, "enterprise_ha");
+
+            // 6. Valid REDIS_URL with REMOTE_AUDIT_ENDPOINT (no DATABASE_URL) -> succeeds
+            env::remove_var("DATABASE_URL");
+            env::set_var(
+                "REMOTE_AUDIT_ENDPOINT",
+                "https://siem.corp.internal/v1/audit",
+            );
+            let res_ok_siem = GlobalConfig::resolve_with_path(Some(&config_yaml));
+            assert!(
+                res_ok_siem.is_ok(),
+                "Enterprise HA with valid Redis and REMOTE_AUDIT_ENDPOINT must resolve: {:?}",
+                res_ok_siem.err()
+            );
+            assert_eq!(res_ok_siem.unwrap().deployment_tier, "enterprise_ha");
+        });
+    }
+
+    #[test]
+    fn test_deployment_tier_invalid_rejected() {
+        run_with_env(|| {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let config_yaml = temp_dir.path().join("config.yaml");
+            fs::write(&config_yaml, "warden_mode: hybrid\nallow_fallback: true\n").unwrap();
+
+            env::set_var("ALLOW_FALLBACK", "true");
+            env::set_var("WARDEN_PEPPER", "12345678901234567890123456789012");
+
+            for invalid_tier in &["kubernetes", "serverless", "multi_cloud", "unknown", "123"] {
+                env::set_var("DEPLOYMENT_TIER", invalid_tier);
+                let res = GlobalConfig::resolve_with_path(Some(&config_yaml));
+                assert!(
+                    res.is_err(),
+                    "Invalid deployment tier '{}' must be rejected",
+                    invalid_tier
+                );
+                let err_msg = res.unwrap_err().to_string();
+                assert!(
+                    err_msg.contains("Invalid deployment_tier"),
+                    "Error message must specify Invalid deployment_tier, got: {}",
+                    err_msg
+                );
+            }
         });
     }
 }

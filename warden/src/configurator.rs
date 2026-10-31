@@ -42,6 +42,16 @@ pub struct GlobalConfig {
 
     #[serde(default)]
     pub allow_fallback: bool,
+
+    #[serde(default = "default_deployment_tier")]
+    pub deployment_tier: String,
+
+    pub database_url: Option<String>,
+    pub redis_url: Option<String>,
+}
+
+fn default_deployment_tier() -> String {
+    "standalone".to_string()
 }
 
 fn default_warden_mode() -> String {
@@ -87,6 +97,9 @@ impl Default for GlobalConfig {
             warden_jwt_audience: None,
             warden_jwt_issuer: None,
             allow_fallback: false,
+            deployment_tier: default_deployment_tier(),
+            database_url: None,
+            redis_url: None,
         }
     }
 }
@@ -115,7 +128,7 @@ impl GlobalConfig {
                     e
                 ))
             })?;
-            serde_yaml::from_str(&content).map_err(|e| {
+            serde_yml::from_str(&content).map_err(|e| {
                 SovereignError::ConfigError(format!(
                     "Failed to parse {}: {}",
                     config_file.display(),
@@ -182,6 +195,52 @@ impl GlobalConfig {
         if let Ok(v) = std::env::var("WARDEN_JWT_ISSUER") {
             config.warden_jwt_issuer = Some(v);
         }
+        if let Ok(v) = std::env::var("DEPLOYMENT_TIER") {
+            config.deployment_tier = v.to_lowercase();
+        }
+        if let Ok(v) = std::env::var("DATABASE_URL") {
+            if !v.trim().is_empty() {
+                config.database_url = Some(v);
+            }
+        }
+        if let Ok(v) = std::env::var("REDIS_URL") {
+            if !v.trim().is_empty() {
+                config.redis_url = Some(v);
+            }
+        }
+
+        let tier = config.deployment_tier.trim().to_lowercase();
+        if tier != "standalone" && tier != "enterprise_ha" && tier != "clustered" {
+            return Err(SovereignError::ConfigError(format!(
+                "Invalid deployment_tier '{}': must be 'standalone' or 'enterprise_ha'.",
+                config.deployment_tier
+            )));
+        }
+
+        if tier == "enterprise_ha" || tier == "clustered" {
+            match config.redis_url {
+                Some(ref url) if url.starts_with("redis://") || url.starts_with("rediss://") => {}
+                _ => {
+                    return Err(SovereignError::ConfigError(
+                        "Enterprise HA tier requires a valid REDIS_URL (redis:// or rediss://) for shared queue and session state.".into(),
+                    ));
+                }
+            }
+
+            if let Some(ref db_url) = config.database_url {
+                if !db_url.starts_with("postgres://") && !db_url.starts_with("postgresql://") {
+                    return Err(SovereignError::ConfigError(
+                        "Enterprise HA DATABASE_URL must be a valid PostgreSQL connection string (postgres:// or postgresql://).".into(),
+                    ));
+                }
+            }
+
+            if config.database_url.is_none() && config.remote_audit_endpoint.is_none() {
+                return Err(SovereignError::ConfigError(
+                    "Enterprise HA tier requires either DATABASE_URL (PostgreSQL) or REMOTE_AUDIT_ENDPOINT for clustered audit durability.".into(),
+                ));
+            }
+        }
 
         let pepper_len = config.warden_pepper.as_ref().map(|p| p.len()).unwrap_or(0);
         if pepper_len < 32 {
@@ -213,10 +272,10 @@ impl GlobalConfig {
             let manifest_content = fs::read_to_string(manifest_path).map_err(|e| {
                 SovereignError::ConfigError(format!("Failed to read manifest file: {}", e))
             })?;
-            let manifest: crate::config::ManifestConfig = serde_yaml::from_str(&manifest_content)
+            let manifest: crate::config::ManifestConfig = serde_yml::from_str(&manifest_content)
                 .map_err(|e| {
-                SovereignError::ConfigError(format!("Failed to parse manifest: {}", e))
-            })?;
+                    SovereignError::ConfigError(format!("Failed to parse manifest: {}", e))
+                })?;
             let rules_dir = Path::new(&manifest.rules_dir);
             if !rules_dir.exists() {
                 return Err(SovereignError::ConfigError(format!(

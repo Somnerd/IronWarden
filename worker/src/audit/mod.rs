@@ -31,7 +31,7 @@ pub enum AuditMessage {
         tokio::sync::oneshot::Sender<Result<(), SovereignError>>,
     ),
     Purge,
-    Shutdown,
+    Shutdown(tokio::sync::oneshot::Sender<()>),
     SiemAck(i64),
 }
 
@@ -67,6 +67,7 @@ impl AsyncAuditor {
         let healthy_thread = is_healthy.clone();
         let path_thread = path.clone();
         let tx_for_thread = tx.clone();
+        let rt_handle = tokio::runtime::Handle::current();
         std::thread::spawn(move || {
             info!("Warden Audit Worker (Dedicated Writer Thread) ignited.");
 
@@ -232,7 +233,7 @@ impl AsyncAuditor {
                                             let forward_username = username.clone();
                                             let ack_tx = tx_for_thread.clone();
 
-                                            tokio::runtime::Handle::current().spawn(async move {
+                                            rt_handle.spawn(async move {
                                                 if let Err(e) = forward_forwarder.forward_log(&forward_ciphertext, &forward_nonce, &forward_hash, &forward_report, &forward_username).await {
                                                     error!("Remote Audit Forwarding Failed: {}. Audit remains local-only.", e);
                                                 } else {
@@ -331,9 +332,10 @@ impl AsyncAuditor {
                             info!("Auditor: SIEM ACK received for log {}.", id);
                         }
                     }
-                    AuditMessage::Shutdown => {
+                    AuditMessage::Shutdown(ack) => {
                         let mut h = hmac_key_bytes;
                         h.zeroize();
+                        let _ = ack.send(());
                         break;
                     }
                 }
@@ -523,6 +525,9 @@ impl AsyncAuditor {
     }
     #[doc(hidden)]
     pub async fn shutdown(&self) {
-        let _ = self.sender.send(AuditMessage::Shutdown).await;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if self.sender.send(AuditMessage::Shutdown(tx)).await.is_ok() {
+            let _ = rx.await;
+        }
     }
 }

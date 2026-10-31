@@ -60,7 +60,7 @@ rules:
     pattern: "Project X"
     type: "Dictionary"
 "#;
-    let config: warden::WardenConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: warden::WardenConfig = serde_yml::from_str(yaml).unwrap();
     let shield = Arc::new(config.compile_engine(&pepper).unwrap());
 
     let router = Arc::new(MockRouter);

@@ -14,7 +14,7 @@ tempfile.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_yaml.workspace = true
+serde_yml.workspace = true
 async-trait.workspace = true
 proptest.workspace = true
 axum.workspace = true
@@ -36,10 +36,9 @@ chrono.workspace = true
 regex.workspace = true
 aho-corasick.workspace = true
 dashmap.workspace = true
-lazy_static = "1.5"
 url = "2.5"
-http-body-util = "0.1"
-tower = { version = "0.5", features = ["util"] }
+http-body-util.workspace = true
+tower.workspace = true
 futures.workspace = true
 rand.workspace = true
 

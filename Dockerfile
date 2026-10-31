@@ -11,8 +11,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtesseract-dev \
     libleptonica-dev \
     clang \
-    protobuf-compiler \
-    libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source code into builder container

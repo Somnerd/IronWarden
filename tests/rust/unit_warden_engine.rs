@@ -275,7 +275,7 @@ async fn test_layer2_ml_sidecar_fallback_v14() {
         rules: []
         heuristics: []
     "#;
-    let config: iw_warden::config::WardenConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: iw_warden::config::WardenConfig = serde_yml::from_str(yaml).unwrap();
     let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
     let engine = config.compile_engine(&pepper).unwrap();
 
@@ -300,7 +300,7 @@ async fn test_thread_local_normalization_concurrency() {
         rules: []
         heuristics: []
     "#;
-    let config: iw_warden::config::WardenConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: iw_warden::config::WardenConfig = serde_yml::from_str(yaml).unwrap();
     let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
     let engine = Arc::new(config.compile_engine(&pepper).unwrap());
 

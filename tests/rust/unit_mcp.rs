@@ -418,3 +418,51 @@ async fn test_kill_switch_executes_for_host_user() {
     assert!(res_str.contains("HALTED"));
     assert!(res_str.contains("fail-closed"));
 }
+
+#[tokio::test]
+async fn test_configurable_mcp_semaphore_permits() {
+    let _lock = test_env_mutex().lock().await;
+
+    let saved_permits = std::env::var("MCP_SEMAPHORE_PERMITS").ok();
+    unsafe { std::env::remove_var("MCP_SEMAPHORE_PERMITS") };
+
+    let shield = Arc::new(MockShield);
+    let storage = Arc::new(MockStorage);
+    let router = Arc::new(MockRouter);
+    let sm = LocalSessionManager::new(
+        "file::memory:?cache=shared".into(),
+        &secrecy::SecretVec::new(vec![0u8; 32]),
+    )
+    .unwrap();
+
+    // Default permits: when MCP_SEMAPHORE_PERMITS is unset, defaults to 4
+    let server_default =
+        StdioMcpServer::new(shield.clone(), storage.clone(), router.clone(), sm.clone());
+    assert_eq!(server_default.ai_semaphore.available_permits(), 4);
+
+    // Custom permits: set to 16
+    unsafe { std::env::set_var("MCP_SEMAPHORE_PERMITS", "16") };
+    let server_custom =
+        StdioMcpServer::new(shield.clone(), storage.clone(), router.clone(), sm.clone());
+    assert_eq!(server_custom.ai_semaphore.available_permits(), 16);
+
+    // Invalid permits: "0" should be filtered out by filter(|&p| p > 0) and fallback to 4
+    unsafe { std::env::set_var("MCP_SEMAPHORE_PERMITS", "0") };
+    let server_zero =
+        StdioMcpServer::new(shield.clone(), storage.clone(), router.clone(), sm.clone());
+    assert_eq!(server_zero.ai_semaphore.available_permits(), 4);
+
+    // Non-numeric permits: should fallback to 4
+    unsafe { std::env::set_var("MCP_SEMAPHORE_PERMITS", "not_a_number") };
+    let server_nan =
+        StdioMcpServer::new(shield.clone(), storage.clone(), router.clone(), sm.clone());
+    assert_eq!(server_nan.ai_semaphore.available_permits(), 4);
+
+    // Restore environment variable
+    unsafe {
+        match saved_permits {
+            Some(v) => std::env::set_var("MCP_SEMAPHORE_PERMITS", v),
+            None => std::env::remove_var("MCP_SEMAPHORE_PERMITS"),
+        }
+    }
+}

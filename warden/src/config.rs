@@ -79,7 +79,7 @@ impl WardenConfig {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, iw_core::SovereignError> {
         let content = fs::read_to_string(path)
             .map_err(|e| iw_core::SovereignError::ConfigError(format!("IO Error: {}", e)))?;
-        let config: WardenConfig = serde_yaml::from_str(&content)
+        let config: WardenConfig = serde_yml::from_str(&content)
             .map_err(|e| iw_core::SovereignError::ConfigError(format!("YAML Error: {}", e)))?;
         Ok(config)
     }
@@ -94,7 +94,7 @@ impl WardenConfig {
                 e
             ))
         })?;
-        let manifest: ManifestConfig = serde_yaml::from_str(&manifest_content).map_err(|e| {
+        let manifest: ManifestConfig = serde_yml::from_str(&manifest_content).map_err(|e| {
             iw_core::SovereignError::ConfigError(format!(
                 "Failed to parse manifest YAML {:?}: {}",
                 manifest_path.as_ref(),
@@ -145,7 +145,7 @@ impl WardenConfig {
                     continue;
                 }
             };
-            let mut config: WardenConfig = match serde_yaml::from_str(&content) {
+            let mut config: WardenConfig = match serde_yml::from_str(&content) {
                 Ok(c) => c,
                 Err(e) => {
                     warnings.push(format!(

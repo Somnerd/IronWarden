@@ -9,7 +9,7 @@ ai_enabled: false
 ai_confidence_threshold: 0.85
 "#;
 
-    let config: WardenConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: WardenConfig = serde_yml::from_str(yaml).unwrap();
     let pepper = secrecy::SecretVec::new(vec![0u8; 32]);
     let engine = config.compile_engine(&pepper).unwrap();
 

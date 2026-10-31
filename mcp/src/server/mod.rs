@@ -62,13 +62,18 @@ impl StdioMcpServer {
 
         info!(host_user = %host_user, "StdioMcpServer initialized with trusted host identity.");
 
+        let permits = std::env::var("MCP_SEMAPHORE_PERMITS")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .filter(|&p| p > 0)
+            .unwrap_or(4);
+
         Self {
             shield,
             storage,
             router,
             session_manager,
-            // Limit to 4 concurrent AI tasks to prevent thread starvation
-            ai_semaphore: Arc::new(Semaphore::new(4)),
+            ai_semaphore: Arc::new(Semaphore::new(permits)),
             host_user,
             mcp_secret,
         }

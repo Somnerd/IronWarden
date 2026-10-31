@@ -13,7 +13,6 @@ use worker::audit::AsyncAuditor;
 
 type HmacSha256 = Hmac<Sha256>;
 
-#[allow(deprecated)]
 fn derive_keys(pepper: &[u8]) -> (Key<Aes256Gcm>, [u8; 32], [u8; 32]) {
     let hk = Hkdf::<Sha256>::new(None, pepper);
     let mut enc_key = [0u8; 32];
@@ -22,11 +21,7 @@ fn derive_keys(pepper: &[u8]) -> (Key<Aes256Gcm>, [u8; 32], [u8; 32]) {
     hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key).unwrap();
     let mut genesis_hash = [0u8; 32];
     hk.expand(KDF_SALT_GENESIS, &mut genesis_hash).unwrap();
-    (
-        *Key::<Aes256Gcm>::from_slice(&enc_key),
-        hmac_key,
-        genesis_hash,
-    )
+    (Key::<Aes256Gcm>::from(enc_key), hmac_key, genesis_hash)
 }
 
 #[tokio::test]
@@ -184,8 +179,8 @@ async fn test_encryption_roundtrip() {
     let hk = Hkdf::<Sha256>::new(None, &pepper);
     let mut key_bytes = [0u8; 32];
     hk.expand(&bound_info, &mut key_bytes).unwrap();
-    let enc_key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(enc_key);
+    let enc_key = Key::<Aes256Gcm>::from(key_bytes);
+    let cipher = Aes256Gcm::new(&enc_key);
 
     let payload = aes_gcm::aead::Payload {
         msg: encrypted_data.as_slice(),

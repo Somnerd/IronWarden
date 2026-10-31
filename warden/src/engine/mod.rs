@@ -40,9 +40,8 @@ impl WardenEngine {
         let mut key_bytes = [0u8; 32];
         hk.expand(b"warden-v1-grounding-shield", &mut key_bytes)
             .map_err(|_| SovereignError::InternalError("KDF expansion failed".into()))?;
-        #[allow(deprecated)]
-        let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-        let cipher = Aes256Gcm::new(key);
+        let key = Key::<Aes256Gcm>::from(key_bytes);
+        let cipher = Aes256Gcm::new(&key);
         key_bytes.zeroize();
 
         let mut dict_patterns = Vec::new();

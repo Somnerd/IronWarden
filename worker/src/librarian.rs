@@ -1,21 +1,13 @@
 use anyhow::{Context, Result};
-use arrow_array::{RecordBatch, StringArray};
-use arrow_schema::{DataType, Field, Schema};
-use futures::StreamExt;
-use lancedb::query::{ExecutableQuery, QueryBase};
-use lancedb::{connect, Connection};
-use sha2::Digest;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
+use tokio_rusqlite::Connection;
 use tracing::info;
 
 /// The Librarian provides local heuristic grounding for policy enforcement.
-/// It uses LanceDB for high-performance ranking and local data sovereignty.
+/// It uses SQLite for high-performance ranking and local data sovereignty.
 pub struct LocalLibrarian {
     db: Connection,
-    table_name: String,
-    schema: Arc<Schema>,
 }
 
 static STOP_WORDS: std::sync::LazyLock<std::collections::HashSet<&'static str>> =
@@ -53,150 +45,142 @@ impl LocalLibrarian {
             }
         }
 
-        let mut hasher = sha2::Sha256::new();
-        sha2::Digest::update(&mut hasher, path.as_bytes());
-        let hash = hex::encode(sha2::Digest::finalize(hasher));
-        let uri = if canonical_path.starts_with(std::env::temp_dir()) {
-            std::env::temp_dir()
-                .join(format!("lancedb_{}", &hash[..16]))
-                .to_string_lossy()
-                .to_string()
+        let db_path = if canonical_path.is_dir() {
+            canonical_path.join("librarian.db")
         } else {
-            format!("data/lancedb/{}_{}", path.replace('/', "_"), &hash[..16])
+            canonical_path
         };
-        let db = connect(&uri)
-            .execute()
+
+        let db = Connection::open(&db_path)
             .await
-            .context("Failed to connect to LanceDB")?;
+            .context("Failed to connect to Librarian SQLite DB")?;
 
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("text", DataType::Utf8, false),
-            Field::new("username", DataType::Utf8, false),
-        ]));
-
-        let table_name = "documents".to_string();
-
-        // Ensure table exists
-        if !db.table_names().execute().await?.contains(&table_name) {
-            info!("Librarian: Creating new LanceDB table '{}'", table_name);
-            let empty_batch = RecordBatch::new_empty(schema.clone());
-            db.create_table(&table_name, vec![empty_batch])
-                .execute()
-                .await
-                .context("Failed to create table")?;
-        }
-
-        info!("Librarian: LanceDB Engine initialized at {}", uri);
-
-        Ok(Self {
-            db,
-            table_name,
-            schema,
+        db.call(|conn| {
+            conn.busy_timeout(std::time::Duration::from_millis(5000))?;
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = NORMAL;
+                 PRAGMA secure_delete = ON;
+                 CREATE TABLE IF NOT EXISTS documents (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     text TEXT NOT NULL,
+                     username TEXT NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_documents_username ON documents(username);",
+            )?;
+            Ok::<(), rusqlite::Error>(())
         })
+        .await
+        .context("Failed to initialize Librarian SQLite schema")?;
+
+        info!(
+            "Librarian: SQLite Engine initialized at {}",
+            db_path.display()
+        );
+
+        Ok(Self { db })
     }
 
-    /// Performs high-speed keyword search using LanceDB's FTS/BM25 capabilities, scoped to the user.
+    /// Performs high-speed keyword search scoped to the user.
     pub async fn retrieve_policy_context(
         &self,
         query: &str,
         username: &str,
         limit: usize,
     ) -> Result<Vec<String>> {
-        let table = self.db.open_table(&self.table_name).execute().await?;
+        let query_lower = query.to_lowercase();
+        let query_terms: Vec<String> = query_lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty() && !STOP_WORDS.contains(s))
+            .map(|s| s.to_string())
+            .collect();
 
-        let mut results = Vec::new();
+        let terms_to_use: Vec<String> = if query_terms.is_empty() {
+            query_lower
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            query_terms
+        };
+
+        if terms_to_use.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
 
         // --- SECURITY FIX (Section 1.1 / Finding A.4): User-Level Partitioning ---
-        // Push the user filter down to LanceDB to prevent memory exhaustion / DoS
-        let sanitized_username = username.replace("'", "''");
-        let mut stream = table
-            .query()
-            .only_if(format!("username = '{}'", sanitized_username))
-            .execute()
-            .await?;
+        let username = username.to_string();
+        let results = self
+            .db
+            .call(move |conn| {
+                let mut stmt = conn.prepare("SELECT text FROM documents WHERE username = ?1")?;
+                let mut rows = stmt.query([&username])?;
+                let mut matched_docs = Vec::new();
 
-        while let Some(batch) = stream.next().await {
-            let batch = batch?;
-            let text_col = batch
-                .column(0)
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .context("Failed to downcast text column")?;
-
-            for i in 0..batch.num_rows() {
-                if results.len() >= limit {
-                    break;
-                }
-
-                let text = text_col.value(i);
-                let text_lower = text.to_lowercase();
-
-                let query_lower = query.to_lowercase();
-                let query_terms: Vec<&str> = query_lower
-                    .split(|c: char| !c.is_alphanumeric())
-                    .filter(|s| !s.is_empty() && !STOP_WORDS.contains(s))
-                    .collect();
-
-                let terms_to_use = if query_terms.is_empty() {
-                    query_lower
-                        .split(|c: char| !c.is_alphanumeric())
-                        .filter(|s| !s.is_empty())
-                        .collect::<Vec<&str>>()
-                } else {
-                    query_terms
-                };
-
-                let mut matched = !terms_to_use.is_empty();
-                for term in &terms_to_use {
-                    if !text_lower.contains(term) {
-                        matched = false;
+                while let Some(row) = rows.next()? {
+                    if matched_docs.len() >= limit {
                         break;
                     }
+                    let text: String = row.get(0)?;
+                    let text_lower = text.to_lowercase();
+
+                    if terms_to_use.iter().all(|term| text_lower.contains(term)) {
+                        matched_docs.push(text);
+                    }
                 }
-                if matched {
-                    results.push(text.to_string());
-                }
-            }
-        }
+
+                Ok::<Vec<String>, rusqlite::Error>(matched_docs)
+            })
+            .await
+            .context("Failed to retrieve policy context from Librarian SQLite DB")?;
 
         Ok(results)
     }
 
-    /// GDPR Compliance: Purges all documents associated with a user from the vector store.
+    /// GDPR Compliance: Purges all documents associated with a user from the store.
     pub async fn delete_user_documents(&self, username: &str) -> Result<()> {
-        let table = self.db.open_table(&self.table_name).execute().await?;
-
         // --- SECURITY FIX (Section 1.1 / Finding A.3): GDPR Compliance ---
         // Purge documents where username matches.
-        let sanitized_username = username.replace("'", "''");
-        table
-            .delete(format!("username = '{}'", sanitized_username).as_str())
-            .await?;
+        let username_owned = username.to_string();
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "DELETE FROM documents WHERE username = ?1",
+                    [&username_owned],
+                )?;
+                Ok::<(), rusqlite::Error>(())
+            })
+            .await
+            .context("Failed to delete user documents from Librarian SQLite DB")?;
 
         info!("Librarian: Purged all documents for user {}", username);
         Ok(())
     }
 
     pub async fn check_health(&self) -> Result<()> {
-        let _ = self.db.table_names().execute().await?;
+        self.db
+            .call(|conn| {
+                conn.execute_batch("SELECT 1;")?;
+                Ok::<(), rusqlite::Error>(())
+            })
+            .await
+            .context("Librarian SQLite health check failed")?;
         Ok(())
     }
 
     /// Helper to add a document (for testing/ingestion)
     pub async fn add_document(&self, text: &str, username: &str) -> Result<()> {
-        let table = self.db.open_table(&self.table_name).execute().await?;
-
-        let batch = RecordBatch::try_new(
-            self.schema.clone(),
-            vec![
-                Arc::new(StringArray::from(vec![text])),
-                Arc::new(StringArray::from(vec![username])),
-            ],
-        )?;
-
-        table
-            .add(vec![batch])
-            .execute()
+        let text = text.to_string();
+        let username = username.to_string();
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO documents (text, username) VALUES (?1, ?2)",
+                    [&text, &username],
+                )?;
+                Ok::<(), rusqlite::Error>(())
+            })
             .await
             .context("Failed to add document")?;
 

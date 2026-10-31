@@ -932,8 +932,6 @@ mod librarian_tests {
             .unwrap();
         assert!(res_cross.is_empty(), "Cross-user data leakage detected!");
 
-        let uri = format!("data/lancedb/{}", kb_path.replace('/', "_"));
         fs::remove_dir_all(&kb_path).ok();
-        fs::remove_dir_all(&uri).ok();
     }
 }
