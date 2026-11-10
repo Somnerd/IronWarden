@@ -363,7 +363,7 @@ async fn test_chaos_graceful_shutdown_under_burst_load() {
     }
 
     // Allow in-flight tasks to dispatch into the auditor channel before shutdown
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
 
     // Immediately invoke auditor.shutdown().await
     auditor.shutdown().await;

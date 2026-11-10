@@ -368,6 +368,8 @@ impl AsyncAuditor {
         let path_monitor = path.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+            // Consume the immediate first tick so the monitor does not race initialization:
+            interval.tick().await;
             loop {
                 interval.tick().await;
 

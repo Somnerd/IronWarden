@@ -59,8 +59,10 @@ impl iw_core::GroundingShield for DynamicShield {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 0. Load dotenvy configuration
-    dotenvy::dotenv().ok();
+    // 0. Load dotenvy configuration unless running in test mode
+    if std::env::var("WARDEN_ENV").as_deref() != Ok("test") {
+        dotenvy::dotenv().ok();
+    }
 
     // Resolve global configuration
     let global_config = match GlobalConfig::resolve() {
