@@ -4,12 +4,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
-use iw_core::{Redaction, KDF_SALT_GENESIS, KDF_SALT_INTEGRITY};
+use iw_core::{KDF_SALT_GENESIS, KDF_SALT_INTEGRITY};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
-
-type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Parser)]
 #[command(name = "iw-cli")]
@@ -121,125 +118,50 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
     hk.expand(KDF_SALT_GENESIS, &mut genesis_hash)
         .map_err(|_e| rusqlite::Error::InvalidQuery)?;
 
-    // We verify by joining audit_reports and ephemeral_raw_logs where they match by ID
-    // Note: Due to 30-day log purging, older records cannot be cryptographically verified.
-    let mut stmt = conn.prepare(
-        "SELECT a.id, a.timestamp, a.is_blocked, a.redactions_json, a.integrity_hash, a.payload_hash, e.nonce, e.encrypted_data, a.username \
-         FROM audit_reports a \
-         LEFT JOIN ephemeral_raw_logs e ON a.id = e.id \
-         ORDER BY a.id ASC"
-    )?;
-
-    let iter = stmt.query_map([], |row| {
-        let id: i64 = row.get(0)?;
-        let timestamp: String = row.get(1)?;
-        let is_blocked: bool = row.get(2)?;
-        let redactions_json: String = row.get(3)?;
-        let integrity_hash_hex: String = row.get(4)?;
-        let payload_hash_hex: String = row.get(5)?;
-
-        // ephemeral log fields might be missing due to 30-day purge
-        let nonce: Option<Vec<u8>> = row.get(6).ok().flatten();
-        let ciphertext: Option<Vec<u8>> = row.get(7).ok().flatten();
-        let username: String = row.get(8)?;
-
-        Ok((
-            id,
-            timestamp,
-            is_blocked,
-            redactions_json,
-            integrity_hash_hex,
-            payload_hash_hex,
-            nonce,
-            ciphertext,
-            username,
-        ))
-    })?;
-
-    let mut last_hash: Vec<u8> = genesis_hash.to_vec();
-    let mut verified_count = 0;
-    let mut archived_count = 0;
-    let mut tampered_count = 0;
-
     println!("\n=============================================");
     println!("⛓️  IRONWARDEN TAMPER-CHECK INTEGRITY TOOL ⛓️");
     println!("=============================================\n");
 
-    for row_res in iter {
-        let (
-            id,
-            timestamp,
-            is_blocked,
-            redactions_json,
-            integrity_hash_hex,
-            payload_hash_hex,
-            nonce_opt,
-            ciphertext_opt,
-            username,
-        ) = row_res?;
-        let stored_hash = hex::decode(&integrity_hash_hex).unwrap_or_default();
-        let payload_hash = hex::decode(&payload_hash_hex).unwrap_or_default();
-
-        let redactions_vec: Vec<Redaction> =
-            serde_json::from_str(&redactions_json).unwrap_or_default();
-        let redactions_bin = bincode::serialize(&redactions_vec).unwrap_or_default();
-
-        let mut mac = HmacSha256::new_from_slice(&hmac_key_bytes)
-            .map_err(|_| rusqlite::Error::InvalidQuery)?;
-        mac.update(&last_hash);
-        mac.update(timestamp.as_bytes());
-        mac.update(username.as_bytes()); // Bind username to integrity chain
-        mac.update(&[is_blocked as u8]);
-        mac.update(&redactions_bin);
-        mac.update(&payload_hash); // Bind payload to chain
-
-        let calculated_hash = mac.finalize().into_bytes().to_vec();
-
-        if calculated_hash == stored_hash {
-            if let (Some(nonce), Some(data)) = (nonce_opt, ciphertext_opt) {
-                // Verify Stage 2: Payload Binding
-                use sha2::Digest;
-                let mut hasher = Sha256::new();
-                hasher.update(&data);
-                hasher.update(&nonce);
-                let actual_payload_hash = hasher.finalize();
-
-                if actual_payload_hash[..] == payload_hash[..] {
-                    verified_count += 1;
-                } else {
-                    println!("❌ PAYLOAD TAMPER DETECTED at Log ID {}!", id);
-                    tampered_count += 1;
-                }
-            } else {
-                archived_count += 1;
+    match iw_core::audit::verify_audit_chain_diagnostic(
+        &conn,
+        db_path,
+        &genesis_hash,
+        &hmac_key_bytes,
+    ) {
+        Ok(summary) => {
+            for failure in &summary.failures {
+                println!("❌ {}", failure);
             }
-        } else {
-            println!("❌ CHAIN TAMPER DETECTED at Log ID {}!", id);
-            println!("   Expected Hash: {}", hex::encode(&calculated_hash));
-            println!("   Stored Hash  : {}", integrity_hash_hex);
-            tampered_count += 1;
+            println!("✅ Verified Intact Logs: {}", summary.verified_count);
+            println!(
+                "📦 Verified Archived Logs: {} (Ephemeral data purged)",
+                summary.archived_count
+            );
+            if summary.gdpr_redacted_count > 0 {
+                println!(
+                    "🔒 GDPR Shredded Records in Chain: {}",
+                    summary.gdpr_redacted_count
+                );
+            }
+
+            if summary.failures.is_empty() {
+                println!("\n✨ STATUS: CHAIN INTACT ✨");
+                println!("=============================================\n");
+            } else {
+                println!(
+                    "\n🚨 STATUS: CHAIN CORRUPTED ({} records tampered) 🚨",
+                    summary.failures.len()
+                );
+                println!("=============================================\n");
+                std::process::exit(1);
+            }
         }
-
-        // Always update last_hash so the chain continues
-        last_hash = stored_hash;
-    }
-
-    println!("✅ Verified Intact Logs: {}", verified_count);
-    println!(
-        "📦 Verified Archived Logs: {} (Ephemeral data purged)",
-        archived_count
-    );
-
-    if tampered_count == 0 {
-        println!("\n✨ STATUS: CHAIN INTACT ✨");
-        println!("=============================================\n");
-    } else {
-        println!(
-            "\n🚨 STATUS: CHAIN CORRUPTED ({} records tampered) 🚨",
-            tampered_count
-        );
-        println!("=============================================\n");
-        std::process::exit(1);
+        Err(msg) => {
+            println!("❌ VERIFICATION FAILED: {}", msg);
+            println!("\n🚨 STATUS: CHAIN CORRUPTED (1 records tampered) 🚨");
+            println!("=============================================\n");
+            std::process::exit(1);
+        }
     }
 
     Ok(())

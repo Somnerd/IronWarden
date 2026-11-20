@@ -603,6 +603,85 @@ mod additional_audit_tests {
 
         std::fs::remove_file(&anchor_path).ok();
     }
+
+    #[tokio::test]
+    async fn test_cli_verify_audit_chain_gdpr_purge_and_anchor_tamper() {
+        let db_path = std::env::temp_dir()
+            .join(format!("audit_test_cli_gdpr_{}.db", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x24u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        auditor
+            .log_report(report.clone(), "rawA".into(), "userA".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "rawB".into(), "userB".into())
+            .await
+            .unwrap();
+        auditor.purge_user("userA").await.unwrap();
+        auditor.shutdown().await;
+
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, &pepper_bytes);
+        let mut hmac_key = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_INTEGRITY, &mut hmac_key)
+            .unwrap();
+        let mut genesis_hash = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_GENESIS, &mut genesis_hash)
+            .unwrap();
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let summary =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).unwrap();
+        assert_eq!(summary.gdpr_redacted_count, 1);
+        assert_eq!(summary.verified_count, 1);
+        assert_eq!(summary.last_id, 2);
+
+        // Tamper with remaining non-redacted row -> must fail
+        conn.execute(
+            "UPDATE audit_reports SET is_blocked = 1 WHERE username = 'userB'",
+            [],
+        )
+        .unwrap();
+        assert!(
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).is_err()
+        );
+
+        // Restore row and tamper with .anchor file -> must detect truncation/anchor mismatch
+        conn.execute(
+            "UPDATE audit_reports SET is_blocked = 0 WHERE username = 'userB'",
+            [],
+        )
+        .unwrap();
+        std::fs::write(format!("{}.anchor", db_path), "999:badhash").unwrap();
+        let anchor_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            anchor_err.contains("Truncation"),
+            "Unexpected error: {}",
+            anchor_err
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
 }
 
 #[cfg(test)]
