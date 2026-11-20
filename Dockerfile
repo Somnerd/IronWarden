@@ -36,6 +36,8 @@ FROM debian:trixie-slim AS runner
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
+    tesseract-ocr-grc \
+    tesseract-ocr-ell \
     libtesseract5 \
     ca-certificates \
     libssl3 \
