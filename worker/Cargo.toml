@@ -40,6 +40,7 @@ r2d2_sqlite.workspace = true
 pdf-extract.workspace = true
 zip.workspace = true
 quick-xml.workspace = true
+aho-corasick.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -625,4 +625,67 @@ mod sse_proxy_tests {
         let out = r.feed("Just a plain message.");
         assert_eq!(out, "Just a plain message.");
     }
+
+    #[test]
+    fn test_rehydrator_single_pass_no_collision() {
+        let map = map_with(&[("[TOKEN_1]", "[TOKEN_2]"), ("[TOKEN_2]", "COLLIDED")]);
+        let mut r = SseRehydrator::new(&map);
+        let out = r.feed("[TOKEN_1] and [TOKEN_2]");
+        let flushed = r.flush_all();
+        let full = format!("{}{}", out, flushed);
+        assert_eq!(full, "[TOKEN_2] and COLLIDED");
+    }
+
+    #[tokio::test]
+    async fn test_stream_proxy_anthropic_flushes_trailing_partial_bracket() {
+        use http_body_util::BodyExt;
+
+        let map = map_with(&[("[PERSON_1]", "Alice")]);
+
+        // 1. Anthropic stream ending with message_stop after a trailing partial `[PER`
+        let chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(
+                "event: message_start\ndata: {\"type\":\"message_start\"}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"contact [PER\"}}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+            )),
+        ];
+
+        let resp = stream_sse_bytes(futures::stream::iter(chunks), map.clone());
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+        assert!(
+            body_str.contains("\"text\":\"[PER\""),
+            "Trailing partial bracket was dropped before message_stop: {}",
+            body_str
+        );
+        let delta_flush_pos = body_str.find("\"[PER\"").unwrap();
+        let stop_pos = body_str.find("\"type\":\"message_stop\"").unwrap();
+        assert!(
+            delta_flush_pos < stop_pos,
+            "Flushed delta must precede message_stop event: {}",
+            body_str
+        );
+
+        // 2. Anthropic stream hitting abrupt EOF without message_stop must still flush partial `[PER`
+        let eof_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![Ok(
+            axum::body::Bytes::from(
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ping [PER\"}}\n\n",
+            ),
+        )];
+        let eof_resp = stream_sse_bytes(futures::stream::iter(eof_chunks), map);
+        let eof_bytes = eof_resp.into_body().collect().await.unwrap().to_bytes();
+        let eof_str = String::from_utf8(eof_bytes.to_vec()).unwrap();
+
+        assert!(
+            eof_str.contains("\"type\":\"text_delta\"") && eof_str.contains("\"text\":\"[PER\""),
+            "Trailing partial bracket was dropped at EOF: {}",
+            eof_str
+        );
+    }
 }
