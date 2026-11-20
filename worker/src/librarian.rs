@@ -5,7 +5,8 @@ use tokio_rusqlite::Connection;
 use tracing::info;
 
 /// The Librarian provides local heuristic grounding for policy enforcement.
-/// It uses SQLite for high-performance ranking and local data sovereignty.
+/// It uses SQLite FTS5 (`unicode61` tokenizer + BM25 ranking) for high-performance
+/// indexed search and local data sovereignty.
 pub struct LocalLibrarian {
     db: Connection,
 }
@@ -66,22 +67,39 @@ impl LocalLibrarian {
                      text TEXT NOT NULL,
                      username TEXT NOT NULL
                  );
-                 CREATE INDEX IF NOT EXISTS idx_documents_username ON documents(username);",
+                 CREATE INDEX IF NOT EXISTS idx_documents_username ON documents(username);
+                 CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+                     text,
+                     content='documents',
+                     content_rowid='id',
+                     tokenize='unicode61'
+                 );
+                 CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+                     INSERT INTO documents_fts(rowid, text) VALUES (new.id, new.text);
+                 END;
+                 CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
+                     INSERT INTO documents_fts(documents_fts, rowid, text) VALUES('delete', old.id, old.text);
+                 END;
+                 CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
+                     INSERT INTO documents_fts(documents_fts, rowid, text) VALUES('delete', old.id, old.text);
+                     INSERT INTO documents_fts(rowid, text) VALUES (new.id, new.text);
+                 END;
+                 INSERT INTO documents_fts(documents_fts) VALUES('rebuild');",
             )?;
             Ok::<(), rusqlite::Error>(())
         })
         .await
-        .context("Failed to initialize Librarian SQLite schema")?;
+        .context("Failed to initialize Librarian SQLite FTS5 schema")?;
 
         info!(
-            "Librarian: SQLite Engine initialized at {}",
+            "Librarian: SQLite FTS5 Engine initialized at {}",
             db_path.display()
         );
 
         Ok(Self { db })
     }
 
-    /// Performs high-speed keyword search scoped to the user.
+    /// Performs indexed SQLite FTS5 search with BM25 relevance ranking, scoped strictly to `username`.
     pub async fn retrieve_policy_context(
         &self,
         query: &str,
@@ -109,31 +127,38 @@ impl LocalLibrarian {
             return Ok(Vec::new());
         }
 
+        // Quote every alphanumeric token to isolate FTS5 reserved keywords (AND/OR/NOT/NEAR)
+        let fts_query = terms_to_use
+            .iter()
+            .map(|t| format!("\"{}\"*", t))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+
         // --- SECURITY FIX (Section 1.1 / Finding A.4): User-Level Partitioning ---
         let username = username.to_string();
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
         let results = self
             .db
             .call(move |conn| {
-                let mut stmt = conn.prepare("SELECT text FROM documents WHERE username = ?1")?;
-                let mut rows = stmt.query([&username])?;
+                let mut stmt = conn.prepare(
+                    "SELECT d.text \
+                     FROM documents_fts f \
+                     JOIN documents d ON d.id = f.rowid \
+                     WHERE documents_fts MATCH ?1 AND d.username = ?2 \
+                     ORDER BY bm25(documents_fts) \
+                     LIMIT ?3",
+                )?;
+                let mut rows = stmt.query((&fts_query, &username, limit_i64))?;
                 let mut matched_docs = Vec::new();
 
                 while let Some(row) = rows.next()? {
-                    if matched_docs.len() >= limit {
-                        break;
-                    }
-                    let text: String = row.get(0)?;
-                    let text_lower = text.to_lowercase();
-
-                    if terms_to_use.iter().all(|term| text_lower.contains(term)) {
-                        matched_docs.push(text);
-                    }
+                    matched_docs.push(row.get::<_, String>(0)?);
                 }
 
                 Ok::<Vec<String>, rusqlite::Error>(matched_docs)
             })
             .await
-            .context("Failed to retrieve policy context from Librarian SQLite DB")?;
+            .context("Failed to retrieve policy context from Librarian SQLite FTS5 DB")?;
 
         Ok(results)
     }
@@ -141,7 +166,7 @@ impl LocalLibrarian {
     /// GDPR Compliance: Purges all documents associated with a user from the store.
     pub async fn delete_user_documents(&self, username: &str) -> Result<()> {
         // --- SECURITY FIX (Section 1.1 / Finding A.3): GDPR Compliance ---
-        // Purge documents where username matches.
+        // Triggers (`documents_ad`) automatically purge matching entries from `documents_fts`.
         let username_owned = username.to_string();
         self.db
             .call(move |conn| {

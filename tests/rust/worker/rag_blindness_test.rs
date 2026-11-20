@@ -3,12 +3,11 @@ use tempfile::tempdir;
 use worker::LocalLibrarian;
 
 #[tokio::test]
-#[ignore]
 async fn test_librarian_semantic_utility() {
     let dir = tempdir().unwrap();
     let path = dir.path().to_str().unwrap();
 
-    // 1. Setup Librarian (Tantivy)
+    // 1. Setup Librarian (SQLite FTS5)
     let librarian = LocalLibrarian::new(path).await.unwrap();
 
     // Ingest some "secret" data
@@ -23,9 +22,6 @@ async fn test_librarian_semantic_utility() {
         .add_document("John Doe is the lead engineer on this task.", "test_user")
         .await
         .unwrap();
-
-    // Allow Tantivy to reload (OnCommitWithDelay)
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // 2. Test Case: Query with original PII
     let results = librarian

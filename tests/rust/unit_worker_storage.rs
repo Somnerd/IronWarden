@@ -934,4 +934,83 @@ mod librarian_tests {
 
         fs::remove_dir_all(&kb_path).ok();
     }
+
+    #[tokio::test]
+    async fn test_librarian_fts5_bm25_ranking_and_gdpr_trigger_sync() {
+        let kb_path = std::env::temp_dir()
+            .join(format!("librarian_fts5_{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let librarian = LocalLibrarian::new(&kb_path).await.unwrap();
+
+        // Insert docs with differing sovereign policy term density and FTS5 operator words ("OR", "NOT")
+        librarian
+            .add_document(
+                "General company handbook mentioning unrelated items.",
+                "tenant1",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document(
+                "Compliance guideline OR quarterly review for internal systems.",
+                "tenant1",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document(
+                "Compliance policy for sovereignty: strict compliance rules under compliance mandate.",
+                "tenant1",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document("Other tenant compliance secret.", "tenant2")
+            .await
+            .unwrap();
+
+        // BM25 must rank the dense compliance document first
+        let ranked = librarian
+            .retrieve_policy_context("compliance", "tenant1", 5)
+            .await
+            .unwrap();
+        assert_eq!(ranked.len(), 2);
+        assert!(
+            ranked[0].contains("strict compliance rules"),
+            "Expected BM25 highest-density doc first, got: {:?}",
+            ranked
+        );
+
+        // Query containing FTS5 keyword 'OR' (both standalone fallback and mixed) must match safely without syntax errors
+        let keyword_only_res = librarian
+            .retrieve_policy_context("OR", "tenant1", 5)
+            .await
+            .unwrap();
+        assert_eq!(keyword_only_res.len(), 1);
+        assert!(keyword_only_res[0].contains("quarterly review"));
+
+        let keyword_res = librarian
+            .retrieve_policy_context("OR review", "tenant1", 5)
+            .await
+            .unwrap();
+        assert_eq!(keyword_res.len(), 1);
+        assert!(keyword_res[0].contains("quarterly review"));
+
+        // GDPR delete must trigger FTS5 row deletion while preserving tenant2
+        librarian.delete_user_documents("tenant1").await.unwrap();
+        let after_delete = librarian
+            .retrieve_policy_context("compliance", "tenant1", 5)
+            .await
+            .unwrap();
+        assert!(after_delete.is_empty());
+
+        let tenant2_docs = librarian
+            .retrieve_policy_context("compliance", "tenant2", 5)
+            .await
+            .unwrap();
+        assert_eq!(tenant2_docs.len(), 1);
+
+        fs::remove_dir_all(&kb_path).ok();
+    }
 }
