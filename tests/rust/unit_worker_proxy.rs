@@ -628,12 +628,28 @@ mod sse_proxy_tests {
 
     #[test]
     fn test_rehydrator_single_pass_no_collision() {
-        let map = map_with(&[("[TOKEN_1]", "[TOKEN_2]"), ("[TOKEN_2]", "COLLIDED")]);
+        let map = map_with(&[
+            ("[TOKEN_1]", "[TOKEN_2]"),
+            ("[TOKEN_2]", "COLLIDED"),
+            ("[TOKEN_10]", "TEN"),
+        ]);
         let mut r = SseRehydrator::new(&map);
         let out = r.feed("[TOKEN_1] and [TOKEN_2]");
         let flushed = r.flush_all();
-        let full = format!("{}{}", out, flushed);
-        assert_eq!(full, "[TOKEN_2] and COLLIDED");
+        assert_eq!(format!("{out}{flushed}"), "[TOKEN_2] and COLLIDED");
+
+        // Prefix disambiguation: [TOKEN_10] must not corrupt into [TOKEN_2]0, even when split
+        let mut r_prefix = SseRehydrator::new(&map);
+        let p1 = r_prefix.feed("val [TOKEN_1");
+        let p2 = r_prefix.feed("0] and [TOKEN_1]");
+        let p_flush = r_prefix.flush_all();
+        assert_eq!(format!("{p1}{p2}{p_flush}"), "val TEN and [TOKEN_2]");
+
+        // Stray and nested brackets preserve surrounding literal brackets
+        let mut r_brackets = SseRehydrator::new(&map);
+        let b1 = r_brackets.feed("arr[0] [[TOKEN_1]]");
+        let b_flush = r_brackets.flush_all();
+        assert_eq!(format!("{b1}{b_flush}"), "arr[0] [[TOKEN_2]]");
     }
 
     #[tokio::test]

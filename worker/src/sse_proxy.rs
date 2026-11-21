@@ -1,236 +1,208 @@
 //! SSE streaming proxy with split-token re-hydration buffer.
 //!
-//! Handles both OpenAI format (choices[0].delta.content)
-//! and Anthropic format (delta.text) SSE streams using single-pass
-//! LeftmostLongest Aho-Corasick token replacement.
+//! Handles OpenAI (`choices[0].delta.content`) and Anthropic (`delta.text`)
+//! SSE streams using a zero-DFA single-pass scanner sorted by placeholder length.
 
-use aho_corasick::{AhoCorasick, MatchKind};
 use axum::body::Body;
 use axum::response::Response;
 use bytes::Bytes;
 use iw_core::TokenMap;
+use std::cmp::Reverse;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
 /// Buffers streamed delta text and replaces PII placeholders,
-/// even when they are split across chunk boundaries.
+/// even when split across chunk boundaries.
 pub struct SseRehydrator {
-    keys: Vec<String>,
-    values: Vec<String>,
-    automaton: Option<AhoCorasick>,
+    /// `(placeholder, replacement)` sorted descending by placeholder length
+    /// so longer tokens (e.g. `[TOKEN_10]`) match before prefixes (`[TOKEN_1]`).
+    entries: Vec<(String, String)>,
     buffer: String,
 }
 
 impl SseRehydrator {
     pub fn new(token_map: &TokenMap) -> Self {
-        let mut keys = Vec::with_capacity(token_map.len());
-        let mut values = Vec::with_capacity(token_map.len());
-        for (k, v) in token_map {
-            if !k.is_empty() {
-                keys.push(k.clone());
-                values.push(v.clone());
-            }
-        }
-        let automaton = if keys.is_empty() {
-            None
-        } else {
-            AhoCorasick::builder()
-                .match_kind(MatchKind::LeftmostLongest)
-                .build(&keys)
-                .ok()
-        };
+        let mut entries: Vec<(String, String)> = token_map
+            .iter()
+            .filter(|(k, _)| !k.is_empty())
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        entries.sort_unstable_by_key(|(k, _)| Reverse(k.len()));
         Self {
-            keys,
-            values,
-            automaton,
+            entries,
             buffer: String::new(),
         }
     }
 
-    /// Feed a new delta string. Returns the portion that is safe to emit now.
+    /// Feeds a new delta string and returns the prefix safe to emit immediately.
     pub fn feed(&mut self, delta: &str) -> String {
+        if self.entries.is_empty() {
+            return delta.to_string();
+        }
+        if self.buffer.is_empty() {
+            let safe = self.safe_boundary(delta);
+            if safe < delta.len() {
+                self.buffer.push_str(&delta[safe..]);
+            }
+            return self.replace_tokens(&delta[..safe]);
+        }
         self.buffer.push_str(delta);
-        self.flush_safe()
+        let safe = self.safe_boundary(&self.buffer);
+        if safe == 0 {
+            return String::new();
+        }
+        let out = self.replace_tokens(&self.buffer[..safe]);
+        self.buffer.drain(..safe);
+        out
     }
 
-    /// Called at stream end — flush everything remaining in the buffer.
+    /// Flushes and rehydrates everything remaining in the buffer at stream end.
     pub fn flush_all(&mut self) -> String {
-        let remaining = std::mem::take(&mut self.buffer);
-        self.apply_replacements(&remaining)
-    }
-
-    /// Emit all content up to the last open bracket that could be a partial token.
-    fn flush_safe(&mut self) -> String {
-        let safe_boundary = self.find_safe_boundary();
-        if safe_boundary == 0 {
+        if self.buffer.is_empty() {
             return String::new();
         }
-        let safe_chunk = self.buffer[..safe_boundary].to_string();
-        self.buffer.drain(..safe_boundary);
-        self.apply_replacements(&safe_chunk)
+        let out = self.replace_tokens(&self.buffer);
+        self.buffer.clear();
+        out
     }
 
-    fn find_safe_boundary(&self) -> usize {
-        if let Some(open_bracket) = self.buffer.rfind('[') {
-            let potential_token = &self.buffer[open_bracket..];
-            let is_partial = self
-                .keys
+    fn safe_boundary(&self, text: &str) -> usize {
+        if let Some(pos) = text.rfind('[') {
+            let tail = &text[pos..];
+            let partial = !tail.contains(']')
+                && self
+                    .entries
+                    .iter()
+                    .any(|(k, _)| k.starts_with(tail) && tail.len() < k.len());
+            if partial {
+                return pos;
+            }
+        }
+        text.len()
+    }
+
+    fn replace_tokens(&self, text: &str) -> String {
+        let Some(mut pos) = text.find('[') else {
+            return text.to_string();
+        };
+        let mut out = String::with_capacity(text.len() + 32);
+        let mut rest = text;
+        loop {
+            out.push_str(&rest[..pos]);
+            rest = &rest[pos..];
+            if let Some((k, v)) = self
+                .entries
                 .iter()
-                .any(|k| k.starts_with(potential_token) && potential_token.len() < k.len());
-            if is_partial {
-                return open_bracket;
+                .find(|(k, _)| rest.starts_with(k.as_str()))
+            {
+                out.push_str(v);
+                rest = &rest[k.len()..];
+            } else {
+                out.push('[');
+                rest = &rest[1..];
             }
-        }
-        self.buffer.len()
-    }
-
-    fn apply_replacements(&self, text: &str) -> String {
-        if text.is_empty() {
-            return String::new();
-        }
-        match &self.automaton {
-            Some(ac) => ac.replace_all(text, &self.values),
-            None => text.to_string(),
+            let Some(next) = rest.find('[') else {
+                out.push_str(rest);
+                return out;
+            };
+            pos = next;
         }
     }
 }
 
-fn format_tail_event(is_anthropic: bool, block_idx: u64, remaining: &str) -> String {
-    if is_anthropic {
-        let synthetic = serde_json::json!({
-            "type": "content_block_delta",
-            "index": block_idx,
-            "delta": {
-                "type": "text_delta",
-                "text": remaining
-            }
-        });
-        format!("event: content_block_delta\ndata: {}\n\n", synthetic)
-    } else {
-        let synthetic = serde_json::json!({
-            "choices": [{
-                "delta": {"content": remaining},
-                "finish_reason": null,
-                "index": 0
-            }]
-        });
-        format!("data: {}\n\n", synthetic)
-    }
+struct SseState {
+    rehydrator: SseRehydrator,
+    is_anthropic: bool,
+    pending_event: Option<String>,
 }
 
-fn process_sse_line(
-    line: &str,
-    rehydrator: &mut SseRehydrator,
-    is_anthropic: &mut bool,
-    pending_event_line: &mut Option<String>,
-    output: &mut String,
-) {
-    if line.starts_with("event:") {
-        if let Some(prev) = pending_event_line.replace(line.to_string()) {
-            output.push_str(&prev);
-            output.push('\n');
+impl SseState {
+    fn flush_pending(&mut self, out: &mut String) {
+        if let Some(prev) = self.pending_event.take() {
+            out.push_str(&prev);
+            out.push('\n');
         }
-        return;
     }
 
-    if !line.starts_with("data: ") {
-        if let Some(prev) = pending_event_line.take() {
-            output.push_str(&prev);
-            output.push('\n');
+    fn push_tail_delta(&mut self, anthropic: bool, idx: u64, out: &mut String) {
+        let rem = self.rehydrator.flush_all();
+        if rem.is_empty() {
+            return;
         }
-        output.push_str(line);
-        output.push('\n');
-        return;
+        if anthropic {
+            let v = serde_json::json!({
+                "type": "content_block_delta",
+                "index": idx,
+                "delta": { "type": "text_delta", "text": rem }
+            });
+            out.push_str(&format!("event: content_block_delta\ndata: {v}\n\n"));
+        } else {
+            let v = serde_json::json!({
+                "choices": [{ "delta": { "content": rem }, "finish_reason": null, "index": 0 }]
+            });
+            out.push_str(&format!("data: {v}\n\n"));
+        }
     }
 
-    let data = &line["data: ".len()..];
-
-    if data.trim() == "[DONE]" {
-        if let Some(prev) = pending_event_line.take() {
-            output.push_str(&prev);
+    fn process_line(&mut self, line: &str, output: &mut String) {
+        if line.starts_with("event:") {
+            self.flush_pending(output);
+            self.pending_event = Some(line.to_string());
+            return;
+        }
+        let Some(data) = line.strip_prefix("data: ") else {
+            self.flush_pending(output);
+            output.push_str(line);
             output.push('\n');
+            return;
+        };
+        if data.trim() == "[DONE]" {
+            self.flush_pending(output);
+            self.push_tail_delta(false, 0, output);
+            output.push_str("data: [DONE]\n\n");
+            return;
         }
-        let remaining = rehydrator.flush_all();
-        if !remaining.is_empty() {
-            output.push_str(&format_tail_event(false, 0, &remaining));
-        }
-        output.push_str("data: [DONE]\n\n");
-        return;
-    }
-
-    match serde_json::from_str::<serde_json::Value>(data) {
-        Ok(mut json) => {
-            let event_type = json
-                .get("type")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-
-            if matches!(
-                event_type.as_deref(),
-                Some(
-                    "message_start"
-                        | "content_block_start"
-                        | "content_block_delta"
-                        | "content_block_stop"
-                        | "message_delta"
-                        | "message_stop"
-                )
-            ) {
-                *is_anthropic = true;
-            }
-
-            // OpenAI format: choices[0].delta.content
-            if let Some(delta_content) = json
-                .pointer("/choices/0/delta/content")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-            {
-                let restored = rehydrator.feed(&delta_content);
-                if let Some(c) = json.pointer_mut("/choices/0/delta/content") {
-                    *c = serde_json::Value::String(restored);
-                }
-            }
-            // Anthropic streaming format: delta.text
-            else if let Some(delta_text) = json
-                .pointer("/delta/text")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-            {
-                *is_anthropic = true;
-                let restored = rehydrator.feed(&delta_text);
-                if let Some(c) = json.pointer_mut("/delta/text") {
-                    *c = serde_json::Value::String(restored);
-                }
-            }
-
-            if matches!(
-                event_type.as_deref(),
-                Some("content_block_stop" | "message_stop")
-            ) {
-                let remaining = rehydrator.flush_all();
-                if !remaining.is_empty() {
-                    let block_idx = json.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
-                    output.push_str(&format_tail_event(true, block_idx, &remaining));
-                }
-            }
-
-            if let Some(prev) = pending_event_line.take() {
-                output.push_str(&prev);
-                output.push('\n');
-            }
-            let rewritten = serde_json::to_string(&json).unwrap_or_else(|_| data.to_string());
-            output.push_str(&format!("data: {}\n\n", rewritten));
-        }
-        Err(_) => {
-            if let Some(prev) = pending_event_line.take() {
-                output.push_str(&prev);
-                output.push('\n');
-            }
-            // Not valid JSON — forward as-is (handles keep-alive, comments, etc.)
+        let Ok(mut json) = serde_json::from_str::<serde_json::Value>(data) else {
+            self.flush_pending(output);
             output.push_str(line);
             output.push_str("\n\n");
+            return;
+        };
+
+        let event_type = json.get("type").and_then(|v| v.as_str());
+        self.is_anthropic |= matches!(
+            event_type,
+            Some(
+                "message_start"
+                    | "content_block_start"
+                    | "content_block_delta"
+                    | "content_block_stop"
+                    | "message_delta"
+                    | "message_stop"
+            )
+        );
+        let is_stop = matches!(event_type, Some("content_block_stop" | "message_stop"));
+
+        if let Some(serde_json::Value::String(s)) = json
+            .pointer_mut("/choices/0/delta/content")
+            .filter(|v| v.is_string())
+        {
+            *s = self.rehydrator.feed(s);
+        } else if let Some(serde_json::Value::String(s)) =
+            json.pointer_mut("/delta/text").filter(|v| v.is_string())
+        {
+            self.is_anthropic = true;
+            *s = self.rehydrator.feed(s);
         }
+
+        if is_stop {
+            let idx = json.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
+            self.push_tail_delta(true, idx, output);
+        }
+        self.flush_pending(output);
+        let rewritten = serde_json::to_string(&json).unwrap_or_else(|_| data.to_string());
+        output.push_str(&format!("data: {rewritten}\n\n"));
     }
 }
 
@@ -242,13 +214,15 @@ where
     E: std::fmt::Display + Send + 'static,
 {
     let (tx, rx) = mpsc::channel::<Result<Bytes, axum::Error>>(256);
-    let mut rehydrator = SseRehydrator::new(&token_map);
+    let mut state = SseState {
+        rehydrator: SseRehydrator::new(&token_map),
+        is_anthropic: false,
+        pending_event: None,
+    };
 
     tokio::spawn(async move {
         futures::pin_mut!(byte_stream);
-        let mut is_anthropic = false;
         let mut line_buffer = String::new();
-        let mut pending_event_line: Option<String> = None;
 
         while let Some(chunk_result) = byte_stream.next().await {
             let chunk = match chunk_result {
@@ -258,69 +232,47 @@ where
                     break;
                 }
             };
-
-            let raw = match std::str::from_utf8(&chunk) {
-                Ok(s) => s,
-                Err(_) => {
-                    if tx.send(Ok(chunk)).await.is_err() {
-                        return;
-                    }
-                    continue;
+            let Ok(raw) = std::str::from_utf8(&chunk) else {
+                if tx.send(Ok(chunk)).await.is_err() {
+                    return;
                 }
+                continue;
             };
-
             line_buffer.push_str(raw);
             let mut output = String::new();
-
-            while let Some(nl_pos) = line_buffer.find('\n') {
-                let line = line_buffer[..nl_pos].trim_end_matches('\r').to_string();
-                line_buffer.drain(..=nl_pos);
-                process_sse_line(
-                    &line,
-                    &mut rehydrator,
-                    &mut is_anthropic,
-                    &mut pending_event_line,
+            let mut start = 0;
+            while let Some(rel) = line_buffer[start..].find('\n') {
+                state.process_line(
+                    line_buffer[start..start + rel].trim_end_matches('\r'),
                     &mut output,
                 );
+                start += rel + 1;
             }
-
+            if start > 0 {
+                line_buffer.drain(..start);
+            }
             if !output.is_empty() && tx.send(Ok(Bytes::from(output))).await.is_err() {
                 return;
             }
         }
 
-        // Process any remaining line without trailing newline + flush any partial token buffer at EOF
         let mut eof_output = String::new();
         if !line_buffer.is_empty() {
-            let line = line_buffer.trim_end_matches('\r').to_string();
-            process_sse_line(
-                &line,
-                &mut rehydrator,
-                &mut is_anthropic,
-                &mut pending_event_line,
-                &mut eof_output,
-            );
+            state.process_line(line_buffer.trim_end_matches('\r'), &mut eof_output);
         }
-        if let Some(prev) = pending_event_line.take() {
-            eof_output.push_str(&prev);
-            eof_output.push('\n');
-        }
-        let remaining = rehydrator.flush_all();
-        if !remaining.is_empty() {
-            eof_output.push_str(&format_tail_event(is_anthropic, 0, &remaining));
-        }
+        state.flush_pending(&mut eof_output);
+        state.push_tail_delta(state.is_anthropic, 0, &mut eof_output);
         if !eof_output.is_empty() {
             let _ = tx.send(Ok(Bytes::from(eof_output))).await;
         }
     });
 
-    let stream = ReceiverStream::new(rx);
     Response::builder()
         .status(200)
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("X-Accel-Buffering", "no")
-        .body(Body::from_stream(stream))
+        .body(Body::from_stream(ReceiverStream::new(rx)))
         .unwrap_or_else(|_| Response::new(Body::empty()))
 }
 
