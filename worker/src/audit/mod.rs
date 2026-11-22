@@ -5,8 +5,8 @@ pub use forwarder::*;
 
 use chrono::{Duration, Utc};
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
-use iw_core::{AadCipher, ScrubbingReport, SovereignError};
+use hmac::Hmac;
+use iw_core::{AadCipher, Redaction, ScrubbingReport, SovereignError};
 use iw_core::{KDF_SALT_ENCRYPTION, KDF_SALT_GENESIS, KDF_SALT_INTEGRITY};
 use rusqlite::{Connection, ErrorCode};
 use secrecy::{ExposeSecret, SecretVec};
@@ -55,13 +55,25 @@ impl AsyncAuditor {
         let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret());
 
         let mut hmac_key_bytes = [0u8; 32];
-        hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes)
-            .map_err(|e| SovereignError::InternalError(format!("KDF Expansion Failure: {}", e)))?;
+        if let Err(e) = hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes) {
+            hmac_key_bytes.zeroize();
+            return Err(SovereignError::InternalError(format!(
+                "KDF Expansion Failure: {}",
+                e
+            )));
+        }
 
         let mut genesis_hash = [0u8; 32];
-        hk.expand(KDF_SALT_GENESIS, &mut genesis_hash)
-            .map_err(|e| SovereignError::InternalError(format!("KDF Expansion Failure: {}", e)))?;
+        if let Err(e) = hk.expand(KDF_SALT_GENESIS, &mut genesis_hash) {
+            hmac_key_bytes.zeroize();
+            genesis_hash.zeroize();
+            return Err(SovereignError::InternalError(format!(
+                "KDF Expansion Failure: {}",
+                e
+            )));
+        }
 
+        let mut monitor_genesis = genesis_hash;
         let (init_tx, init_rx) = tokio::sync::oneshot::channel();
 
         let healthy_thread = is_healthy.clone();
@@ -86,6 +98,8 @@ impl AsyncAuditor {
                 Err(e) => {
                     error!("Audit DB anchoring failure: {}. Aborting startup.", e);
                     healthy_thread.store(false, std::sync::atomic::Ordering::SeqCst);
+                    hmac_key_bytes.zeroize();
+                    genesis_hash.zeroize();
                     let _ = init_tx.send(Err(format!("DB Init Failed: {}", e)));
                     return; // Terminate thread
                 }
@@ -101,6 +115,14 @@ impl AsyncAuditor {
                         if !healthy_thread.load(std::sync::atomic::Ordering::SeqCst) {
                             let _ = ack_tx.send(Err(SovereignError::InternalError(
                                 "Auditor in Panic State: Health check failed".into(),
+                            )));
+                            raw_input.zeroize();
+                            continue;
+                        }
+
+                        if iw_core::audit::is_reserved_gdpr_username(&username) {
+                            let _ = ack_tx.send(Err(SovereignError::StorageError(
+                                "Reserved GDPR tombstone username cannot be used for live audit logging".into(),
                             )));
                             raw_input.zeroize();
                             continue;
@@ -137,28 +159,25 @@ impl AsyncAuditor {
                                     hasher.update(nonce_bytes);
                                     let payload_hash = hasher.finalize();
 
-                                    let mut mac = match <HmacSha256 as Mac>::new_from_slice(
+                                    let current_hash = match iw_core::audit::compute_row_hmac(
                                         &hmac_key_bytes,
+                                        &last_hash,
+                                        &iw_core::audit::AuditRowMac {
+                                            ts: &timestamp,
+                                            username: &username,
+                                            is_blocked: report.is_blocked,
+                                            redactions_bin: &redactions_bin,
+                                            payload_hash: &payload_hash,
+                                        },
                                     ) {
-                                        Ok(m) => m,
+                                        Ok(h) => h.to_vec(),
                                         Err(e) => {
                                             let _ =
-                                                ack_tx.send(Err(SovereignError::InternalError(
-                                                    format!("HMAC Key Failure: {}", e),
-                                                )));
+                                                ack_tx.send(Err(SovereignError::InternalError(e)));
                                             raw_input.zeroize();
                                             continue;
                                         }
                                     };
-
-                                    mac.update(&last_hash);
-                                    mac.update(timestamp.as_bytes());
-                                    mac.update(username.as_bytes()); // Bind username to integrity chain
-                                    mac.update(&[report.is_blocked as u8]);
-                                    mac.update(&redactions_bin);
-                                    mac.update(&payload_hash); // Bind payload to chain
-
-                                    let current_hash = mac.finalize().into_bytes().to_vec();
 
                                     let mut write_success = false;
                                     let has_forwarder = remote_forwarder.is_some();
@@ -182,17 +201,20 @@ impl AsyncAuditor {
                                         result = Err(map_err(e));
                                     } else {
                                         let siem_acked = !has_forwarder;
-                                        let res = c.execute("INSERT INTO ephemeral_raw_logs (username, encrypted_data, nonce, siem_acked) VALUES (?1, ?2, ?3, ?4)", (&username, &ciphertext.to_vec(), &nonce_bytes.to_vec(), &siem_acked));
-                                        log_id = c.last_insert_rowid();
-                                        if let Err(e) = res {
+                                        let res2 = c.execute(
+                                            "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                                            (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(payload_hash), hex::encode(&current_hash)),
+                                        );
+                                        if let Err(e) = res2 {
                                             let _ = c.execute("ROLLBACK", []);
                                             result = Err(map_err(e));
                                         } else {
-                                            let res2 = c.execute(
-                                                "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", 
-                                                (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(payload_hash), hex::encode(&current_hash))
+                                            log_id = c.last_insert_rowid();
+                                            let res = c.execute(
+                                                "INSERT INTO ephemeral_raw_logs (id, username, encrypted_data, nonce, siem_acked) VALUES (?1, ?2, ?3, ?4, ?5)",
+                                                (&log_id, &username, &ciphertext.to_vec(), &nonce_bytes.to_vec(), &siem_acked),
                                             );
-                                            if let Err(e) = res2 {
+                                            if let Err(e) = res {
                                                 let _ = c.execute("ROLLBACK", []);
                                                 result = Err(map_err(e));
                                             } else {
@@ -257,6 +279,18 @@ impl AsyncAuditor {
                         raw_input.zeroize();
                     }
                     AuditMessage::PurgeUser(username, ack_tx) => {
+                        if !healthy_thread.load(std::sync::atomic::Ordering::SeqCst) {
+                            let _ = ack_tx.send(Err(SovereignError::InternalError(
+                                "Auditor in Panic State: Health check failed".into(),
+                            )));
+                            continue;
+                        }
+                        if iw_core::audit::is_reserved_gdpr_username(&username) {
+                            let _ = ack_tx.send(Err(SovereignError::StorageError(
+                                "Cannot purge reserved GDPR tombstone username".into(),
+                            )));
+                            continue;
+                        }
                         let res = if let Some(ref c) = conn {
                             if let Err(e) = c.execute("BEGIN IMMEDIATE TRANSACTION", []) {
                                 Err(SovereignError::StorageError(format!(
@@ -265,22 +299,42 @@ impl AsyncAuditor {
                                 )))
                             } else {
                                 // Cryptographic shredding under GDPR:
-                                // 1. Wipe ephemeral raw logs & encryption keys/nonces
-                                let res1 = c.execute(
-                                    "DELETE FROM ephemeral_raw_logs WHERE username = ?1",
-                                    [&username],
+                                // 1. Verify Stage-1 HMAC and re-sign rows with keyed GDPR tombstone MAC
+                                let update_res = Self::shred_user_audit_rows(
+                                    c,
+                                    &genesis_hash,
+                                    &hmac_key_bytes,
+                                    &username,
                                 );
-                                // 2. Redact username in audit_reports to preserve row IDs and cryptographic chain
-                                let res2 = c.execute(
-                                    "UPDATE audit_reports SET username = '[REDACTED]' WHERE username = ?1",
-                                    [&username],
-                                );
+                                // 2. Wipe ephemeral raw logs only if verification + signing succeeded
+                                let res1 = if update_res.is_ok() {
+                                    c.execute(
+                                        "DELETE FROM ephemeral_raw_logs WHERE username = ?1",
+                                        [&username],
+                                    )
+                                } else {
+                                    Ok(0)
+                                };
 
-                                if res1.is_err() || res2.is_err() {
+                                if let Err(e) = update_res {
+                                    error!(
+                                        "GDPR Purge audit_reports verification/shredding failed: {}",
+                                        e
+                                    );
+                                    healthy_thread
+                                        .store(false, std::sync::atomic::Ordering::SeqCst);
                                     let _ = c.execute("ROLLBACK", []);
-                                    Err(SovereignError::StorageError(
-                                        "Failed to purge user audit data".into(),
-                                    ))
+                                    Err(SovereignError::StorageError(format!(
+                                        "Failed to shred audit records for user {}: {}",
+                                        username, e
+                                    )))
+                                } else if let Err(e) = res1 {
+                                    error!("GDPR Purge ephemeral_raw_logs delete failed: {}", e);
+                                    let _ = c.execute("ROLLBACK", []);
+                                    Err(SovereignError::StorageError(format!(
+                                        "Failed to delete ephemeral raw logs for user {}: {}",
+                                        username, e
+                                    )))
                                 } else if let Err(e) = c.execute("COMMIT", []) {
                                     let _ = c.execute("ROLLBACK", []);
                                     Err(SovereignError::StorageError(format!(
@@ -333,13 +387,13 @@ impl AsyncAuditor {
                         }
                     }
                     AuditMessage::Shutdown(ack) => {
-                        let mut h = hmac_key_bytes;
-                        h.zeroize();
                         let _ = ack.send(());
                         break;
                     }
                 }
             }
+            hmac_key_bytes.zeroize();
+            genesis_hash.zeroize();
         });
 
         tokio::time::timeout(tokio::time::Duration::from_secs(10), init_rx)
@@ -411,14 +465,30 @@ impl AsyncAuditor {
                     continue;
                 }
 
-                let anchor_path = format!("{}.anchor", path_monitor);
-                if !std::path::Path::new(&anchor_path).exists() {
-                    error!("HARD-STOP MONITOR: Audit anchor file missing! Triggering Fail-Closed state.");
-                    healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
-                    break;
-                }
+                // Capture `.anchor` BEFORE querying SQLite so live commits between the two
+                // reads cannot falsely look like DB truncation against a newer anchor ID.
+                let anchor_snap = match iw_core::audit::read_anchor_snapshot(&path_monitor) {
+                    Ok(Some(iw_core::audit::AnchorSnapshot::Missing)) => {
+                        error!("HARD-STOP MONITOR: Audit anchor file missing! Triggering Fail-Closed state.");
+                        healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
+                        break;
+                    }
+                    Ok(snap) => snap,
+                    Err(e) => {
+                        error!(
+                            "HARD-STOP MONITOR: Audit anchor violation: {}. Triggering Fail-Closed state.",
+                            e
+                        );
+                        healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
+                        break;
+                    }
+                };
 
-                if let Ok(conn) = Connection::open(&path_monitor) {
+                if let Ok(conn) = Connection::open_with_flags(
+                    &path_monitor,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                ) {
+                    let _ = conn.busy_timeout(std::time::Duration::from_millis(2000));
                     let res: rusqlite::Result<(i64, String)> = conn.query_row(
                         "SELECT id, integrity_hash FROM audit_reports ORDER BY id DESC LIMIT 1",
                         [],
@@ -428,13 +498,25 @@ impl AsyncAuditor {
                     match res {
                         Ok((id, hash)) => {
                             let hash_bytes = hex::decode(hash).unwrap_or_default();
-                            if let Err(e) = Self::check_anchor(&path_monitor, id, &hash_bytes) {
+                            if let Err(e) = iw_core::audit::verify_anchor_snapshot(
+                                anchor_snap.as_ref(),
+                                Some(&conn),
+                                Some(&monitor_genesis),
+                                id,
+                                &hash_bytes,
+                            ) {
                                 error!("HARD-STOP MONITOR: Anchor Violation: {}. Triggering Fail-Closed state.", e);
                                 healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
                             }
                         }
                         Err(rusqlite::Error::QueryReturnedNoRows) => {
-                            if let Err(e) = Self::check_anchor(&path_monitor, 0, &[]) {
+                            if let Err(e) = iw_core::audit::verify_anchor_snapshot(
+                                anchor_snap.as_ref(),
+                                Some(&conn),
+                                Some(&monitor_genesis),
+                                0,
+                                &monitor_genesis,
+                            ) {
                                 error!("HARD-STOP MONITOR: Anchor Mismatch (Empty DB): {}. Triggering Fail-Closed state.", e);
                                 healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
                             }
@@ -455,6 +537,7 @@ impl AsyncAuditor {
                     break;
                 }
             }
+            monitor_genesis.zeroize();
         });
 
         Ok(Self {
@@ -531,5 +614,110 @@ impl AsyncAuditor {
         if self.sender.send(AuditMessage::Shutdown(tx)).await.is_ok() {
             let _ = rx.await;
         }
+    }
+
+    fn shred_user_audit_rows(
+        c: &Connection,
+        genesis_hash: &[u8; 32],
+        hmac_key_bytes: &[u8; 32],
+        username: &str,
+    ) -> Result<(), String> {
+        struct PurgeRow {
+            id: i64,
+            ts: String,
+            is_blocked: bool,
+            redactions_json: String,
+            payload_hex: String,
+            integrity_hex: String,
+        }
+
+        let mut stmt = c
+            .prepare(
+                "SELECT id, timestamp, is_blocked, redactions_json, payload_hash, integrity_hash \
+                 FROM audit_reports WHERE username = ?1 ORDER BY id ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        let mapped = stmt
+            .query_map([username], |r| {
+                Ok(PurgeRow {
+                    id: r.get(0)?,
+                    ts: r.get(1)?,
+                    is_blocked: r.get(2)?,
+                    redactions_json: r.get(3)?,
+                    payload_hex: r.get(4)?,
+                    integrity_hex: r.get(5)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut rows = Vec::new();
+        for item in mapped {
+            rows.push(item.map_err(|e| e.to_string())?);
+        }
+        drop(stmt);
+
+        for row in rows {
+            let prev_bytes = if row.id == 1 {
+                genesis_hash.to_vec()
+            } else {
+                let prev_hex: String = c
+                    .query_row(
+                        "SELECT integrity_hash FROM audit_reports WHERE id = ?1",
+                        [row.id - 1],
+                        |r| r.get(0),
+                    )
+                    .map_err(|e| format!("Missing predecessor row for {}: {}", row.id, e))?;
+                let bytes = hex::decode(prev_hex.trim()).map_err(|e| e.to_string())?;
+                if bytes.len() != 32 {
+                    return Err(format!(
+                        "Invalid predecessor integrity_hash length on row {}",
+                        row.id - 1
+                    ));
+                }
+                bytes
+            };
+
+            let redactions: Vec<Redaction> =
+                serde_json::from_str(&row.redactions_json).map_err(|e| e.to_string())?;
+            let redactions_bin = bincode::serialize(&redactions).map_err(|e| e.to_string())?;
+            let payload_bytes = hex::decode(row.payload_hex.trim()).map_err(|e| e.to_string())?;
+            let stored_bytes = hex::decode(row.integrity_hex.trim()).map_err(|e| e.to_string())?;
+            if payload_bytes.len() != 32 || stored_bytes.len() != 32 {
+                return Err(format!("Invalid hash length on tampered row {}", row.id));
+            }
+            iw_core::audit::verify_row_hmac(
+                hmac_key_bytes,
+                &prev_bytes,
+                &iw_core::audit::AuditRowMac {
+                    ts: &row.ts,
+                    username,
+                    is_blocked: row.is_blocked,
+                    redactions_bin: &redactions_bin,
+                    payload_hash: &payload_bytes,
+                },
+                &stored_bytes,
+            )
+            .map_err(|e| {
+                format!(
+                    "Refusing GDPR tombstone signing for tampered record ID {}: {}",
+                    row.id, e
+                )
+            })?;
+            let tombstone = iw_core::audit::compute_gdpr_tombstone_mac(
+                hmac_key_bytes,
+                &prev_bytes,
+                row.id,
+                &row.ts,
+                row.is_blocked,
+                &redactions_bin,
+                &stored_bytes,
+            )?;
+            c.execute(
+                "UPDATE audit_reports SET username = '[REDACTED]', payload_hash = ?1 WHERE id = ?2",
+                (&tombstone, row.id),
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 }

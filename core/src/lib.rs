@@ -1,5 +1,6 @@
 #![allow(clippy::double_must_use)]
 
+pub mod audit;
 pub mod constants;
 pub mod crypto;
 pub mod error;

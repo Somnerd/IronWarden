@@ -558,6 +558,25 @@ mod additional_audit_tests {
             .await
             .unwrap();
 
+        assert!(
+            auditor2
+                .log_report(report.clone(), "raw".into(), "[REDACTED]".into())
+                .await
+                .is_err(),
+            "Reserved '[REDACTED]' username must be rejected during live logging"
+        );
+        assert!(
+            auditor2
+                .log_report(report.clone(), "raw".into(), "GDPR_spoof".into())
+                .await
+                .is_err(),
+            "Reserved 'GDPR_*' username must be rejected during live logging"
+        );
+        assert!(
+            auditor2.purge_user("[REDACTED]").await.is_err(),
+            "Reserved '[REDACTED]' username must be rejected by purge_user"
+        );
+
         auditor2.shutdown().await;
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(format!("{}-shm", db_path));
@@ -602,6 +621,792 @@ mod additional_audit_tests {
         assert!(AsyncAuditor::check_anchor(&db_path, 10, &dummy_hash).is_ok());
 
         std::fs::remove_file(&anchor_path).ok();
+    }
+
+    #[tokio::test]
+    async fn test_cli_verify_audit_chain_gdpr_purge_and_anchor_tamper() {
+        let db_path = std::env::temp_dir()
+            .join(format!("audit_test_cli_gdpr_{}.db", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x24u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        auditor
+            .log_report(report.clone(), "rawA".into(), "userA".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "rawB".into(), "userB".into())
+            .await
+            .unwrap();
+        auditor.purge_user("userA").await.unwrap();
+        auditor.shutdown().await;
+
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, &pepper_bytes);
+        let mut hmac_key = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_INTEGRITY, &mut hmac_key)
+            .unwrap();
+        let mut genesis_hash = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_GENESIS, &mut genesis_hash)
+            .unwrap();
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let summary =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).unwrap();
+        assert_eq!(summary.gdpr_redacted_count, 1);
+        assert_eq!(summary.verified_count, 1);
+        assert_eq!(summary.last_id, 2);
+
+        // Tamper with remaining non-redacted row -> must fail
+        conn.execute(
+            "UPDATE audit_reports SET is_blocked = 1 WHERE username = 'userB'",
+            [],
+        )
+        .unwrap();
+        assert!(
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).is_err()
+        );
+
+        // Restore row and tamper with .anchor file -> must detect truncation/anchor mismatch
+        conn.execute(
+            "UPDATE audit_reports SET is_blocked = 0 WHERE username = 'userB'",
+            [],
+        )
+        .unwrap();
+        std::fs::write(format!("{}.anchor", db_path), "999:badhash").unwrap();
+        let anchor_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            anchor_err.contains("Truncation"),
+            "Unexpected error: {}",
+            anchor_err
+        );
+
+        // Malformed .anchor without ':' must fail closed in both fail-fast and diagnostic modes
+        std::fs::write(format!("{}.anchor", db_path), "corrupted_anchor_payload").unwrap();
+        let malformed_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            malformed_err.contains("malformed"),
+            "Expected malformed anchor error, got: {}",
+            malformed_err
+        );
+        let malformed_diag = iw_core::audit::verify_audit_chain_diagnostic(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key,
+        )
+        .unwrap();
+        assert!(
+            malformed_diag
+                .failures
+                .iter()
+                .any(|f| f.contains("malformed")),
+            "Expected malformed anchor failure in diagnostic mode, got: {:?}",
+            malformed_diag.failures
+        );
+
+        // Restore valid anchor hash, then re-insert ephemeral payload on the GDPR [REDACTED] record
+        let last_hex: String = conn
+            .query_row(
+                "SELECT integrity_hash FROM audit_reports WHERE id = 2",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let last_bytes = hex::decode(last_hex).unwrap();
+        iw_core::audit::update_anchor(&db_path, 2, &last_bytes).unwrap();
+        conn.execute(
+            "INSERT INTO ephemeral_raw_logs (id, timestamp, username, nonce, encrypted_data, siem_acked) \
+             VALUES (1, '2026-01-01 00:00:00', '[REDACTED]', x'000000000000000000000000', x'deadbeef', 0)",
+            [],
+        )
+        .unwrap();
+        let gdpr_violation =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            gdpr_violation.contains("GDPR SHREDDING VIOLATION"),
+            "Expected GDPR violation error, got: {}",
+            gdpr_violation
+        );
+
+        // Clean up ephemeral payload so row 1 is properly shredded again
+        conn.execute("DELETE FROM ephemeral_raw_logs WHERE id = 1", [])
+            .unwrap();
+        assert!(
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).is_ok(),
+            "Chain with legitimate GDPR_HMAC tombstone should verify cleanly"
+        );
+
+        // Adversarial Attack 1: Attacker mutates a GDPR [REDACTED] record without pepper
+        conn.execute("UPDATE audit_reports SET is_blocked = 1 WHERE id = 1", [])
+            .unwrap();
+        let forged_tombstone_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            forged_tombstone_err.contains("Forged or unverified GDPR tombstone MAC"),
+            "Expected GDPR tombstone MAC rejection, got: {}",
+            forged_tombstone_err
+        );
+
+        // Adversarial Attack 2: Attacker leaves ephemeral logs deleted and rewrites a regular row to [REDACTED]
+        conn.execute("UPDATE audit_reports SET is_blocked = 0 WHERE id = 1", [])
+            .unwrap();
+        conn.execute("DELETE FROM ephemeral_raw_logs WHERE id = 2", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE audit_reports SET username = '[REDACTED]', is_blocked = 1 WHERE id = 2",
+            [],
+        )
+        .unwrap();
+        let spoof_diag = iw_core::audit::verify_audit_chain_diagnostic(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key,
+        )
+        .unwrap();
+        assert!(
+            spoof_diag
+                .failures
+                .iter()
+                .any(|f| f.contains("Forged or unverified GDPR tombstone MAC")),
+            "Diagnostic mode must report spoofed [REDACTED] row, got: {:?}",
+            spoof_diag.failures
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
+
+    #[tokio::test]
+    async fn test_stale_anchor_mismatch_detected_when_db_has_newer_rows() {
+        let db_path = std::env::temp_dir()
+            .join(format!(
+                "audit_test_stale_anchor_{}.db",
+                uuid::Uuid::new_v4()
+            ))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x33u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        auditor
+            .log_report(report.clone(), "raw1".into(), "user1".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "raw2".into(), "user2".into())
+            .await
+            .unwrap();
+        auditor.shutdown().await;
+
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, &pepper_bytes);
+        let mut hmac_key = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_INTEGRITY, &mut hmac_key)
+            .unwrap();
+        let mut genesis_hash = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_GENESIS, &mut genesis_hash)
+            .unwrap();
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let last_hex: String = conn
+            .query_row(
+                "SELECT integrity_hash FROM audit_reports WHERE id = 2",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let last_bytes = hex::decode(last_hex).unwrap();
+
+        // Write a stale anchor pointing to expected_id=1 with a mismatched 32-byte hash
+        let wrong_hash = hex::encode([0xAAu8; 32]);
+        std::fs::write(format!("{}.anchor", db_path), format!("1:{}", wrong_hash)).unwrap();
+
+        // Direct check_anchor must catch historical hash mismatch even though current_last_id (2) > expected_id (1)
+        let direct_err = iw_core::audit::check_anchor(&db_path, 2, &last_bytes).unwrap_err();
+        assert!(
+            direct_err.contains("Historical anchored record ID 1"),
+            "Expected stale anchor historical mismatch, got: {}",
+            direct_err
+        );
+
+        // Full chain verification must also reject it
+        let chain_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            chain_err.contains("Historical anchored record ID 1"),
+            "Expected stale anchor mismatch in verify_audit_chain, got: {}",
+            chain_err
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
+
+    #[tokio::test]
+    async fn test_gdpr_tombstone_binds_predecessor_hash_against_splice_attack() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        let db_path = std::env::temp_dir()
+            .join(format!("audit_test_splice_{}.db", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x44u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        auditor
+            .log_report(report.clone(), "raw1".into(), "user1".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report.clone(), "raw2".into(), "user2".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "raw3".into(), "user3".into())
+            .await
+            .unwrap();
+        auditor.purge_user("user2").await.unwrap();
+        auditor.shutdown().await;
+
+        let hk = hkdf::Hkdf::<Sha256>::new(None, &pepper_bytes);
+        let mut hmac_key = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_INTEGRITY, &mut hmac_key)
+            .unwrap();
+        let mut genesis_hash = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_GENESIS, &mut genesis_hash)
+            .unwrap();
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let ok_summary =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).unwrap();
+        assert_eq!(ok_summary.gdpr_redacted_count, 1);
+        assert_eq!(ok_summary.verified_count, 2);
+
+        // Simulate splicing a replacement valid row 1 with a different `is_blocked` & recomputed HMAC:
+        // Row 1 itself passes Stage 1, Row 3 still chains from Row 2's stored hash,
+        // so ONLY Row 2's GDPR tombstone binding to `prev_hash` can detect the splice.
+        let (ts1, rj1, ph1): (String, String, String) = conn
+            .query_row(
+                "SELECT timestamp, redactions_json, payload_hash FROM audit_reports WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        let red_vec: Vec<iw_core::Redaction> = serde_json::from_str(&rj1).unwrap();
+        let red_bin = bincode::serialize(&red_vec).unwrap();
+        let ph_bytes = hex::decode(ph1).unwrap();
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&hmac_key).unwrap();
+        mac.update(&genesis_hash);
+        mac.update(ts1.as_bytes());
+        mac.update(b"user1");
+        mac.update(&[1u8]); // flipped is_blocked
+        mac.update(&red_bin);
+        mac.update(&ph_bytes);
+        let forged_h1 = hex::encode(mac.finalize().into_bytes());
+
+        conn.execute(
+            "UPDATE audit_reports SET is_blocked = 1, integrity_hash = ?1 WHERE id = 1",
+            [&forged_h1],
+        )
+        .unwrap();
+
+        let err = iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+            .unwrap_err();
+        assert!(
+            err.contains("Forged or unverified GDPR tombstone MAC"),
+            "Expected row 2 GDPR tombstone to reject spliced predecessor hash, got: {}",
+            err
+        );
+
+        let diag = iw_core::audit::verify_audit_chain_diagnostic(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key,
+        )
+        .unwrap();
+        assert!(
+            diag.failures
+                .iter()
+                .any(|f| f.contains("Record ID 2: Forged or unverified GDPR tombstone MAC")),
+            "Diagnostic mode must blame Record ID 2 predecessor splice, got: {:?}",
+            diag.failures
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
+
+    #[tokio::test]
+    async fn test_audit_purge_newest_user_then_log_does_not_drift_ephemeral_rowid() {
+        let db_path = std::env::temp_dir()
+            .join(format!(
+                "audit_test_rowid_drift_{}.db",
+                uuid::Uuid::new_v4()
+            ))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x55u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        // 1. Log userA (id=1), then immediately purge userA (deletes ephemeral_raw_logs id=1)
+        auditor
+            .log_report(report.clone(), "rawA".into(), "userA".into())
+            .await
+            .unwrap();
+        auditor.purge_user("userA").await.unwrap();
+
+        // 2. Log userB (audit_reports id=2): ephemeral_raw_logs MUST get id=2, NOT reuse id=1
+        auditor
+            .log_report(report, "rawB".into(), "userB".into())
+            .await
+            .unwrap();
+        auditor.shutdown().await;
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let erl_id: i64 = conn
+            .query_row(
+                "SELECT id FROM ephemeral_raw_logs WHERE username = 'userB'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            erl_id, 2,
+            "ephemeral_raw_logs rowid must stay synchronized with audit_reports.id=2"
+        );
+        drop(conn);
+
+        // 3. Restart must verify cleanly without false GDPR SHREDDING VIOLATION at Log ID 1
+        let auditor2 = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes), None)
+            .await
+            .expect("Restart after purging newest user and appending must succeed");
+        auditor2.shutdown().await;
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
+
+    #[tokio::test]
+    async fn test_legacy_pre_wave1_gdpr_db_migration() {
+        let db_path = std::env::temp_dir()
+            .join(format!(
+                "audit_test_legacy_gdpr_{}.db",
+                uuid::Uuid::new_v4()
+            ))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x66u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        auditor
+            .log_report(report.clone(), "rawA".into(), "userA".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "rawB".into(), "userB".into())
+            .await
+            .unwrap();
+        auditor.shutdown().await;
+
+        // Downgrade row 1 to legacy pre-Wave-1 purged state: delete ephemeral payload, overwrite username,
+        // and reset PRAGMA user_version = 0 (pre-v1.3 schema).
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        iw_core::audit::set_audit_schema_version(&conn, 0).unwrap();
+        conn.execute("DELETE FROM ephemeral_raw_logs WHERE id = 1", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE audit_reports SET username = '[REDACTED]' WHERE id = 1",
+            [],
+        )
+        .unwrap();
+
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, &pepper_bytes);
+        let mut hmac_key = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_INTEGRITY, &mut hmac_key)
+            .unwrap();
+        let mut genesis_hash = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_GENESIS, &mut genesis_hash)
+            .unwrap();
+
+        // Fail-closed verifier rejects legacy untagged row with explicit migrate-gdpr hint
+        let legacy_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            legacy_err.contains("migrate-gdpr") && legacy_err.contains("--confirm"),
+            "Expected migrate-gdpr --confirm upgrade hint, got: {}",
+            legacy_err
+        );
+
+        // Migrate legacy tombstones in-place inside transaction
+        let migrated = iw_core::audit::migrate_legacy_gdpr_tombstones(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key,
+        )
+        .unwrap();
+        assert_eq!(migrated, 1);
+        assert_eq!(
+            iw_core::audit::get_audit_schema_version(&conn).unwrap(),
+            iw_core::audit::AUDIT_SCHEMA_VERSION
+        );
+
+        let summary =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).unwrap();
+        assert_eq!(summary.gdpr_redacted_count, 1);
+        assert_eq!(summary.verified_count, 1);
+        drop(conn);
+
+        // Restarting AsyncAuditor now succeeds cleanly
+        let auditor2 = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes), None)
+            .await
+            .expect("Restart after migrate_legacy_gdpr_tombstones must succeed");
+        auditor2.shutdown().await;
+
+        // Post-migration mutation on row 1 must be detected as tampered and refuse re-migration
+        let conn2 = rusqlite::Connection::open(&db_path).unwrap();
+        conn2
+            .execute("UPDATE audit_reports SET is_blocked = 1 WHERE id = 1", [])
+            .unwrap();
+        assert!(
+            iw_core::audit::verify_audit_chain(&conn2, &db_path, &genesis_hash, &hmac_key).is_err()
+        );
+        assert!(iw_core::audit::migrate_legacy_gdpr_tombstones(
+            &conn2,
+            &db_path,
+            &genesis_hash,
+            &hmac_key
+        )
+        .is_err());
+        drop(conn2);
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
+
+    #[tokio::test]
+    async fn test_v13_db_rejects_migrate_gdpr_tamper_laundering() {
+        let db_path = std::env::temp_dir()
+            .join(format!("audit_test_oracle_{}.db", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x77u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        auditor
+            .log_report(report.clone(), "rawA".into(), "userA".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "rawB".into(), "userB".into())
+            .await
+            .unwrap();
+        auditor.shutdown().await;
+
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, &pepper_bytes);
+        let mut hmac_key = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_INTEGRITY, &mut hmac_key)
+            .unwrap();
+        let mut genesis_hash = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_GENESIS, &mut genesis_hash)
+            .unwrap();
+
+        // Attacker alters row 1 into an untagged `[REDACTED]` row on a v1.3 DB (user_version == 1)
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        assert_eq!(
+            iw_core::audit::get_audit_schema_version(&conn).unwrap(),
+            iw_core::audit::AUDIT_SCHEMA_VERSION
+        );
+        conn.execute("DELETE FROM ephemeral_raw_logs WHERE id = 1", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE audit_reports SET username = '[REDACTED]', is_blocked = 1 WHERE id = 1",
+            [],
+        )
+        .unwrap();
+
+        let verify_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            !verify_err.contains("migrate-gdpr"),
+            "v1.3 DB must NEVER suggest migrate-gdpr on forged [REDACTED] row: {}",
+            verify_err
+        );
+        let mig_err = iw_core::audit::migrate_legacy_gdpr_tombstones(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key,
+        )
+        .unwrap_err();
+        assert!(
+            mig_err.contains("already at v1.3 schema"),
+            "Unexpected error: {}",
+            mig_err
+        );
+
+        // Mixed-era guard even if user_version were reset to 0 alongside a real GDPR_HMAC row
+        iw_core::audit::set_audit_schema_version(&conn, 0).unwrap();
+        conn.execute("DELETE FROM ephemeral_raw_logs WHERE id = 2", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE audit_reports SET username = '[REDACTED]', payload_hash = 'GDPR_HMAC:0000' WHERE id = 2",
+            [],
+        )
+        .unwrap();
+        assert!(iw_core::audit::inspect_legacy_gdpr_tombstones(&conn).is_err());
+        assert!(iw_core::audit::migrate_legacy_gdpr_tombstones(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key
+        )
+        .is_err());
+        drop(conn);
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
+
+    #[tokio::test]
+    async fn test_anchor_read_before_sqlite_snapshot_prevents_live_write_toctou() {
+        let db_path = std::env::temp_dir()
+            .join(format!("audit_test_toctou_{}.db", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x88u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        // Writer commits row 1 and advances .anchor to 1
+        auditor
+            .log_report(report.clone(), "raw1".into(), "user1".into())
+            .await
+            .unwrap();
+        // Monitor reads .anchor FIRST (sees expected_id = 1)
+        let snap = iw_core::audit::read_anchor_snapshot(&db_path).unwrap();
+
+        // Writer concurrently commits row 2 and advances .anchor to 2 before monitor queries SQLite
+        auditor
+            .log_report(report, "raw2".into(), "user2".into())
+            .await
+            .unwrap();
+        auditor.shutdown().await;
+
+        let conn = rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let (latest_id, latest_hex): (i64, String) = conn
+            .query_row(
+                "SELECT id, integrity_hash FROM audit_reports ORDER BY id DESC LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(latest_id, 2);
+        let latest_bytes = hex::decode(latest_hex).unwrap();
+        iw_core::audit::verify_anchor_snapshot(
+            snap.as_ref(),
+            Some(&conn),
+            None,
+            latest_id,
+            &latest_bytes,
+        )
+        .expect("Anchor snapshot read before newer commit must verify via historical row");
+        drop(conn);
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
+
+    #[tokio::test]
+    async fn test_purge_user_rejects_tampered_row_instead_of_laundering() {
+        let db_path = std::env::temp_dir()
+            .join(format!(
+                "audit_test_purge_tamper_{}.db",
+                uuid::Uuid::new_v4()
+            ))
+            .to_string_lossy()
+            .to_string();
+        let pepper = vec![0x99u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+        auditor
+            .log_report(report.clone(), "raw1".into(), "alice".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "raw2".into(), "bob".into())
+            .await
+            .unwrap();
+
+        // Attacker flips `is_blocked` on alice's row without recomputing integrity_hash
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute("UPDATE audit_reports SET is_blocked = 1 WHERE id = 1", [])
+            .unwrap();
+        drop(conn);
+
+        let err = auditor
+            .purge_user("alice")
+            .await
+            .expect_err("PurgeUser must refuse to sign tampered row into GDPR_HMAC tombstone");
+        assert!(
+            err.to_string().contains("tampered"),
+            "Expected tampered refusal error, got: {}",
+            err
+        );
+        assert!(
+            auditor.check_health().is_err(),
+            "Auditor must trip fail-closed after detecting tampered row during PurgeUser"
+        );
+
+        let ro = rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let (uname, ph): (String, String) = ro
+            .query_row(
+                "SELECT username, payload_hash FROM audit_reports WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(uname, "alice");
+        assert!(!ph.starts_with("GDPR_HMAC:"));
+        let erl_count: i64 = ro
+            .query_row(
+                "SELECT COUNT(*) FROM ephemeral_raw_logs WHERE username = 'alice'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(erl_count, 1, "Rollback must preserve ephemeral row");
+        drop(ro);
+
+        auditor.shutdown().await;
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
     }
 }
 

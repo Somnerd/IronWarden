@@ -1683,16 +1683,14 @@ dependencies = [
 name = "iw-cli"
 version = "1.2.0"
 dependencies = [
- "bincode",
  "clap",
- "hex",
  "hkdf",
- "hmac",
  "iw_core",
  "rusqlite",
  "secrecy",
  "serde_json",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]
@@ -1777,12 +1775,16 @@ dependencies = [
  "aes-gcm",
  "async-trait",
  "base64 0.22.1",
+ "bincode",
  "dashmap 6.2.1",
+ "hex",
  "hkdf",
+ "hmac",
  "jsonwebtoken",
  "moka",
  "openssl",
  "rand 0.8.6",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",
