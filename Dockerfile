@@ -1,5 +1,5 @@
 # --- Build Stage ---
-FROM rust:1.97-bookworm AS builder
+FROM rust:1-bookworm AS builder
 
 WORKDIR /usr/src/ironwarden
 
@@ -42,15 +42,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ONNX Runtime 1.21.0 (required by ort crate with load-dynamic feature)
-RUN curl -fsSL \
-    "https://github.com/microsoft/onnxruntime/releases/download/v1.21.0/onnxruntime-linux-x64-1.21.0.tgz" \
-    -o /tmp/ort.tgz \
-    && tar -xzf /tmp/ort.tgz -C /tmp \
-    && cp -a /tmp/onnxruntime-linux-x64-1.21.0/lib/libonnxruntime.so* /usr/lib/x86_64-linux-gnu/ \
-    && rm -rf /tmp/ort.tgz /tmp/onnxruntime-linux-x64-1.21.0
+# Install ONNX Runtime 1.21.0 (required by ort crate with load-dynamic feature; falls back to NuGet if GitHub release is 404)
+RUN if curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v1.21.0/onnxruntime-linux-x64-1.21.0.tgz" -o /tmp/ort.tgz; then \
+        tar -xzf /tmp/ort.tgz -C /tmp \
+        && cp -a /tmp/onnxruntime-linux-x64-1.21.0/lib/libonnxruntime.so* /usr/lib/x86_64-linux-gnu/ \
+        && rm -rf /tmp/ort.tgz /tmp/onnxruntime-linux-x64-1.21.0; \
+    else \
+        curl -fsSL "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/1.21.0" -o /tmp/ort.nupkg \
+        && unzip -q -j /tmp/ort.nupkg "runtimes/linux-x64/native/libonnxruntime*.so" -d /usr/lib/x86_64-linux-gnu/ \
+        && rm -f /tmp/ort.nupkg; \
+    fi \
+    && chmod +x /usr/lib/x86_64-linux-gnu/libonnxruntime*.so* \
+    && ldconfig
 
 WORKDIR /app
 
