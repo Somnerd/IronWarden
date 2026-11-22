@@ -86,7 +86,7 @@ impl LocalLibrarian {
                  END;",
             )?;
             let needs_rebuild: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM documents) AND NOT EXISTS(SELECT 1 FROM documents_fts_docsize)",
+                "SELECT (SELECT COUNT(*) FROM documents) != (SELECT COUNT(*) FROM documents_fts_docsize)",
                 [],
                 |row| row.get(0),
             )?;
@@ -138,11 +138,10 @@ impl LocalLibrarian {
         }
 
         // Quote every alphanumeric token to isolate FTS5 reserved keywords (AND/OR/NOT/NEAR)
-        let fts_query = terms_to_use
-            .iter()
-            .map(|t| format!("\"{}\"*", t))
-            .collect::<Vec<_>>()
-            .join(" AND ");
+        let quoted_terms: Vec<String> =
+            terms_to_use.iter().map(|t| format!("\"{}\"*", t)).collect();
+        let and_query = quoted_terms.join(" AND ");
+        let or_query = (quoted_terms.len() > 1).then(|| quoted_terms.join(" OR "));
 
         // --- SECURITY FIX (Section 1.1 / Finding A.4): User-Level Partitioning ---
         let username = username.to_string();
@@ -150,19 +149,31 @@ impl LocalLibrarian {
         let results = self
             .db
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT d.text \
-                     FROM documents_fts f \
-                     JOIN documents d ON d.id = f.rowid \
-                     WHERE documents_fts MATCH ?1 AND d.username = ?2 \
-                     ORDER BY bm25(documents_fts) \
-                     LIMIT ?3",
-                )?;
-                let mut rows = stmt.query((&fts_query, &username, limit_i64))?;
+                let sql = "SELECT d.id, d.text \
+                           FROM documents_fts f \
+                           JOIN documents d ON d.id = f.rowid \
+                           WHERE documents_fts MATCH ?1 AND d.username = ?2 \
+                           ORDER BY bm25(documents_fts) \
+                           LIMIT ?3";
+                let mut stmt = conn.prepare(sql)?;
+                let mut seen_ids = std::collections::HashSet::new();
                 let mut matched_docs = Vec::new();
 
-                while let Some(row) = rows.next()? {
-                    matched_docs.push(row.get::<_, String>(0)?);
+                for q in std::iter::once(&and_query).chain(or_query.iter()) {
+                    if matched_docs.len() >= limit {
+                        break;
+                    }
+                    let mut rows = stmt.query((q, &username, limit_i64))?;
+                    while let Some(row) = rows.next()? {
+                        let id: i64 = row.get(0)?;
+                        let text: String = row.get(1)?;
+                        if seen_ids.insert(id) {
+                            matched_docs.push(text);
+                            if matched_docs.len() >= limit {
+                                break;
+                            }
+                        }
+                    }
                 }
 
                 Ok::<Vec<String>, rusqlite::Error>(matched_docs)

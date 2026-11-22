@@ -1,4 +1,4 @@
-// Integration tests verifying LocalLibrarian (Tantivy) search behavior under redacted queries, validating semantic blindness when querying with tokens instead of raw PII.
+// Integration tests verifying LocalLibrarian (SQLite FTS5) search behavior under redacted queries, validating semantic blindness when querying with tokens instead of raw PII.
 use tempfile::tempdir;
 use worker::LocalLibrarian;
 

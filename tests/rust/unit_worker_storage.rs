@@ -997,6 +997,17 @@ mod librarian_tests {
         assert_eq!(keyword_res.len(), 1);
         assert!(keyword_res[0].contains("quarterly review"));
 
+        // Conversational natural-language query with extra non-stopword verbs must still match via OR BM25 fallback
+        let conversational_res = librarian
+            .retrieve_policy_context("Please summarize strict compliance mandate", "tenant1", 5)
+            .await
+            .unwrap();
+        assert!(
+            !conversational_res.is_empty() && conversational_res[0].contains("strict compliance rules"),
+            "Expected conversational query to retrieve compliance policy via OR fallback, got: {:?}",
+            conversational_res
+        );
+
         // GDPR delete must trigger FTS5 row deletion while preserving tenant2
         librarian.delete_user_documents("tenant1").await.unwrap();
         let after_delete = librarian
