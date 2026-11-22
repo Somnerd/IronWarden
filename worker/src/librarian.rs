@@ -67,26 +67,51 @@ impl LocalLibrarian {
                      text TEXT NOT NULL,
                      username TEXT NOT NULL
                  );
-                 CREATE INDEX IF NOT EXISTS idx_documents_username ON documents(username);
-                 CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+                 CREATE INDEX IF NOT EXISTS idx_documents_username ON documents(username);",
+            )?;
+
+            // Upgrade any single-column FTS5 table so tenant `username` is indexed directly in FTS5
+            let existing_fts_sql: Option<String> = conn
+                .query_row(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='documents_fts'",
+                    [],
+                    |row| row.get(0),
+                )
+                .ok();
+            if existing_fts_sql
+                .as_deref()
+                .is_some_and(|sql| !sql.contains("username"))
+            {
+                conn.execute_batch(
+                    "DROP TRIGGER IF EXISTS documents_ai;
+                     DROP TRIGGER IF EXISTS documents_ad;
+                     DROP TRIGGER IF EXISTS documents_au;
+                     DROP TABLE IF EXISTS documents_fts;",
+                )?;
+            }
+
+            conn.execute_batch(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+                     username,
                      text,
                      content='documents',
                      content_rowid='id',
                      tokenize='unicode61'
                  );
                  CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-                     INSERT INTO documents_fts(rowid, text) VALUES (new.id, new.text);
+                     INSERT INTO documents_fts(rowid, username, text) VALUES (new.id, new.username, new.text);
                  END;
                  CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-                     INSERT INTO documents_fts(documents_fts, rowid, text) VALUES('delete', old.id, old.text);
+                     INSERT INTO documents_fts(documents_fts, rowid, username, text) VALUES('delete', old.id, old.username, old.text);
                  END;
                  CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-                     INSERT INTO documents_fts(documents_fts, rowid, text) VALUES('delete', old.id, old.text);
-                     INSERT INTO documents_fts(rowid, text) VALUES (new.id, new.text);
+                     INSERT INTO documents_fts(documents_fts, rowid, username, text) VALUES('delete', old.id, old.username, old.text);
+                     INSERT INTO documents_fts(rowid, username, text) VALUES (new.id, new.username, new.text);
                  END;",
             )?;
             let needs_rebuild: bool = conn.query_row(
-                "SELECT (SELECT COUNT(*) FROM documents) != (SELECT COUNT(*) FROM documents_fts_docsize)",
+                "SELECT (SELECT COUNT(*) FROM documents) != (SELECT COUNT(*) FROM documents_fts_docsize) \
+                 OR COALESCE((SELECT MAX(id) FROM documents), 0) != COALESCE((SELECT MAX(id) FROM documents_fts_docsize), 0)",
                 [],
                 |row| row.get(0),
             )?;
@@ -138,10 +163,25 @@ impl LocalLibrarian {
         }
 
         // Quote every alphanumeric token to isolate FTS5 reserved keywords (AND/OR/NOT/NEAR)
-        let quoted_terms: Vec<String> =
-            terms_to_use.iter().map(|t| format!("\"{}\"*", t)).collect();
-        let and_query = quoted_terms.join(" AND ");
-        let or_query = (quoted_terms.len() > 1).then(|| quoted_terms.join(" OR "));
+        // and qualify with `text :` so queries never match the `username` column.
+        let user_tokens: Vec<&str> = username
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let scope_expr = |inner: String| -> String {
+            if user_tokens.is_empty() {
+                inner
+            } else {
+                format!("username : \"{}\" AND ({})", user_tokens.join(" "), inner)
+            }
+        };
+
+        let quoted_terms: Vec<String> = terms_to_use
+            .iter()
+            .map(|t| format!("text : \"{}\"*", t))
+            .collect();
+        let and_query = scope_expr(quoted_terms.join(" AND "));
+        let or_query = (quoted_terms.len() > 1).then(|| scope_expr(quoted_terms.join(" OR ")));
 
         // --- SECURITY FIX (Section 1.1 / Finding A.4): User-Level Partitioning ---
         let username = username.to_string();
@@ -149,18 +189,19 @@ impl LocalLibrarian {
         let results = self
             .db
             .call(move |conn| {
+                // Weight column 0 (username) at 0.0 and column 1 (text) at 1.0 for pure text BM25 ranking
                 let sql = "SELECT d.id, d.text \
                            FROM documents_fts f \
                            JOIN documents d ON d.id = f.rowid \
                            WHERE documents_fts MATCH ?1 AND d.username = ?2 \
-                           ORDER BY bm25(documents_fts) \
+                           ORDER BY bm25(documents_fts, 0.0, 1.0) \
                            LIMIT ?3";
                 let mut stmt = conn.prepare(sql)?;
                 let mut seen_ids = std::collections::HashSet::new();
                 let mut matched_docs = Vec::new();
 
                 for q in std::iter::once(&and_query).chain(or_query.iter()) {
-                    if matched_docs.len() >= limit {
+                    if !matched_docs.is_empty() {
                         break;
                     }
                     let mut rows = stmt.query((q, &username, limit_i64))?;

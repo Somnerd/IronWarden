@@ -1054,4 +1054,58 @@ mod librarian_tests {
         fs::remove_dir_all(&kb_path).ok();
         fs::remove_dir_all(&legacy_dir).ok();
     }
+
+    #[tokio::test]
+    async fn test_librarian_no_or_padding_when_and_matches_and_username_not_matched_as_text() {
+        let kb_path = std::env::temp_dir()
+            .join(format!("librarian_no_pad_{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let librarian = LocalLibrarian::new(&kb_path).await.unwrap();
+
+        librarian
+            .add_document(
+                "Strict compliance mandate for production keys.",
+                "tenant_alpha",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document(
+                "Compliance calendar reminder for vacation requests.",
+                "tenant_alpha",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document("Other unrelated note.", "tenant_alpha")
+            .await
+            .unwrap();
+
+        // Exact AND match exists -> OR fallback must NOT pad limit=5 with the single-term doc
+        let strict_hits = librarian
+            .retrieve_policy_context("strict compliance mandate", "tenant_alpha", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            strict_hits.len(),
+            1,
+            "OR fallback must not pad unrelated single-term matches when AND succeeded: {:?}",
+            strict_hits
+        );
+        assert!(strict_hits[0].contains("Strict compliance mandate"));
+
+        // Searching for a username token that is absent from `text` must return empty
+        let user_token_hits = librarian
+            .retrieve_policy_context("alpha", "tenant_alpha", 5)
+            .await
+            .unwrap();
+        assert!(
+            user_token_hits.is_empty(),
+            "Query matching only indexed username column must not leak into text hits: {:?}",
+            user_token_hits
+        );
+
+        fs::remove_dir_all(&kb_path).ok();
+    }
 }
