@@ -694,7 +694,7 @@ mod sse_proxy_tests {
                 "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ping [PER\"}}\n\n",
             ),
         )];
-        let eof_resp = stream_sse_bytes(futures::stream::iter(eof_chunks), map);
+        let eof_resp = stream_sse_bytes(futures::stream::iter(eof_chunks), map.clone());
         let eof_bytes = eof_resp.into_body().collect().await.unwrap().to_bytes();
         let eof_str = String::from_utf8(eof_bytes.to_vec()).unwrap();
 
@@ -702,6 +702,28 @@ mod sse_proxy_tests {
             eof_str.contains("\"type\":\"text_delta\"") && eof_str.contains("\"text\":\"[PER\""),
             "Trailing partial bracket was dropped at EOF: {}",
             eof_str
+        );
+
+        // 3. Multi-byte UTF-8 character ("Γεια") split across chunk boundary + no-space data: + index 2 EOF
+        let prefix_bytes = b"event: content_block_delta\ndata:{\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"text_delta\",\"text\":\"\xce";
+        let suffix_bytes = b"\x93\xce\xb5\xce\xb9\xce\xb1 [PERSON_1] ping [PER\"}}\n\n";
+        let utf8_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from_static(prefix_bytes)),
+            Ok(axum::body::Bytes::from_static(suffix_bytes)),
+        ];
+        let utf8_resp = stream_sse_bytes(futures::stream::iter(utf8_chunks), map);
+        let utf8_bytes = utf8_resp.into_body().collect().await.unwrap().to_bytes();
+        let utf8_str = String::from_utf8(utf8_bytes.to_vec()).unwrap();
+
+        assert!(
+            utf8_str.contains("Γεια Alice ping "),
+            "Split UTF-8 + no-space data: line failed rehydration: {}",
+            utf8_str
+        );
+        assert!(
+            utf8_str.contains("\"index\":2") && utf8_str.contains("\"text\":\"[PER\""),
+            "Abrupt EOF tail flush should preserve last content block index 2: {}",
+            utf8_str
         );
     }
 }

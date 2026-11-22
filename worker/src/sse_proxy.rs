@@ -111,9 +111,12 @@ impl SseRehydrator {
     }
 }
 
+const MAX_SSE_LINE_BYTES: usize = 1024 * 1024;
+
 struct SseState {
     rehydrator: SseRehydrator,
     is_anthropic: bool,
+    last_block_idx: u64,
     pending_event: Option<String>,
 }
 
@@ -151,12 +154,13 @@ impl SseState {
             self.pending_event = Some(line.to_string());
             return;
         }
-        let Some(data) = line.strip_prefix("data: ") else {
+        let Some(raw_data) = line.strip_prefix("data:") else {
             self.flush_pending(output);
             output.push_str(line);
             output.push('\n');
             return;
         };
+        let data = raw_data.strip_prefix(' ').unwrap_or(raw_data);
         if data.trim() == "[DONE]" {
             self.flush_pending(output);
             self.push_tail_delta(false, 0, output);
@@ -183,6 +187,9 @@ impl SseState {
             )
         );
         let is_stop = matches!(event_type, Some("content_block_stop" | "message_stop"));
+        if let Some(idx) = json.get("index").and_then(|v| v.as_u64()) {
+            self.last_block_idx = idx;
+        }
 
         if let Some(serde_json::Value::String(s)) = json
             .pointer_mut("/choices/0/delta/content")
@@ -197,8 +204,7 @@ impl SseState {
         }
 
         if is_stop {
-            let idx = json.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
-            self.push_tail_delta(true, idx, output);
+            self.push_tail_delta(true, self.last_block_idx, output);
         }
         self.flush_pending(output);
         let rewritten = serde_json::to_string(&json).unwrap_or_else(|_| data.to_string());
@@ -217,12 +223,14 @@ where
     let mut state = SseState {
         rehydrator: SseRehydrator::new(&token_map),
         is_anthropic: false,
+        last_block_idx: 0,
         pending_event: None,
     };
 
     tokio::spawn(async move {
         futures::pin_mut!(byte_stream);
         let mut line_buffer = String::new();
+        let mut utf8_tail = Vec::<u8>::with_capacity(4);
 
         while let Some(chunk_result) = byte_stream.next().await {
             let chunk = match chunk_result {
@@ -232,11 +240,26 @@ where
                     break;
                 }
             };
-            let Ok(raw) = std::str::from_utf8(&chunk) else {
-                if tx.send(Ok(chunk)).await.is_err() {
-                    return;
+            let combined;
+            let bytes: &[u8] = if utf8_tail.is_empty() {
+                &chunk
+            } else {
+                utf8_tail.extend_from_slice(&chunk);
+                combined = std::mem::take(&mut utf8_tail);
+                &combined
+            };
+            let raw = match std::str::from_utf8(bytes) {
+                Ok(s) => s,
+                Err(e) if e.error_len().is_none() => {
+                    utf8_tail.extend_from_slice(&bytes[e.valid_up_to()..]);
+                    std::str::from_utf8(&bytes[..e.valid_up_to()]).unwrap_or("")
                 }
-                continue;
+                Err(_) => {
+                    if tx.send(Ok(Bytes::copy_from_slice(bytes))).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
             };
             line_buffer.push_str(raw);
             let mut output = String::new();
@@ -251,17 +274,24 @@ where
             if start > 0 {
                 line_buffer.drain(..start);
             }
+            if line_buffer.len() > MAX_SSE_LINE_BYTES {
+                let overflow = std::mem::take(&mut line_buffer);
+                state.process_line(overflow.trim_end_matches('\r'), &mut output);
+            }
             if !output.is_empty() && tx.send(Ok(Bytes::from(output))).await.is_err() {
                 return;
             }
         }
 
+        if !utf8_tail.is_empty() {
+            line_buffer.push_str(&String::from_utf8_lossy(&utf8_tail));
+        }
         let mut eof_output = String::new();
         if !line_buffer.is_empty() {
             state.process_line(line_buffer.trim_end_matches('\r'), &mut eof_output);
         }
         state.flush_pending(&mut eof_output);
-        state.push_tail_delta(state.is_anthropic, 0, &mut eof_output);
+        state.push_tail_delta(state.is_anthropic, state.last_block_idx, &mut eof_output);
         if !eof_output.is_empty() {
             let _ = tx.send(Ok(Bytes::from(eof_output))).await;
         }
