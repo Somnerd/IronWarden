@@ -931,4 +931,121 @@ mod sse_proxy_tests {
             inv_str
         );
     }
+
+    #[tokio::test]
+    async fn test_sse_openai_metadata_never_suppressed_and_finish_reason_flushes_tail() {
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        let map = HashMap::from([("[PERSON_1]".to_string(), "Alice".to_string())]);
+
+        // 1. role, tool_calls, and usage chunks whose delta.content is a partial token prefix
+        //    must NOT be dropped when SseRehydrator buffers `[PER`.
+        let meta_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from_static(
+                b"data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"[PER\"},\"finish_reason\":null}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from_static(
+                b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"SON_1]\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\"}]},\"finish_reason\":null}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from_static(
+                b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"[PER\"},\"finish_reason\":null}],\"usage\":{\"total_tokens\":42}}\n\n",
+            )),
+            Ok(axum::body::Bytes::from_static(
+                b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"SON_1]\"},\"finish_reason\":\"stop\"}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from_static(b"data: [DONE]\n\n")),
+        ];
+        let meta_resp = stream_sse_bytes(futures::stream::iter(meta_chunks), map.clone());
+        let meta_str = String::from_utf8(
+            meta_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            meta_str.contains("\"role\":\"assistant\""),
+            "delta.role frame was dropped by empty-delta suppression: {}",
+            meta_str
+        );
+        assert!(
+            meta_str.contains("\"tool_calls\""),
+            "delta.tool_calls frame was dropped: {}",
+            meta_str
+        );
+        assert!(
+            meta_str.contains("\"total_tokens\":42"),
+            "usage metadata frame was dropped: {}",
+            meta_str
+        );
+        assert!(
+            meta_str.contains("\"finish_reason\":\"stop\""),
+            "finish_reason frame missing: {}",
+            meta_str
+        );
+        assert_eq!(meta_str.matches("Alice").count(), 2);
+
+        // 2. OpenAI finish_reason chunk with incomplete `[PER` inline in delta.content
+        //    must flush `[PER` inside that chunk and keep finish_reason.
+        let inline_finish_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from_static(
+                b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"[PER\"},\"finish_reason\":\"stop\"}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from_static(b"data: [DONE]\n\n")),
+        ];
+        let inline_resp =
+            stream_sse_bytes(futures::stream::iter(inline_finish_chunks), map.clone());
+        let inline_str = String::from_utf8(
+            inline_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            inline_str.contains("\"content\":\"[PER\"")
+                && inline_str.contains("\"finish_reason\":\"stop\""),
+            "finish_reason chunk dropped or failed to flush buffered `[PER` inline: {}",
+            inline_str
+        );
+
+        // 3. OpenAI finish_reason chunk with empty delta `{}` after an earlier buffered `[PER`
+        //    chunk must flush `[PER` BEFORE the `finish_reason: stop` frame.
+        let split_finish_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from_static(
+                b"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi [PER\"},\"finish_reason\":null}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from_static(
+                b"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from_static(b"data: [DONE]\n\n")),
+        ];
+        let split_resp = stream_sse_bytes(futures::stream::iter(split_finish_chunks), map);
+        let split_str = String::from_utf8(
+            split_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        let per_pos = split_str.find("[PER").expect("flushed tail [PER missing");
+        let stop_pos = split_str
+            .find("\"finish_reason\":\"stop\"")
+            .expect("finish_reason stop frame missing");
+        assert!(
+            per_pos < stop_pos,
+            "Tail `[PER` must flush BEFORE `finish_reason: stop`: {}",
+            split_str
+        );
+    }
 }

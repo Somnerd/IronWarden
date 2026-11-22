@@ -217,14 +217,33 @@ impl SseState {
             self.last_block_idx = idx;
         }
 
+        let has_openai_finish = json
+            .pointer("/choices")
+            .and_then(|v| v.as_array())
+            .is_some_and(|choices| {
+                choices
+                    .iter()
+                    .any(|c| c.get("finish_reason").is_some_and(|fr| !fr.is_null()))
+            });
+        let has_metadata = has_openai_finish
+            || json.get("usage").is_some_and(|v| !v.is_null())
+            || json
+                .pointer("/choices/0/delta")
+                .and_then(|v| v.as_object())
+                .is_some_and(|obj| obj.iter().any(|(k, v)| k != "content" && !v.is_null()));
+
         let mut suppressed_delta = false;
         if let Some(serde_json::Value::String(s)) = json
             .pointer_mut("/choices/0/delta/content")
             .filter(|v| v.is_string())
         {
             let was_non_empty = !s.is_empty();
-            *s = self.rehydrator.feed(s);
-            if was_non_empty && s.is_empty() {
+            let mut next = self.rehydrator.feed(s);
+            if has_openai_finish {
+                next.push_str(&self.rehydrator.flush_all());
+            }
+            *s = next;
+            if was_non_empty && s.is_empty() && !has_metadata {
                 suppressed_delta = true;
             }
         } else if let Some(serde_json::Value::String(s)) =
@@ -233,13 +252,15 @@ impl SseState {
             self.is_anthropic = true;
             let was_non_empty = !s.is_empty();
             *s = self.rehydrator.feed(s);
-            if was_non_empty && s.is_empty() {
+            if was_non_empty && s.is_empty() && !has_metadata {
                 suppressed_delta = true;
             }
         }
 
         if is_stop {
             self.push_tail_delta(true, self.last_block_idx, output);
+        } else if has_openai_finish {
+            self.push_tail_delta(false, self.last_block_idx, output);
         } else if suppressed_delta {
             self.pending_event = None;
             self.suppress_next_empty_line = true;
