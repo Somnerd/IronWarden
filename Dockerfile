@@ -42,20 +42,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     curl \
-    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install ONNX Runtime 1.21.0 (required by ort crate with load-dynamic feature) with SHA-256 verification
 ARG ORT_NUPKG_SHA256=359b4782cfa2e288e6c4bbb9da1c231b085fb8e0d149faf8c3c843f54576559b
-RUN curl -fsSL "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/1.21.0" -o /tmp/ort.nupkg \
+RUN apt-get update && apt-get install -y --no-install-recommends unzip \
+    && curl -fsSL "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/1.21.0" -o /tmp/ort.nupkg \
     && echo "${ORT_NUPKG_SHA256}  /tmp/ort.nupkg" | sha256sum -c - \
     && unzip -q -j /tmp/ort.nupkg "runtimes/linux-x64/native/libonnxruntime*.so" -d /usr/lib/x86_64-linux-gnu/ \
     && rm -f /tmp/ort.nupkg \
+    && apt-get purge -y --auto-remove unzip \
+    && rm -rf /var/lib/apt/lists/* \
     && chmod 0755 /usr/lib/x86_64-linux-gnu/libonnxruntime*.so* \
     && ldconfig
 
 # Create unprivileged service account
-RUN useradd -r -u 10001 -m -d /app -s /usr/sbin/nologin ironwarden
+RUN groupadd -g 10001 ironwarden \
+    && useradd -u 10001 -g 10001 -m -d /app -s /usr/sbin/nologin ironwarden
 
 WORKDIR /app
 
