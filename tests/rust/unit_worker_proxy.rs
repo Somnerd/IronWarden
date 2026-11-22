@@ -726,4 +726,147 @@ mod sse_proxy_tests {
             utf8_str
         );
     }
+
+    #[tokio::test]
+    async fn test_stream_proxy_suppresses_empty_delta_and_triple_newlines() {
+        use http_body_util::BodyExt;
+
+        let map = map_with(&[("[PERSON_1]", "Alice")]);
+
+        // Chunk 1 holds ONLY "[PER" (100% buffered), chunk 2 holds "SON_1]!"
+        let chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"[PER\"}}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"SON_1]!\"}}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+            )),
+        ];
+
+        let resp = stream_sse_bytes(futures::stream::iter(chunks), map.clone());
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+        assert!(
+            !body_str.contains("\"text\":\"\""),
+            "Synthetic empty delta frame must be suppressed while token is buffered: {}",
+            body_str
+        );
+        assert!(
+            !body_str.contains("\n\n\n"),
+            "SSE framing must never contain triple newlines (\\n\\n\\n): {:?}",
+            body_str
+        );
+        assert!(
+            body_str.contains("\"text\":\"Alice!\""),
+            "Rehydrated text should appear cleanly in second delta: {}",
+            body_str
+        );
+
+        // OpenAI format with empty-while-buffered delta + [DONE]
+        let openai_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"[PER\"},\"index\":0}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"SON_1]\"},\"index\":0}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from("data: [DONE]\n\n")),
+        ];
+        let oai_resp = stream_sse_bytes(futures::stream::iter(openai_chunks), map);
+        let oai_bytes = oai_resp.into_body().collect().await.unwrap().to_bytes();
+        let oai_str = String::from_utf8(oai_bytes.to_vec()).unwrap();
+
+        assert!(
+            !oai_str.contains("\"content\":\"\""),
+            "OpenAI synthetic empty delta must be suppressed: {}",
+            oai_str
+        );
+        assert!(
+            !oai_str.contains("\n\n\n"),
+            "OpenAI SSE framing must not contain triple newlines: {:?}",
+            oai_str
+        );
+        assert!(oai_str.contains("\"content\":\"Alice\""));
+    }
+
+    #[tokio::test]
+    async fn test_stream_proxy_rehydrates_malformed_json_oversized_line_and_invalid_utf8_order() {
+        use http_body_util::BodyExt;
+
+        let map = map_with(&[("[PERSON_1]", "Alice")]);
+
+        // 1. Malformed JSON fallback must still rehydrate [PERSON_1]
+        let malformed: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![Ok(
+            axum::body::Bytes::from("data: {broken_json [PERSON_1]\n\n"),
+        )];
+        let malformed_resp = stream_sse_bytes(futures::stream::iter(malformed), map.clone());
+        let malformed_str = String::from_utf8(
+            malformed_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            malformed_str.contains("Alice") && !malformed_str.contains("[PERSON_1]"),
+            "Malformed JSON fallback leaked raw placeholder: {}",
+            malformed_str
+        );
+
+        // 2. Oversized (> 1 MiB) single line split across two TCP chunks must not inject \n\n mid-JSON or leak [PERSON_1]
+        let big_pad = "a".repeat(1_050_000);
+        let chunk1 = format!(
+            "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{} [PER",
+            big_pad
+        );
+        let chunk2 = "SON_1]\"}}]}\n\n".to_string();
+        let big_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(chunk1)),
+            Ok(axum::body::Bytes::from(chunk2)),
+        ];
+        let big_resp = stream_sse_bytes(futures::stream::iter(big_chunks), map.clone());
+        let big_str = String::from_utf8(
+            big_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            big_str.contains("Alice") && !big_str.contains("[PERSON_1]"),
+            "Oversized split line failed to rehydrate token"
+        );
+        assert!(
+            !big_str.contains("Alice\"\n\n") && !big_str.contains("\n\nSON_1"),
+            "Oversized split line injected spurious newlines mid-JSON"
+        );
+
+        // 3. Invalid UTF-8 byte in chunk 2 must not reorder ahead of incomplete line_buffer from chunk 1
+        let inv_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from_static(
+                b"data: {\"choices\":[{\"delta\":{\"content\":\"[PERSON_1] ",
+            )),
+            Ok(axum::body::Bytes::from_static(b"\xff tail\"}}]}\n\n")),
+        ];
+        let inv_resp = stream_sse_bytes(futures::stream::iter(inv_chunks), map);
+        let inv_bytes = inv_resp.into_body().collect().await.unwrap().to_bytes();
+        let inv_str = String::from_utf8(inv_bytes.to_vec()).unwrap();
+        let alice_pos = inv_str.find("Alice").unwrap();
+        let tail_pos = inv_str.find("tail").unwrap();
+        assert!(
+            alice_pos < tail_pos,
+            "Invalid UTF-8 chunk bypassed line_buffer out of order: {}",
+            inv_str
+        );
+    }
 }

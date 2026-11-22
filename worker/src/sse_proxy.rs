@@ -118,6 +118,8 @@ struct SseState {
     is_anthropic: bool,
     last_block_idx: u64,
     pending_event: Option<String>,
+    suppress_next_empty_line: bool,
+    in_overflow_line: bool,
 }
 
 impl SseState {
@@ -149,12 +151,29 @@ impl SseState {
     }
 
     fn process_line(&mut self, line: &str, output: &mut String) {
+        if self.in_overflow_line {
+            self.in_overflow_line = false;
+            let rehydrated = self.rehydrator.feed(line);
+            let flushed = self.rehydrator.flush_all();
+            output.push_str(&rehydrated);
+            output.push_str(&flushed);
+            output.push('\n');
+            return;
+        }
+
+        if line.is_empty() && self.pending_event.is_none() && self.suppress_next_empty_line {
+            self.suppress_next_empty_line = false;
+            return;
+        }
+
         if line.starts_with("event:") {
+            self.suppress_next_empty_line = false;
             self.flush_pending(output);
             self.pending_event = Some(line.to_string());
             return;
         }
         let Some(raw_data) = line.strip_prefix("data:") else {
+            self.suppress_next_empty_line = false;
             self.flush_pending(output);
             output.push_str(line);
             output.push('\n');
@@ -165,12 +184,18 @@ impl SseState {
             self.flush_pending(output);
             self.push_tail_delta(false, 0, output);
             output.push_str("data: [DONE]\n\n");
+            self.suppress_next_empty_line = true;
             return;
         }
         let Ok(mut json) = serde_json::from_str::<serde_json::Value>(data) else {
+            self.push_tail_delta(self.is_anthropic, self.last_block_idx, output);
             self.flush_pending(output);
-            output.push_str(line);
+            let rehydrated = self.rehydrator.feed(line);
+            let flushed = self.rehydrator.flush_all();
+            output.push_str(&rehydrated);
+            output.push_str(&flushed);
             output.push_str("\n\n");
+            self.suppress_next_empty_line = true;
             return;
         };
 
@@ -191,25 +216,52 @@ impl SseState {
             self.last_block_idx = idx;
         }
 
+        let mut suppressed_delta = false;
         if let Some(serde_json::Value::String(s)) = json
             .pointer_mut("/choices/0/delta/content")
             .filter(|v| v.is_string())
         {
+            let was_non_empty = !s.is_empty();
             *s = self.rehydrator.feed(s);
+            if was_non_empty && s.is_empty() {
+                suppressed_delta = true;
+            }
         } else if let Some(serde_json::Value::String(s)) =
             json.pointer_mut("/delta/text").filter(|v| v.is_string())
         {
             self.is_anthropic = true;
+            let was_non_empty = !s.is_empty();
             *s = self.rehydrator.feed(s);
+            if was_non_empty && s.is_empty() {
+                suppressed_delta = true;
+            }
         }
 
         if is_stop {
             self.push_tail_delta(true, self.last_block_idx, output);
+        } else if suppressed_delta {
+            self.pending_event = None;
+            self.suppress_next_empty_line = true;
+            return;
         }
         self.flush_pending(output);
         let rewritten = serde_json::to_string(&json).unwrap_or_else(|_| data.to_string());
         output.push_str(&format!("data: {rewritten}\n\n"));
+        self.suppress_next_empty_line = true;
     }
+}
+
+fn decode_lossy_with_tail(bytes: &[u8], utf8_tail: &mut Vec<u8>) -> String {
+    let start = bytes.len().saturating_sub(3);
+    for i in (start..bytes.len()).rev() {
+        if let Err(e) = std::str::from_utf8(&bytes[i..]) {
+            if e.valid_up_to() == 0 && e.error_len().is_none() {
+                utf8_tail.extend_from_slice(&bytes[i..]);
+                return String::from_utf8_lossy(&bytes[..i]).into_owned();
+            }
+        }
+    }
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 /// Processes an arbitrary SSE byte stream, re-hydrating PII placeholders in-flight
@@ -225,6 +277,8 @@ where
         is_anthropic: false,
         last_block_idx: 0,
         pending_event: None,
+        suppress_next_empty_line: false,
+        in_overflow_line: false,
     };
 
     tokio::spawn(async move {
@@ -248,6 +302,7 @@ where
                 combined = std::mem::take(&mut utf8_tail);
                 &combined
             };
+            let owned_lossy: String;
             let raw = match std::str::from_utf8(bytes) {
                 Ok(s) => s,
                 Err(e) if e.error_len().is_none() => {
@@ -255,10 +310,8 @@ where
                     std::str::from_utf8(&bytes[..e.valid_up_to()]).unwrap_or("")
                 }
                 Err(_) => {
-                    if tx.send(Ok(Bytes::copy_from_slice(bytes))).await.is_err() {
-                        return;
-                    }
-                    continue;
+                    owned_lossy = decode_lossy_with_tail(bytes, &mut utf8_tail);
+                    &owned_lossy
                 }
             };
             line_buffer.push_str(raw);
@@ -276,7 +329,10 @@ where
             }
             if line_buffer.len() > MAX_SSE_LINE_BYTES {
                 let overflow = std::mem::take(&mut line_buffer);
-                state.process_line(overflow.trim_end_matches('\r'), &mut output);
+                state.flush_pending(&mut output);
+                let rehydrated = state.rehydrator.feed(&overflow);
+                output.push_str(&rehydrated);
+                state.in_overflow_line = true;
             }
             if !output.is_empty() && tx.send(Ok(Bytes::from(output))).await.is_err() {
                 return;
