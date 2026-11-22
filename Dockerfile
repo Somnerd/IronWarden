@@ -33,6 +33,8 @@ RUN cargo build --release -p app -p iw-cli
 # --- Runtime Stage ---
 FROM debian:trixie-slim AS runner
 
+# Install OCR/TLS runtime packages and ONNX Runtime 1.21.0 (with SHA-256 verification) in one clean layer
+ARG ORT_NUPKG_SHA256=359b4782cfa2e288e6c4bbb9da1c231b085fb8e0d149faf8c3c843f54576559b
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
@@ -42,11 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install ONNX Runtime 1.21.0 (required by ort crate with load-dynamic feature) with SHA-256 verification
-ARG ORT_NUPKG_SHA256=359b4782cfa2e288e6c4bbb9da1c231b085fb8e0d149faf8c3c843f54576559b
-RUN apt-get update && apt-get install -y --no-install-recommends unzip \
+    unzip \
     && curl -fsSL "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/1.21.0" -o /tmp/ort.nupkg \
     && echo "${ORT_NUPKG_SHA256}  /tmp/ort.nupkg" | sha256sum -c - \
     && unzip -q -j /tmp/ort.nupkg "runtimes/linux-x64/native/libonnxruntime*.so" -d /usr/lib/x86_64-linux-gnu/ \

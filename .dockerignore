@@ -13,3 +13,7 @@ venv/
 *.jwt
 benchmarks/*.xlsx
 benchmarks/raw/
+.env
+.env.*
+logs/
+data/
