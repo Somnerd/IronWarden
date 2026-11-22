@@ -83,9 +83,19 @@ impl LocalLibrarian {
                  CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
                      INSERT INTO documents_fts(documents_fts, rowid, text) VALUES('delete', old.id, old.text);
                      INSERT INTO documents_fts(rowid, text) VALUES (new.id, new.text);
-                 END;
-                 INSERT INTO documents_fts(documents_fts) VALUES('rebuild');",
+                 END;",
             )?;
+            let needs_rebuild: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM documents) AND NOT EXISTS(SELECT 1 FROM documents_fts_docsize)",
+                [],
+                |row| row.get(0),
+            )?;
+            if needs_rebuild {
+                conn.execute(
+                    "INSERT INTO documents_fts(documents_fts) VALUES('rebuild')",
+                    [],
+                )?;
+            }
             Ok::<(), rusqlite::Error>(())
         })
         .await

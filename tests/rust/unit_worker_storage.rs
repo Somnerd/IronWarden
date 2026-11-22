@@ -1011,6 +1011,36 @@ mod librarian_tests {
             .unwrap();
         assert_eq!(tenant2_docs.len(), 1);
 
+        // Pre-FTS5 legacy database migration: one-time guarded 'rebuild' indexes existing rows
+        let legacy_dir =
+            std::env::temp_dir().join(format!("librarian_legacy_{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&legacy_dir).unwrap();
+        {
+            let conn = rusqlite::Connection::open(legacy_dir.join("librarian.db")).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE documents (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     text TEXT NOT NULL,
+                     username TEXT NOT NULL
+                 );
+                 INSERT INTO documents (text, username) VALUES (
+                     'Legacy sovereign policy record before FTS5 upgrade.',
+                     'legacy_user'
+                 );",
+            )
+            .unwrap();
+        }
+        let migrated = LocalLibrarian::new(legacy_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        let legacy_docs = migrated
+            .retrieve_policy_context("legacy sovereign", "legacy_user", 5)
+            .await
+            .unwrap();
+        assert_eq!(legacy_docs.len(), 1);
+        assert!(legacy_docs[0].contains("Legacy sovereign policy record"));
+
         fs::remove_dir_all(&kb_path).ok();
+        fs::remove_dir_all(&legacy_dir).ok();
     }
 }
