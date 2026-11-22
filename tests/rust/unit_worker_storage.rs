@@ -1153,4 +1153,78 @@ mod librarian_tests {
 
         fs::remove_dir_all(&kb_path).ok();
     }
+
+    #[tokio::test]
+    async fn test_librarian_greek_diacritics_and_tenant_local_bm25_idf_isolation() {
+        let kb_path = std::env::temp_dir()
+            .join(format!("librarian_greek_bm25_{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let librarian = LocalLibrarian::new(&kb_path).await.unwrap();
+
+        // 1. Greek diacritic-insensitive OR fallback (unaccented query vs accented stored doc)
+        librarian
+            .add_document("Αυστηρή σύμβαση ασφαλείας για κλειδιά.", "tenant_gr")
+            .await
+            .unwrap();
+        let greek_hits = librarian
+            .retrieve_policy_context("συνοψη αυστηρη συμβαση", "tenant_gr", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            greek_hits.len(),
+            1,
+            "Unaccented Greek OR query must match accented Greek doc: {:?}",
+            greek_hits
+        );
+        assert!(greek_hits[0].contains("Αυστηρή σύμβαση"));
+
+        // 2. Zero cross-tenant BM25 IDF leakage:
+        //    Make "beta" rarer in tenant_iso by giving tenant_iso two "alpha" docs and one "beta" doc.
+        librarian
+            .add_document("alpha policy alpha rule", "tenant_iso")
+            .await
+            .unwrap();
+        librarian
+            .add_document("alpha second handbook", "tenant_iso")
+            .await
+            .unwrap();
+        librarian
+            .add_document("beta critical policy", "tenant_iso")
+            .await
+            .unwrap();
+
+        let before_ranking = librarian
+            .retrieve_policy_context("alpha beta", "tenant_iso", 5)
+            .await
+            .unwrap();
+        assert_eq!(before_ranking.len(), 3);
+        assert!(
+            before_ranking[0].contains("beta critical policy"),
+            "Rarer tenant-local term 'beta' should rank first before noise: {:?}",
+            before_ranking
+        );
+
+        // Ingest 50 docs heavily containing "beta" into an unrelated tenant
+        for i in 0..50 {
+            librarian
+                .add_document(
+                    &format!("beta beta beta beta noisy document {}", i),
+                    "tenant_noisy",
+                )
+                .await
+                .unwrap();
+        }
+
+        let after_ranking = librarian
+            .retrieve_policy_context("alpha beta", "tenant_iso", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            before_ranking, after_ranking,
+            "Other tenant's corpus frequencies must NOT alter tenant_iso BM25 ranking"
+        );
+
+        fs::remove_dir_all(&kb_path).ok();
+    }
 }

@@ -1,8 +1,18 @@
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use tokio_rusqlite::Connection;
 use tracing::info;
+use unicode_normalization::UnicodeNormalization;
+
+fn normalize_text(s: &str) -> String {
+    s.nfd()
+        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
+        .flat_map(|c| c.to_lowercase())
+        .map(|c| if c == 'ς' { 'σ' } else { c })
+        .collect()
+}
 
 /// The Librarian provides local heuristic grounding for policy enforcement.
 /// It uses SQLite FTS5 (`unicode61` tokenizer + BM25 ranking) for high-performance
@@ -69,12 +79,24 @@ impl LocalLibrarian {
                  CREATE TABLE IF NOT EXISTS documents (
                      id INTEGER PRIMARY KEY AUTOINCREMENT,
                      text TEXT NOT NULL,
+                     search_text TEXT NOT NULL DEFAULT '',
                      username TEXT NOT NULL
                  );
                  CREATE INDEX IF NOT EXISTS idx_documents_username ON documents(username);",
             )?;
+            let has_search_text: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('documents') WHERE name='search_text')",
+                [],
+                |row| row.get(0),
+            )?;
+            if !has_search_text {
+                conn.execute(
+                    "ALTER TABLE documents ADD COLUMN search_text TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
 
-            // Upgrade any single-column FTS5 table so tenant `username` is indexed directly in FTS5
+            // Upgrade older FTS5 schemas so tenant `username` and normalized `search_text` are indexed in FTS5
             let existing_fts_sql: Option<String> = conn
                 .query_row(
                     "SELECT sql FROM sqlite_master WHERE type='table' AND name='documents_fts'",
@@ -84,7 +106,7 @@ impl LocalLibrarian {
                 .ok();
             if existing_fts_sql
                 .as_deref()
-                .is_some_and(|sql| !sql.contains("username"))
+                .is_some_and(|sql| !sql.contains("username") || !sql.contains("search_text"))
             {
                 conn.execute_batch(
                     "DROP TRIGGER IF EXISTS documents_ai;
@@ -94,23 +116,40 @@ impl LocalLibrarian {
                 )?;
             }
 
+            // Backfill normalized `search_text` for pre-existing rows before (re)building FTS5
+            let rows_to_backfill: Vec<(i64, String)> = {
+                let mut stmt = conn.prepare(
+                    "SELECT id, text FROM documents WHERE search_text = '' AND text != ''",
+                )?;
+                let mapped = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+                mapped.collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            if !rows_to_backfill.is_empty() {
+                let mut update_stmt =
+                    conn.prepare("UPDATE documents SET search_text = ?1 WHERE id = ?2")?;
+                for (id, raw_text) in rows_to_backfill {
+                    let norm = normalize_text(&raw_text);
+                    update_stmt.execute((&norm, id))?;
+                }
+            }
+
             conn.execute_batch(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
                      username,
-                     text,
+                     search_text,
                      content='documents',
                      content_rowid='id',
                      tokenize='unicode61'
                  );
                  CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-                     INSERT INTO documents_fts(rowid, username, text) VALUES (new.id, new.username, new.text);
+                     INSERT INTO documents_fts(rowid, username, search_text) VALUES (new.id, new.username, new.search_text);
                  END;
                  CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-                     INSERT INTO documents_fts(documents_fts, rowid, username, text) VALUES('delete', old.id, old.username, old.text);
+                     INSERT INTO documents_fts(documents_fts, rowid, username, search_text) VALUES('delete', old.id, old.username, old.search_text);
                  END;
                  CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-                     INSERT INTO documents_fts(documents_fts, rowid, username, text) VALUES('delete', old.id, old.username, old.text);
-                     INSERT INTO documents_fts(rowid, username, text) VALUES (new.id, new.username, new.text);
+                     INSERT INTO documents_fts(documents_fts, rowid, username, search_text) VALUES('delete', old.id, old.username, old.search_text);
+                     INSERT INTO documents_fts(rowid, username, search_text) VALUES (new.id, new.username, new.search_text);
                  END;",
             )?;
             let needs_rebuild: bool = conn.query_row(
@@ -145,15 +184,15 @@ impl LocalLibrarian {
         username: &str,
         limit: usize,
     ) -> Result<Vec<String>> {
-        let query_lower = query.to_lowercase();
-        let query_terms: Vec<String> = query_lower
+        let query_norm = normalize_text(query);
+        let query_terms: Vec<String> = query_norm
             .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty() && !STOP_WORDS.contains(s))
             .map(|s| s.to_string())
             .collect();
 
         let terms_to_use: Vec<String> = if query_terms.is_empty() {
-            query_lower
+            query_norm
                 .split(|c: char| !c.is_alphanumeric())
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string())
@@ -167,7 +206,7 @@ impl LocalLibrarian {
         }
 
         // Quote every alphanumeric token to isolate FTS5 reserved keywords (AND/OR/NOT/NEAR)
-        // and qualify with `text :` so queries never match the `username` column.
+        // and qualify with `search_text :` so queries never match the `username` column.
         let user_tokens: Vec<&str> = username
             .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
@@ -182,75 +221,134 @@ impl LocalLibrarian {
 
         let quoted_terms: Vec<String> = terms_to_use
             .iter()
-            .map(|t| format!("text : \"{}\"*", t))
+            .map(|t| format!("search_text : \"{}\"*", t))
             .collect();
         let and_query = scope_expr(quoted_terms.join(" AND "));
         let or_query = (quoted_terms.len() > 1).then(|| scope_expr(quoted_terms.join(" OR ")));
 
-        // --- SECURITY FIX (Section 1.1 / Finding A.4): User-Level Partitioning ---
+        // --- SECURITY FIX (Section 1.1 / Finding A.4 & BM25 Tenant Isolation): User-Level Partitioning ---
+        let norm_terms: Vec<String> = terms_to_use
+            .iter()
+            .map(|t| normalize_text(t))
+            .filter(|t| !t.is_empty())
+            .collect();
         let username = username.to_string();
         let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+        let candidate_cap = limit_i64.saturating_mul(20).max(200);
         let results = self
             .db
             .call(move |conn| {
-                // Weight column 0 (username) at 0.0 and column 1 (text) at 1.0 for pure text BM25 ranking
+                // Use FTS5 strictly as a tenant-scoped inverted-index filter (no global corpus BM25 ORDER BY)
+                // so one tenant's document frequencies never leak into or perturb another tenant's ranking.
                 let sql = "SELECT d.id, d.text \
                            FROM documents_fts f \
                            JOIN documents d ON d.id = f.rowid \
                            WHERE documents_fts MATCH ?1 AND d.username = ?2 \
-                           ORDER BY bm25(documents_fts, 0.0, 1.0) \
                            LIMIT ?3";
                 let mut stmt = conn.prepare(sql)?;
-                let mut matched_docs = Vec::new();
 
-                {
-                    let mut rows = stmt.query((&and_query, &username, limit_i64))?;
+                struct Candidate {
+                    id: i64,
+                    text: String,
+                    tokens: Vec<String>,
+                    overlap: usize,
+                    score: f64,
+                }
+
+                let collect_candidates = |fts_q: &str,
+                                          s: &mut rusqlite::Statement<'_>|
+                 -> rusqlite::Result<Vec<Candidate>> {
+                    let mut seen = HashSet::new();
+                    let mut out = Vec::new();
+                    let mut rows = s.query((fts_q, &username, candidate_cap))?;
                     while let Some(row) = rows.next()? {
-                        matched_docs.push(row.get::<_, String>(1)?);
-                        if matched_docs.len() >= limit {
-                            break;
+                        let id: i64 = row.get(0)?;
+                        if !seen.insert(id) {
+                            continue;
+                        }
+                        let text: String = row.get(1)?;
+                        let norm_doc = normalize_text(&text);
+                        let tokens: Vec<String> = norm_doc
+                            .split(|c: char| !c.is_alphanumeric())
+                            .filter(|t| !t.is_empty())
+                            .map(str::to_string)
+                            .collect();
+                        let overlap = norm_terms
+                            .iter()
+                            .filter(|t| tokens.iter().any(|dt| dt.starts_with(t.as_str())))
+                            .count();
+                        out.push(Candidate {
+                            id,
+                            text,
+                            tokens,
+                            overlap,
+                            score: 0.0,
+                        });
+                    }
+                    Ok(out)
+                };
+
+                let mut candidates = collect_candidates(&and_query, &mut stmt)?;
+                if candidates.is_empty() {
+                    if let Some(ref oq) = or_query {
+                        candidates = collect_candidates(oq, &mut stmt)?;
+                        if candidates.iter().any(|c| c.overlap >= 2) {
+                            candidates.retain(|c| c.overlap >= 2);
                         }
                     }
                 }
 
-                if matched_docs.is_empty() {
-                    if let Some(ref oq) = or_query {
-                        let or_candidate_limit = limit_i64.saturating_mul(5).max(25);
-                        let mut seen_ids = std::collections::HashSet::new();
-                        let mut candidates: Vec<(String, usize)> = Vec::new();
-                        let mut rows = stmt.query((oq, &username, or_candidate_limit))?;
-                        while let Some(row) = rows.next()? {
-                            let id: i64 = row.get(0)?;
-                            let text: String = row.get(1)?;
-                            if !seen_ids.insert(id) {
-                                continue;
-                            }
-                            let lower = text.to_lowercase();
-                            let doc_tokens: Vec<&str> = lower
-                                .split(|c: char| !c.is_alphanumeric())
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                            let overlap = terms_to_use
-                                .iter()
-                                .filter(|t| doc_tokens.iter().any(|dt| dt.starts_with(t.as_str())))
-                                .count();
-                            candidates.push((text, overlap));
-                        }
-                        let min_overlap = if candidates.iter().any(|(_, c)| *c >= 2) {
-                            2
-                        } else {
-                            1
-                        };
-                        for (text, overlap) in candidates {
-                            if overlap >= min_overlap {
-                                matched_docs.push(text);
-                                if matched_docs.len() >= limit {
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                if candidates.is_empty() {
+                    return Ok::<Vec<String>, rusqlite::Error>(Vec::new());
                 }
+
+                let total_docs_i64: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM documents WHERE username = ?1",
+                    [&username],
+                    |r| r.get(0),
+                )?;
+                let n_tenant = (total_docs_i64.max(1)) as f64;
+                let avg_dl = (candidates
+                    .iter()
+                    .map(|c| c.tokens.len().max(1))
+                    .sum::<usize>() as f64
+                    / candidates.len() as f64)
+                    .max(1.0);
+                let df_counts: Vec<usize> = norm_terms
+                    .iter()
+                    .map(|t| {
+                        candidates
+                            .iter()
+                            .filter(|c| c.tokens.iter().any(|dt| dt.starts_with(t.as_str())))
+                            .count()
+                    })
+                    .collect();
+
+                for cand in &mut candidates {
+                    let dl = (cand.tokens.len().max(1)) as f64;
+                    let mut score = 0.0;
+                    for (idx, t) in norm_terms.iter().enumerate() {
+                        let tf = cand
+                            .tokens
+                            .iter()
+                            .filter(|dt| dt.starts_with(t.as_str()))
+                            .count() as f64;
+                        if tf == 0.0 {
+                            continue;
+                        }
+                        let df = (df_counts[idx] as f64).min(n_tenant);
+                        let idf = ((n_tenant - df + 0.5) / (df + 0.5) + 1.0).ln().max(0.0);
+                        let k1 = 1.2;
+                        let b = 0.75;
+                        score +=
+                            idf * (tf * (k1 + 1.0)) / (tf + k1 * (1.0 - b + b * (dl / avg_dl)));
+                    }
+                    cand.score = score;
+                }
+
+                candidates
+                    .sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+                let matched_docs = candidates.into_iter().take(limit).map(|c| c.text).collect();
 
                 Ok::<Vec<String>, rusqlite::Error>(matched_docs)
             })
@@ -294,12 +392,13 @@ impl LocalLibrarian {
     /// Helper to add a document (for testing/ingestion)
     pub async fn add_document(&self, text: &str, username: &str) -> Result<()> {
         let text = text.to_string();
+        let search_text = normalize_text(&text);
         let username = username.to_string();
         self.db
             .call(move |conn| {
                 conn.execute(
-                    "INSERT INTO documents (text, username) VALUES (?1, ?2)",
-                    [&text, &username],
+                    "INSERT INTO documents (text, search_text, username) VALUES (?1, ?2, ?3)",
+                    [&text, &search_text, &username],
                 )?;
                 Ok::<(), rusqlite::Error>(())
             })
