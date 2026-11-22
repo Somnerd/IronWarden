@@ -31,6 +31,22 @@ enum Commands {
         #[arg(short, long, default_value = "audit.db")]
         db: String,
     },
+    /// Upgrades legacy pre-v1.3 GDPR [REDACTED] tombstones to keyed GDPR_HMAC tags
+    MigrateGdpr {
+        /// Path to the SQLite audit database
+        #[arg(short, long, default_value = "audit.db")]
+        db: String,
+    },
+}
+
+fn require_pepper() -> SecretString {
+    let pepper_env = std::env::var("WARDEN_PEPPER").unwrap_or_else(|_| {
+        eprintln!(
+            "WARDEN_PEPPER environment variable is missing. This is required for verification."
+        );
+        std::process::exit(1);
+    });
+    SecretString::from(pepper_env)
 }
 
 fn main() {
@@ -44,15 +60,16 @@ fn main() {
             }
         }
         Commands::Verify { db } => {
-            let pepper_env = std::env::var("WARDEN_PEPPER").unwrap_or_else(|_| {
-                eprintln!(
-                    "WARDEN_PEPPER environment variable is missing. This is required for verification."
-                );
-                std::process::exit(1);
-            });
-            let secret_pepper = SecretString::from(pepper_env);
+            let secret_pepper = require_pepper();
             if let Err(e) = verify_integrity(db, &secret_pepper) {
                 eprintln!("Error verifying integrity: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::MigrateGdpr { db } => {
+            let secret_pepper = require_pepper();
+            if let Err(e) = migrate_gdpr_tombstones(db, &secret_pepper) {
+                eprintln!("Error migrating GDPR tombstones: {}", e);
                 std::process::exit(1);
             }
         }
@@ -112,9 +129,7 @@ fn generate_report(db_path: &str) -> rusqlite::Result<()> {
     Ok(())
 }
 
-fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()> {
-    let conn = Connection::open(db_path)?;
-
+fn derive_audit_keys(pepper: &SecretString) -> rusqlite::Result<([u8; 32], [u8; 32])> {
     let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret().as_bytes());
     let mut hmac_key_bytes = [0u8; 32];
     if hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes).is_err() {
@@ -128,6 +143,41 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
         genesis_hash.zeroize();
         return Err(rusqlite::Error::InvalidQuery);
     }
+
+    Ok((hmac_key_bytes, genesis_hash))
+}
+
+fn migrate_gdpr_tombstones(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()> {
+    let conn = Connection::open(db_path)?;
+    let (mut hmac_key_bytes, mut genesis_hash) = derive_audit_keys(pepper)?;
+
+    let res = iw_core::audit::migrate_legacy_gdpr_tombstones(
+        &conn,
+        db_path,
+        &genesis_hash,
+        &hmac_key_bytes,
+    );
+    hmac_key_bytes.zeroize();
+    genesis_hash.zeroize();
+
+    match res {
+        Ok(migrated) => {
+            println!(
+                "Migrated {} legacy GDPR tombstone record(s) in {}.",
+                migrated, db_path
+            );
+            Ok(())
+        }
+        Err(msg) => {
+            eprintln!("GDPR tombstone migration failed: {}", msg);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()> {
+    let conn = Connection::open(db_path)?;
+    let (mut hmac_key_bytes, mut genesis_hash) = derive_audit_keys(pepper)?;
 
     println!("\n=============================================");
     println!("⛓️  IRONWARDEN TAMPER-CHECK INTEGRITY TOOL ⛓️");

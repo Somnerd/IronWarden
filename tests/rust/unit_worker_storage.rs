@@ -988,6 +988,168 @@ mod additional_audit_tests {
         let _ = std::fs::remove_file(format!("{}-wal", db_path));
         let _ = std::fs::remove_file(format!("{}.anchor", db_path));
     }
+
+    #[tokio::test]
+    async fn test_audit_purge_newest_user_then_log_does_not_drift_ephemeral_rowid() {
+        let db_path = std::env::temp_dir()
+            .join(format!(
+                "audit_test_rowid_drift_{}.db",
+                uuid::Uuid::new_v4()
+            ))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x55u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        // 1. Log userA (id=1), then immediately purge userA (deletes ephemeral_raw_logs id=1)
+        auditor
+            .log_report(report.clone(), "rawA".into(), "userA".into())
+            .await
+            .unwrap();
+        auditor.purge_user("userA").await.unwrap();
+
+        // 2. Log userB (audit_reports id=2): ephemeral_raw_logs MUST get id=2, NOT reuse id=1
+        auditor
+            .log_report(report, "rawB".into(), "userB".into())
+            .await
+            .unwrap();
+        auditor.shutdown().await;
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let erl_id: i64 = conn
+            .query_row(
+                "SELECT id FROM ephemeral_raw_logs WHERE username = 'userB'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            erl_id, 2,
+            "ephemeral_raw_logs rowid must stay synchronized with audit_reports.id=2"
+        );
+        drop(conn);
+
+        // 3. Restart must verify cleanly without false GDPR SHREDDING VIOLATION at Log ID 1
+        let auditor2 = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes), None)
+            .await
+            .expect("Restart after purging newest user and appending must succeed");
+        auditor2.shutdown().await;
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
+
+    #[tokio::test]
+    async fn test_legacy_pre_wave1_gdpr_db_migration() {
+        let db_path = std::env::temp_dir()
+            .join(format!(
+                "audit_test_legacy_gdpr_{}.db",
+                uuid::Uuid::new_v4()
+            ))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x66u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        auditor
+            .log_report(report.clone(), "rawA".into(), "userA".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "rawB".into(), "userB".into())
+            .await
+            .unwrap();
+        auditor.shutdown().await;
+
+        // Downgrade row 1 to legacy pre-Wave-1 purged state: delete ephemeral payload + overwrite username only
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute("DELETE FROM ephemeral_raw_logs WHERE id = 1", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE audit_reports SET username = '[REDACTED]' WHERE id = 1",
+            [],
+        )
+        .unwrap();
+
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, &pepper_bytes);
+        let mut hmac_key = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_INTEGRITY, &mut hmac_key)
+            .unwrap();
+        let mut genesis_hash = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_GENESIS, &mut genesis_hash)
+            .unwrap();
+
+        // Fail-closed verifier rejects legacy untagged row with explicit migrate-gdpr hint
+        let legacy_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            legacy_err.contains("migrate-gdpr"),
+            "Expected migrate-gdpr upgrade hint, got: {}",
+            legacy_err
+        );
+
+        // Migrate legacy tombstones in-place inside transaction
+        let migrated = iw_core::audit::migrate_legacy_gdpr_tombstones(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key,
+        )
+        .unwrap();
+        assert_eq!(migrated, 1);
+
+        let summary =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).unwrap();
+        assert_eq!(summary.gdpr_redacted_count, 1);
+        assert_eq!(summary.verified_count, 1);
+        drop(conn);
+
+        // Restarting AsyncAuditor now succeeds cleanly
+        let auditor2 = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes), None)
+            .await
+            .expect("Restart after migrate_legacy_gdpr_tombstones must succeed");
+        auditor2.shutdown().await;
+
+        // Post-migration mutation on row 1 must be detected as tampered
+        let conn2 = rusqlite::Connection::open(&db_path).unwrap();
+        conn2
+            .execute("UPDATE audit_reports SET is_blocked = 1 WHERE id = 1", [])
+            .unwrap();
+        assert!(
+            iw_core::audit::verify_audit_chain(&conn2, &db_path, &genesis_hash, &hmac_key).is_err()
+        );
+        drop(conn2);
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
 }
 
 #[cfg(test)]

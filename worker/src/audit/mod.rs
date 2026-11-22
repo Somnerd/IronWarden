@@ -204,17 +204,20 @@ impl AsyncAuditor {
                                         result = Err(map_err(e));
                                     } else {
                                         let siem_acked = !has_forwarder;
-                                        let res = c.execute("INSERT INTO ephemeral_raw_logs (username, encrypted_data, nonce, siem_acked) VALUES (?1, ?2, ?3, ?4)", (&username, &ciphertext.to_vec(), &nonce_bytes.to_vec(), &siem_acked));
-                                        log_id = c.last_insert_rowid();
-                                        if let Err(e) = res {
+                                        let res2 = c.execute(
+                                            "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                                            (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(payload_hash), hex::encode(&current_hash)),
+                                        );
+                                        if let Err(e) = res2 {
                                             let _ = c.execute("ROLLBACK", []);
                                             result = Err(map_err(e));
                                         } else {
-                                            let res2 = c.execute(
-                                                "INSERT INTO audit_reports (timestamp, username, is_blocked, redactions_json, payload_hash, integrity_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", 
-                                                (&timestamp, &username, report.is_blocked, &redactions_json, hex::encode(payload_hash), hex::encode(&current_hash))
+                                            log_id = c.last_insert_rowid();
+                                            let res = c.execute(
+                                                "INSERT INTO ephemeral_raw_logs (id, username, encrypted_data, nonce, siem_acked) VALUES (?1, ?2, ?3, ?4, ?5)",
+                                                (&log_id, &username, &ciphertext.to_vec(), &nonce_bytes.to_vec(), &siem_acked),
                                             );
-                                            if let Err(e) = res2 {
+                                            if let Err(e) = res {
                                                 let _ = c.execute("ROLLBACK", []);
                                                 result = Err(map_err(e));
                                             } else {

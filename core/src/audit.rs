@@ -84,9 +84,18 @@ fn verify_gdpr_tombstone_mac(
     integrity_hash: &[u8],
     payload_hash: &str,
 ) -> Result<(), String> {
-    let tag_hex = payload_hash
-        .strip_prefix(GDPR_TOMBSTONE_PREFIX)
-        .ok_or_else(|| "Missing GDPR_HMAC tombstone tag".to_string())?;
+    let tag_hex = match payload_hash.strip_prefix(GDPR_TOMBSTONE_PREFIX) {
+        Some(h) => h,
+        None => {
+            if payload_hash.len() == 64 && hex::decode(payload_hash).is_ok_and(|b| b.len() == 32) {
+                return Err(
+                    "Legacy pre-v1.3 GDPR [REDACTED] record without GDPR_HMAC tag; run 'iw-cli migrate-gdpr --db <path>' to upgrade tombstones"
+                        .to_string(),
+                );
+            }
+            return Err("Missing GDPR_HMAC tombstone tag".to_string());
+        }
+    };
     let tag_bytes = hex::decode(tag_hex).map_err(|_| "Invalid GDPR tombstone hex".to_string())?;
     if tag_bytes.len() != 32 {
         return Err("Invalid GDPR tombstone tag length".to_string());
@@ -406,6 +415,235 @@ fn verify_audit_chain_inner(
         gdpr_redacted_count,
         failures,
     })
+}
+
+/// Upgrades legacy pre-v1.3 `[REDACTED]` / `GDPR_*` rows (which kept a raw 64-char hex
+/// `payload_hash` and no `GDPR_HMAC:` tag) inside an atomic transaction after verifying every
+/// intact record and anchor in the chain.
+pub fn migrate_legacy_gdpr_tombstones(
+    conn: &Connection,
+    db_path: &str,
+    genesis_hash: &[u8; 32],
+    hmac_key: &[u8; 32],
+) -> Result<usize, String> {
+    conn.execute("BEGIN IMMEDIATE TRANSACTION", [])
+        .map_err(|e| format!("Failed to begin GDPR tombstone migration: {}", e))?;
+
+    let migration_result: Result<usize, String> = (|| {
+        let mut pending_updates: Vec<(i64, String)> = Vec::new();
+
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT ar.id, ar.timestamp, ar.is_blocked, ar.redactions_json, ar.payload_hash, ar.integrity_hash, erl.encrypted_data, erl.nonce, ar.username \
+                     FROM audit_reports ar \
+                     LEFT JOIN ephemeral_raw_logs erl ON ar.id = erl.id \
+                     ORDER BY ar.id ASC",
+                )
+                .map_err(|e| format!("Failed to prepare migration query: {}", e))?;
+
+            let mut rows = stmt
+                .query([])
+                .map_err(|e| format!("Failed to execute migration query: {}", e))?;
+
+            let mut current_hash = genesis_hash.to_vec();
+            let mut current_id = 0i64;
+
+            while let Some(row) = rows
+                .next()
+                .map_err(|e| format!("Failed reading audit chain row: {}", e))?
+            {
+                let id: i64 = row
+                    .get(0)
+                    .map_err(|e| format!("Invalid audit row id: {}", e))?;
+                let ts: String = row
+                    .get(1)
+                    .map_err(|e| format!("Invalid audit timestamp at {}: {}", id, e))?;
+                let blocked: bool = row
+                    .get(2)
+                    .map_err(|e| format!("Invalid audit is_blocked at {}: {}", id, e))?;
+                let redactions: String = row
+                    .get(3)
+                    .map_err(|e| format!("Invalid audit redactions_json at {}: {}", id, e))?;
+                let payload_hash_str: String = row
+                    .get(4)
+                    .map_err(|e| format!("Invalid audit payload_hash at {}: {}", id, e))?;
+                let stored_hash: String = row
+                    .get(5)
+                    .map_err(|e| format!("Invalid audit integrity_hash at {}: {}", id, e))?;
+                let encrypted_data: Option<Vec<u8>> = row
+                    .get(6)
+                    .map_err(|e| format!("Invalid ephemeral encrypted_data at {}: {}", id, e))?;
+                let nonce: Option<Vec<u8>> = row
+                    .get(7)
+                    .map_err(|e| format!("Invalid ephemeral nonce at {}: {}", id, e))?;
+                let username: String = row
+                    .get(8)
+                    .map_err(|e| format!("Invalid audit username at {}: {}", id, e))?;
+
+                if id != current_id + 1 {
+                    return Err(format!(
+                        "Audit sequence break detected at Log ID {}! Expected ID {}.",
+                        id,
+                        current_id + 1
+                    ));
+                }
+
+                let stored_bytes = match hex::decode(&stored_hash) {
+                    Ok(b) if b.len() == 32 => b,
+                    _ => {
+                        return Err(format!(
+                            "AUDIT CORRUPTION: Invalid integrity_hash at Log ID {}",
+                            id
+                        ))
+                    }
+                };
+
+                let redactions_vec: Vec<Redaction> =
+                    serde_json::from_str(&redactions).map_err(|e| {
+                        format!(
+                            "AUDIT CORRUPTION: Invalid redactions_json at Log ID {}: {}",
+                            id, e
+                        )
+                    })?;
+                let redactions_bin = bincode::serialize(&redactions_vec).map_err(|e| {
+                    format!(
+                        "AUDIT CORRUPTION: Failed redactions serialization at Log ID {}: {}",
+                        id, e
+                    )
+                })?;
+
+                if is_reserved_gdpr_username(&username) {
+                    if encrypted_data.is_some() || nonce.is_some() {
+                        return Err(format!(
+                            "GDPR SHREDDING VIOLATION at Log ID {}! Redacted record retains unshredded ephemeral payload.",
+                            id
+                        ));
+                    }
+                    if payload_hash_str.starts_with(GDPR_TOMBSTONE_PREFIX) {
+                        verify_gdpr_tombstone_mac(
+                            hmac_key,
+                            &current_hash,
+                            id,
+                            &ts,
+                            blocked,
+                            &redactions_bin,
+                            &stored_bytes,
+                            &payload_hash_str,
+                        )?;
+                    } else {
+                        let legacy_ph = hex::decode(payload_hash_str.trim())
+                            .map_err(|_| format!("Invalid legacy payload_hash at Log ID {}", id))?;
+                        if legacy_ph.len() != 32 {
+                            return Err(format!(
+                                "Invalid legacy payload_hash length at Log ID {}",
+                                id
+                            ));
+                        }
+                        let tombstone = compute_gdpr_tombstone_mac(
+                            hmac_key,
+                            &current_hash,
+                            id,
+                            &ts,
+                            blocked,
+                            &redactions_bin,
+                            &stored_bytes,
+                        )?;
+                        pending_updates.push((id, tombstone));
+                    }
+                    current_hash = stored_bytes;
+                    current_id = id;
+                    continue;
+                }
+
+                let payload_hash = match hex::decode(&payload_hash_str) {
+                    Ok(b) if b.len() == 32 => b,
+                    _ => {
+                        return Err(format!(
+                            "AUDIT CORRUPTION: Invalid payload_hash at Log ID {}",
+                            id
+                        ))
+                    }
+                };
+
+                let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key)
+                    .map_err(|_| "HMAC key initialization failure".to_string())?;
+                mac.update(&current_hash);
+                mac.update(ts.as_bytes());
+                mac.update(username.as_bytes());
+                mac.update(&[blocked as u8]);
+                mac.update(&redactions_bin);
+                mac.update(&payload_hash);
+
+                if mac.verify_slice(&stored_bytes).is_err() {
+                    return Err(format!(
+                        "Audit log integrity violation detected at record {}. Refusing GDPR migration.",
+                        id
+                    ));
+                }
+
+                match (encrypted_data, nonce) {
+                    (Some(data), Some(n)) => {
+                        let mut hasher = Sha256::new();
+                        hasher.update(&data);
+                        hasher.update(&n);
+                        let actual_payload_hash = hasher.finalize();
+                        if actual_payload_hash[..] != payload_hash[..] {
+                            return Err(format!(
+                                "Audit payload mismatch at record {}. Refusing GDPR migration.",
+                                id
+                            ));
+                        }
+                    }
+                    (None, None) => {}
+                    _ => {
+                        return Err(format!(
+                            "PAYLOAD TAMPER DETECTED at Log ID {}! Corrupted partial ephemeral binding.",
+                            id
+                        ));
+                    }
+                }
+
+                current_hash = stored_bytes;
+                current_id = id;
+            }
+
+            check_anchor_with_context(
+                db_path,
+                Some(conn),
+                Some(genesis_hash),
+                current_id,
+                &current_hash,
+            )?;
+        }
+
+        let migrated_count = pending_updates.len();
+        for (id, tombstone) in pending_updates {
+            conn.execute(
+                "UPDATE audit_reports SET payload_hash = ?1 WHERE id = ?2",
+                (&tombstone, id),
+            )
+            .map_err(|e| {
+                format!(
+                    "Failed to update migrated tombstone for Log ID {}: {}",
+                    id, e
+                )
+            })?;
+        }
+        Ok(migrated_count)
+    })();
+
+    match migration_result {
+        Ok(migrated) => {
+            conn.execute("COMMIT", [])
+                .map_err(|e| format!("Failed to commit GDPR tombstone migration: {}", e))?;
+            Ok(migrated)
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
+    }
 }
 
 /// Atomically persists the latest verified audit record ID and chain hash to `<db_path>.anchor`.
