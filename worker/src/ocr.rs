@@ -1,13 +1,17 @@
 use async_trait::async_trait;
 use iw_core::SovereignError;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::fs;
 use tokio::process::Command;
+use tokio::time::Instant;
 use tracing::{error, info, warn};
 
 const OCR_COMMAND_TIMEOUT_SECS: u64 = 60;
+const OCR_PDF_TOTAL_TIMEOUT_SECS: u64 = 180;
+const OCR_MAX_PDF_PAGES: usize = 50;
 
 #[async_trait]
 pub trait OcrProvider: Send + Sync {
@@ -25,21 +29,10 @@ impl Drop for TempDirGuard {
     }
 }
 
-enum CmdOutcome {
-    Success,
-    Failed(String),
-    MissingBinary,
-}
-
-enum PageOcr {
-    Text(String),
-    Mock(String),
-}
-
 fn is_production_env() -> bool {
-    std::env::var("WARDEN_ENV").unwrap_or_default() == "production"
-        || std::env::var("IRONWARDEN_ENV").unwrap_or_default() == "production"
-        || std::env::var("RUST_ENV").unwrap_or_default() == "production"
+    ["WARDEN_ENV", "IRONWARDEN_ENV", "RUST_ENV"]
+        .iter()
+        .any(|k| std::env::var(k).unwrap_or_default() == "production")
 }
 
 fn create_and_write_input(
@@ -77,8 +70,28 @@ fn create_and_write_input(
     Ok((guard, input_path))
 }
 
-async fn run_ocr_command(mut cmd: Command, tool_name: &str) -> Result<CmdOutcome, SovereignError> {
-    cmd.stdin(Stdio::null())
+/// Runs an external OCR tool under both per-invocation and cumulative deadlines.
+/// Returns `Ok(None)` on exit 0, `Ok(Some(mock))` when missing in non-production mode.
+async fn run_tool(
+    bin: &str,
+    args: &[&OsStr],
+    deadline: Instant,
+    label: &str,
+    dep_desc: &str,
+    mime_type: &str,
+) -> Result<Option<String>, SovereignError> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(SovereignError::InternalError(format!(
+            "{} timed out after {}s cumulative OCR limit",
+            label, OCR_PDF_TOTAL_TIMEOUT_SECS
+        )));
+    }
+    let timeout = remaining.min(Duration::from_secs(OCR_COMMAND_TIMEOUT_SECS));
+
+    let mut cmd = Command::new(bin);
+    cmd.args(args)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -86,83 +99,59 @@ async fn run_ocr_command(mut cmd: Command, tool_name: &str) -> Result<CmdOutcome
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(CmdOutcome::MissingBinary);
+            if is_production_env() {
+                error!(
+                    "CRITICAL: {} binary not found in production environment! Failing closed to prevent data leaks.",
+                    label
+                );
+                return Err(SovereignError::InternalError(format!(
+                    "{} OCR dependency missing in production mode.",
+                    dep_desc
+                )));
+            }
+            warn!(
+                "SECURITY WARNING: {} binary not found. Falling back to mock OCR for development mode. Do not use in production.",
+                label
+            );
+            return Ok(Some(format!(
+                "[MOCK OCR] This is a simulated extraction for {}. Install {} for real processing.",
+                mime_type, dep_desc
+            )));
         }
         Err(e) => {
-            error!("{} Process Error: {}", tool_name, e);
+            error!("{} Process Error: {}", label, e);
             return Err(SovereignError::InternalError(format!(
                 "OCR Process Error ({}): {}",
-                tool_name, e
+                label, e
             )));
         }
     };
 
-    let output = tokio::time::timeout(
-        Duration::from_secs(OCR_COMMAND_TIMEOUT_SECS),
-        child.wait_with_output(),
-    )
-    .await
-    .map_err(|_| {
-        error!(
-            "{} execution timed out after {}s",
-            tool_name, OCR_COMMAND_TIMEOUT_SECS
-        );
-        SovereignError::InternalError(format!(
-            "{} timed out after {}s",
-            tool_name, OCR_COMMAND_TIMEOUT_SECS
-        ))
-    })?
-    .map_err(|e| {
-        error!("{} wait error: {}", tool_name, e);
-        SovereignError::InternalError(format!("OCR Process Error ({}): {}", tool_name, e))
-    })?;
+    let output = tokio::time::timeout(timeout, child.wait_with_output())
+        .await
+        .map_err(|_| {
+            error!("{} execution timed out after {}s", label, timeout.as_secs());
+            SovereignError::InternalError(format!(
+                "{} timed out after {}s",
+                label,
+                timeout.as_secs()
+            ))
+        })?
+        .map_err(|e| {
+            error!("{} wait error: {}", label, e);
+            SovereignError::InternalError(format!("OCR Process Error ({}): {}", label, e))
+        })?;
 
     if output.status.success() {
-        Ok(CmdOutcome::Success)
+        Ok(None)
     } else {
-        let err = String::from_utf8_lossy(&output.stderr).into_owned();
-        Ok(CmdOutcome::Failed(err))
-    }
-}
-
-fn handle_missing_binary(
-    tool_name: &str,
-    dep_desc: &str,
-    mime_type: &str,
-) -> Result<String, SovereignError> {
-    if is_production_env() {
-        error!(
-            "CRITICAL: {} binary not found in production environment! Failing closed to prevent data leaks.",
-            tool_name
-        );
+        let err = String::from_utf8_lossy(&output.stderr);
+        error!("{} execution failed: {}", label, err);
         Err(SovereignError::InternalError(format!(
-            "{} OCR dependency missing in production mode.",
-            dep_desc
+            "{} Error: {}",
+            label, err
         )))
-    } else {
-        warn!(
-            "SECURITY WARNING: {} binary not found. Falling back to mock OCR for development mode. Do not use in production.",
-            tool_name
-        );
-        Ok(format!(
-            "[MOCK OCR] This is a simulated extraction for {}. Install {} for real processing.",
-            mime_type, dep_desc
-        ))
     }
-}
-
-fn parse_page_sort_key(path: &Path) -> (usize, String) {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or_default()
-        .to_string();
-    let num = name
-        .strip_prefix("page-")
-        .and_then(|s| s.strip_suffix(".png"))
-        .and_then(|n| n.parse::<usize>().ok())
-        .unwrap_or(usize::MAX);
-    (num, name)
 }
 
 async fn collect_sorted_page_pngs(work_dir: &Path) -> Result<Vec<PathBuf>, SovereignError> {
@@ -174,46 +163,59 @@ async fn collect_sorted_page_pngs(work_dir: &Path) -> Result<Vec<PathBuf>, Sover
         SovereignError::InternalError(format!("Failed to read OCR temp dir entry: {}", e))
     })? {
         let path = entry.path();
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with("page-") && name.ends_with(".png") {
-                pages.push(path);
-            }
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("page-") && n.ends_with(".png"))
+        {
+            pages.push(path);
         }
     }
-    pages.sort_by_key(|p| parse_page_sort_key(p));
+    pages.sort_by_key(|p| {
+        let name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let num = name
+            .strip_prefix("page-")
+            .and_then(|s| s.strip_suffix(".png"))
+            .and_then(|n| n.parse::<usize>().ok())
+            .unwrap_or(usize::MAX);
+        (num, name)
+    });
     Ok(pages)
 }
 
-async fn run_tesseract_image(
+async fn run_tesseract_page(
     input_path: &Path,
     output_base: &Path,
     mime_type: &str,
-) -> Result<PageOcr, SovereignError> {
-    let mut cmd = Command::new("tesseract");
-    cmd.arg(input_path);
-    cmd.arg(output_base);
-    cmd.arg("-l").arg("eng+ell+grc");
-
-    match run_ocr_command(cmd, "Tesseract").await? {
-        CmdOutcome::Success => {
-            let output_path = PathBuf::from(format!("{}.txt", output_base.display()));
-            let text = fs::read_to_string(&output_path).await.map_err(|e| {
-                SovereignError::InternalError(format!("Failed to read OCR output: {}", e))
-            })?;
-            Ok(PageOcr::Text(text))
-        }
-        CmdOutcome::Failed(err) => {
-            error!("Tesseract execution failed: {}", err);
-            Err(SovereignError::InternalError(format!(
-                "Tesseract Error: {}",
-                err
-            )))
-        }
-        CmdOutcome::MissingBinary => {
-            let mock = handle_missing_binary("Tesseract", "Tesseract", mime_type)?;
-            Ok(PageOcr::Mock(mock))
-        }
+    deadline: Instant,
+) -> Result<(bool, String), SovereignError> {
+    let args = [
+        input_path.as_os_str(),
+        output_base.as_os_str(),
+        OsStr::new("-l"),
+        OsStr::new("eng+ell+grc"),
+    ];
+    if let Some(mock) = run_tool(
+        "tesseract",
+        &args,
+        deadline,
+        "Tesseract",
+        "Tesseract",
+        mime_type,
+    )
+    .await?
+    {
+        return Ok((true, mock));
     }
+    let output_path = PathBuf::from(format!("{}.txt", output_base.display()));
+    let text = fs::read_to_string(&output_path)
+        .await
+        .map_err(|e| SovereignError::InternalError(format!("Failed to read OCR output: {}", e)))?;
+    Ok((false, text))
 }
 
 #[async_trait]
@@ -232,37 +234,34 @@ impl OcrProvider for TesseractOcr {
                 })??;
 
         let work_dir = &work_guard.0;
+        let deadline = Instant::now() + Duration::from_secs(OCR_PDF_TOTAL_TIMEOUT_SECS);
 
         if is_pdf {
             let page_prefix = work_dir.join("page");
-            let mut pdf_cmd = Command::new("pdftoppm");
-            pdf_cmd
-                .arg("-png")
-                .arg("-r")
-                .arg("200")
-                .arg("-f")
-                .arg("1")
-                .arg("-l")
-                .arg("50")
-                .arg(&input_path)
-                .arg(&page_prefix);
-
-            match run_ocr_command(pdf_cmd, "pdftoppm").await? {
-                CmdOutcome::Success => {}
-                CmdOutcome::Failed(err) => {
-                    error!("pdftoppm execution failed: {}", err);
-                    return Err(SovereignError::InternalError(format!(
-                        "pdftoppm Error: {}",
-                        err
-                    )));
-                }
-                CmdOutcome::MissingBinary => {
-                    return handle_missing_binary(
-                        "pdftoppm",
-                        "pdftoppm (poppler-utils)",
-                        mime_type,
-                    );
-                }
+            // Request up to OCR_MAX_PDF_PAGES + 1 pages so >50-page PDFs fail closed cleanly.
+            let max_probe = (OCR_MAX_PDF_PAGES + 1).to_string();
+            let pdf_args = [
+                OsStr::new("-png"),
+                OsStr::new("-r"),
+                OsStr::new("200"),
+                OsStr::new("-f"),
+                OsStr::new("1"),
+                OsStr::new("-l"),
+                OsStr::new(&max_probe),
+                input_path.as_os_str(),
+                page_prefix.as_os_str(),
+            ];
+            if let Some(mock) = run_tool(
+                "pdftoppm",
+                &pdf_args,
+                deadline,
+                "pdftoppm",
+                "pdftoppm (poppler-utils)",
+                mime_type,
+            )
+            .await?
+            {
+                return Ok(mock);
             }
 
             let pages = collect_sorted_page_pngs(work_dir).await?;
@@ -271,27 +270,31 @@ impl OcrProvider for TesseractOcr {
                     "pdftoppm produced no page images for PDF".to_string(),
                 ));
             }
+            if pages.len() > OCR_MAX_PDF_PAGES {
+                return Err(SovereignError::InternalError(format!(
+                    "PDF exceeds maximum OCR page limit of {} pages",
+                    OCR_MAX_PDF_PAGES
+                )));
+            }
 
             let mut page_texts = Vec::with_capacity(pages.len());
             for (idx, page_png) in pages.iter().enumerate() {
                 let output_base = work_dir.join(format!("ocr_out_{}", idx));
-                match run_tesseract_image(page_png, &output_base, mime_type).await? {
-                    PageOcr::Mock(msg) => return Ok(msg),
-                    PageOcr::Text(txt) => {
-                        if !txt.trim().is_empty() {
-                            page_texts.push(txt);
-                        }
-                    }
+                let (is_mock, text) =
+                    run_tesseract_page(page_png, &output_base, mime_type, deadline).await?;
+                if is_mock {
+                    return Ok(text);
+                }
+                if !text.trim().is_empty() {
+                    page_texts.push(text);
                 }
             }
             return Ok(page_texts.join("\n\n"));
         }
 
         let output_base = work_dir.join("ocr_out");
-        match run_tesseract_image(&input_path, &output_base, mime_type).await? {
-            PageOcr::Mock(msg) => Ok(msg),
-            PageOcr::Text(txt) => Ok(txt),
-        }
+        let (_, text) = run_tesseract_page(&input_path, &output_base, mime_type, deadline).await?;
+        Ok(text)
     }
 }
 

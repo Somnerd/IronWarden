@@ -82,6 +82,6 @@ USER ironwarden
 EXPOSE 8080 14141
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+    CMD curl -fsS "http://127.0.0.1:${BRIDGE_PORT:-8080}/health" || exit 1
 
 CMD ["ironwarden"]
