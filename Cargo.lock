@@ -1813,7 +1813,6 @@ dependencies = [
 name = "iw_worker"
 version = "1.2.0"
 dependencies = [
- "aho-corasick",
  "anyhow",
  "async-trait",
  "axum",
