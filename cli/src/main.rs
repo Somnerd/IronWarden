@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::path::Path;
 
 use hkdf::Hkdf;
 use iw_core::{KDF_SALT_GENESIS, KDF_SALT_INTEGRITY};
@@ -36,6 +37,9 @@ enum Commands {
         /// Path to the SQLite audit database
         #[arg(short, long, default_value = "audit.db")]
         db: String,
+        /// Execute the upgrade in-place (omit for read-only dry-run inspection)
+        #[arg(long, default_value_t = false)]
+        confirm: bool,
     },
 }
 
@@ -46,7 +50,29 @@ fn require_pepper() -> SecretString {
         );
         std::process::exit(1);
     });
+    if pepper_env.len() < 32 {
+        eprintln!(
+            "Security violation: WARDEN_PEPPER must be at least 32 bytes (got {}).",
+            pepper_env.len()
+        );
+        std::process::exit(1);
+    }
     SecretString::from(pepper_env)
+}
+
+fn open_existing_db(db_path: &str, read_only: bool) -> rusqlite::Result<Connection> {
+    if db_path != ":memory:" && !db_path.contains(":memory:") && !Path::new(db_path).exists() {
+        eprintln!("Audit database file does not exist: {}", db_path);
+        std::process::exit(1);
+    }
+    let flags = if read_only {
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+    } else {
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+    };
+    let conn = Connection::open_with_flags(db_path, flags)?;
+    conn.busy_timeout(std::time::Duration::from_millis(5000))?;
+    Ok(conn)
 }
 
 fn main() {
@@ -66,9 +92,9 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::MigrateGdpr { db } => {
+        Commands::MigrateGdpr { db, confirm } => {
             let secret_pepper = require_pepper();
-            if let Err(e) = migrate_gdpr_tombstones(db, &secret_pepper) {
+            if let Err(e) = migrate_gdpr_tombstones(db, &secret_pepper, *confirm) {
                 eprintln!("Error migrating GDPR tombstones: {}", e);
                 std::process::exit(1);
             }
@@ -147,8 +173,44 @@ fn derive_audit_keys(pepper: &SecretString) -> rusqlite::Result<([u8; 32], [u8; 
     Ok((hmac_key_bytes, genesis_hash))
 }
 
-fn migrate_gdpr_tombstones(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()> {
-    let conn = Connection::open(db_path)?;
+fn migrate_gdpr_tombstones(
+    db_path: &str,
+    pepper: &SecretString,
+    confirm: bool,
+) -> rusqlite::Result<()> {
+    if !confirm {
+        let conn = open_existing_db(db_path, true)?;
+        match iw_core::audit::inspect_legacy_gdpr_tombstones(&conn) {
+            Ok(candidates) => {
+                if candidates.is_empty() {
+                    println!(
+                        "No legacy untagged GDPR tombstones found in {} (dry-run).",
+                        db_path
+                    );
+                } else {
+                    println!(
+                        "Dry-run: found {} legacy untagged GDPR tombstone(s) in {}:",
+                        candidates.len(),
+                        db_path
+                    );
+                    for row in &candidates {
+                        println!(
+                            "  - Log ID {} | timestamp={} | blocked={} | redactions={}",
+                            row.id, row.timestamp, row.is_blocked, row.redactions_json
+                        );
+                    }
+                    println!("Re-run with `--confirm` to sign these legacy records.");
+                }
+                return Ok(());
+            }
+            Err(msg) => {
+                eprintln!("GDPR tombstone inspection failed: {}", msg);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let conn = open_existing_db(db_path, false)?;
     let (mut hmac_key_bytes, mut genesis_hash) = derive_audit_keys(pepper)?;
 
     let res = iw_core::audit::migrate_legacy_gdpr_tombstones(
@@ -176,7 +238,7 @@ fn migrate_gdpr_tombstones(db_path: &str, pepper: &SecretString) -> rusqlite::Re
 }
 
 fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()> {
-    let conn = Connection::open(db_path)?;
+    let conn = open_existing_db(db_path, true)?;
     let (mut hmac_key_bytes, mut genesis_hash) = derive_audit_keys(pepper)?;
 
     println!("\n=============================================");

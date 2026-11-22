@@ -310,11 +310,23 @@ impl AsyncAuditor {
                                     &username,
                                 );
 
-                                if res1.is_err() || update_res.is_err() {
+                                if let Err(e) = res1 {
+                                    error!("GDPR Purge ephemeral_raw_logs delete failed: {}", e);
                                     let _ = c.execute("ROLLBACK", []);
-                                    Err(SovereignError::StorageError(
-                                        "Failed to purge user audit data".into(),
-                                    ))
+                                    Err(SovereignError::StorageError(format!(
+                                        "Failed to delete ephemeral raw logs for user {}: {}",
+                                        username, e
+                                    )))
+                                } else if let Err(e) = update_res {
+                                    error!(
+                                        "GDPR Purge audit_reports tombstone signing failed: {}",
+                                        e
+                                    );
+                                    let _ = c.execute("ROLLBACK", []);
+                                    Err(SovereignError::StorageError(format!(
+                                        "Failed to shred audit records for user {}: {}",
+                                        username, e
+                                    )))
                                 } else if let Err(e) = c.execute("COMMIT", []) {
                                     let _ = c.execute("ROLLBACK", []);
                                     Err(SovereignError::StorageError(format!(
@@ -445,17 +457,30 @@ impl AsyncAuditor {
                     continue;
                 }
 
-                let anchor_path = format!("{}.anchor", path_monitor);
-                if !std::path::Path::new(&anchor_path).exists() {
-                    error!("HARD-STOP MONITOR: Audit anchor file missing! Triggering Fail-Closed state.");
-                    healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
-                    break;
-                }
+                // Capture `.anchor` BEFORE querying SQLite so live commits between the two
+                // reads cannot falsely look like DB truncation against a newer anchor ID.
+                let anchor_snap = match iw_core::audit::read_anchor_snapshot(&path_monitor) {
+                    Ok(Some(iw_core::audit::AnchorSnapshot::Missing)) => {
+                        error!("HARD-STOP MONITOR: Audit anchor file missing! Triggering Fail-Closed state.");
+                        healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
+                        break;
+                    }
+                    Ok(snap) => snap,
+                    Err(e) => {
+                        error!(
+                            "HARD-STOP MONITOR: Audit anchor violation: {}. Triggering Fail-Closed state.",
+                            e
+                        );
+                        healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
+                        break;
+                    }
+                };
 
                 if let Ok(conn) = Connection::open_with_flags(
                     &path_monitor,
                     rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
                 ) {
+                    let _ = conn.busy_timeout(std::time::Duration::from_millis(2000));
                     let res: rusqlite::Result<(i64, String)> = conn.query_row(
                         "SELECT id, integrity_hash FROM audit_reports ORDER BY id DESC LIMIT 1",
                         [],
@@ -465,13 +490,25 @@ impl AsyncAuditor {
                     match res {
                         Ok((id, hash)) => {
                             let hash_bytes = hex::decode(hash).unwrap_or_default();
-                            if let Err(e) = Self::check_anchor(&path_monitor, id, &hash_bytes) {
+                            if let Err(e) = iw_core::audit::verify_anchor_snapshot(
+                                anchor_snap.as_ref(),
+                                Some(&conn),
+                                Some(&monitor_genesis),
+                                id,
+                                &hash_bytes,
+                            ) {
                                 error!("HARD-STOP MONITOR: Anchor Violation: {}. Triggering Fail-Closed state.", e);
                                 healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
                             }
                         }
                         Err(rusqlite::Error::QueryReturnedNoRows) => {
-                            if let Err(e) = Self::check_anchor(&path_monitor, 0, &monitor_genesis) {
+                            if let Err(e) = iw_core::audit::verify_anchor_snapshot(
+                                anchor_snap.as_ref(),
+                                Some(&conn),
+                                Some(&monitor_genesis),
+                                0,
+                                &monitor_genesis,
+                            ) {
                                 error!("HARD-STOP MONITOR: Anchor Mismatch (Empty DB): {}. Triggering Fail-Closed state.", e);
                                 healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
                             }

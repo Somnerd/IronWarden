@@ -46,6 +46,18 @@ impl AsyncAuditor {
             summary.last_id
         );
 
+        let current_ver = iw_core::audit::get_audit_schema_version(&conn).map_err(|e| {
+            error!("CRITICAL: Failed reading audit schema version: {}", e);
+            rusqlite::Error::InvalidQuery
+        })?;
+        if current_ver < iw_core::audit::AUDIT_SCHEMA_VERSION {
+            iw_core::audit::set_audit_schema_version(&conn, iw_core::audit::AUDIT_SCHEMA_VERSION)
+                .map_err(|e| {
+                error!("CRITICAL: Failed stamping audit schema version: {}", e);
+                rusqlite::Error::InvalidQuery
+            })?;
+        }
+
         Self::update_anchor(path, summary.last_id, &summary.last_hash).map_err(|e| {
             error!("CRITICAL: Failed to initialize audit anchor: {}", e);
             rusqlite::Error::InvalidQuery

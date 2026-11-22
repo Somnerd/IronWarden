@@ -11,6 +11,40 @@ static ANCHOR_TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 const GDPR_TOMBSTONE_PREFIX: &str = "GDPR_HMAC:";
 const GDPR_TOMBSTONE_DOMAIN: &[u8] = b"GDPR_TOMBSTONE_V1";
 
+/// Current audit ledger schema version stored in SQLite `PRAGMA user_version`.
+pub const AUDIT_SCHEMA_VERSION: i64 = 1;
+
+/// Reads SQLite `PRAGMA user_version` for the audit database.
+pub fn get_audit_schema_version(conn: &Connection) -> Result<i64, String> {
+    conn.query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(|e| format!("Failed to read audit schema user_version: {}", e))
+}
+
+/// Sets SQLite `PRAGMA user_version` for the audit database.
+pub fn set_audit_schema_version(conn: &Connection, version: i64) -> Result<(), String> {
+    conn.execute_batch(&format!("PRAGMA user_version = {};", version))
+        .map_err(|e| format!("Failed to update audit schema user_version: {}", e))
+}
+
+/// Candidate legacy pre-v1.3 GDPR `[REDACTED]` record without a `GDPR_HMAC:` tag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegacyGdprRow {
+    pub id: i64,
+    pub timestamp: String,
+    pub is_blocked: bool,
+    pub redactions_json: String,
+}
+
+/// Snapshot of `.anchor` read before SQLite queries to prevent TOCTOU races against live writers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnchorSnapshot {
+    Missing,
+    Parsed {
+        expected_id: i64,
+        hash_result: Result<[u8; 32], String>,
+    },
+}
+
 /// Returns `true` if `username` is reserved for GDPR-redacted audit tombstones.
 pub fn is_reserved_gdpr_username(username: &str) -> bool {
     let trimmed = username.trim();
@@ -83,17 +117,23 @@ fn verify_gdpr_tombstone_mac(
     redactions_bin: &[u8],
     integrity_hash: &[u8],
     payload_hash: &str,
+    allow_legacy_hint: bool,
 ) -> Result<(), String> {
     let tag_hex = match payload_hash.strip_prefix(GDPR_TOMBSTONE_PREFIX) {
         Some(h) => h,
         None => {
-            if payload_hash.len() == 64 && hex::decode(payload_hash).is_ok_and(|b| b.len() == 32) {
+            if allow_legacy_hint
+                && payload_hash.len() == 64
+                && hex::decode(payload_hash).is_ok_and(|b| b.len() == 32)
+            {
                 return Err(
-                    "Legacy pre-v1.3 GDPR [REDACTED] record without GDPR_HMAC tag; run 'iw-cli migrate-gdpr --db <path>' to upgrade tombstones"
+                    "Legacy pre-v1.3 GDPR [REDACTED] record without GDPR_HMAC tag; run 'iw-cli migrate-gdpr --db <path> --confirm' to upgrade tombstones"
                         .to_string(),
                 );
             }
-            return Err("Missing GDPR_HMAC tombstone tag".to_string());
+            return Err(
+                "Missing GDPR_HMAC tombstone tag (forged or tampered GDPR record)".to_string(),
+            );
         }
     };
     let tag_bytes = hex::decode(tag_hex).map_err(|_| "Invalid GDPR tombstone hex".to_string())?;
@@ -154,6 +194,24 @@ fn verify_audit_chain_inner(
     hmac_key: &[u8; 32],
     fail_fast: bool,
 ) -> Result<AuditChainSummary, String> {
+    // Read `.anchor` BEFORE taking the SQLite read snapshot so concurrent writers advancing
+    // both SQLite and `.anchor` never look like a newer `.anchor` against a stale DB read.
+    let anchor_snap_res = read_anchor_snapshot(db_path);
+    let expected_anchor_id = match &anchor_snap_res {
+        Ok(Some(AnchorSnapshot::Parsed { expected_id, .. })) => Some(*expected_id),
+        _ => None,
+    };
+
+    let schema_version = get_audit_schema_version(conn)?;
+    let has_v13_tombstones: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM audit_reports WHERE payload_hash LIKE 'GDPR_HMAC:%')",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("Failed checking GDPR tombstone version markers: {}", e))?;
+    let allow_legacy_hint = schema_version == 0 && !has_v13_tombstones;
+
     let mut stmt = conn
         .prepare(
             "SELECT ar.id, ar.timestamp, ar.is_blocked, ar.redactions_json, ar.payload_hash, ar.integrity_hash, erl.encrypted_data, erl.nonce, ar.username \
@@ -173,6 +231,7 @@ fn verify_audit_chain_inner(
     let mut archived_count = 0usize;
     let mut gdpr_redacted_count = 0usize;
     let mut failures = Vec::new();
+    let mut historical_anchor_hash: Option<Vec<u8>> = None;
 
     while let Some(row) = rows
         .next()
@@ -219,7 +278,12 @@ fn verify_audit_chain_inner(
         }
 
         let stored_bytes = match hex::decode(&stored_hash) {
-            Ok(b) if b.len() == 32 => b,
+            Ok(b) if b.len() == 32 => {
+                if Some(id) == expected_anchor_id {
+                    historical_anchor_hash = Some(b.clone());
+                }
+                b
+            }
             _ => {
                 let msg = format!("AUDIT CORRUPTION: Invalid integrity_hash at Log ID {}", id);
                 if fail_fast {
@@ -292,6 +356,7 @@ fn verify_audit_chain_inner(
                 &redactions_bin,
                 &stored_bytes,
                 &payload_hash_str,
+                allow_legacy_hint,
             ) {
                 Ok(()) => {
                     archived_count += 1;
@@ -394,13 +459,36 @@ fn verify_audit_chain_inner(
         current_id = id;
     }
 
-    if let Err(anchor_err) = check_anchor_with_context(
-        db_path,
-        Some(conn),
-        Some(genesis_hash),
-        current_id,
-        &current_hash,
-    ) {
+    let anchor_check = match anchor_snap_res {
+        Ok(snap) => match (&snap, current_id > 0, historical_anchor_hash.as_deref()) {
+            (
+                Some(AnchorSnapshot::Parsed {
+                    expected_id,
+                    hash_result: Ok(expected_bytes),
+                }),
+                true,
+                Some(hist),
+            ) if *expected_id > 0 && current_id > *expected_id => {
+                if hist != expected_bytes.as_slice() {
+                    Err(format!(
+                        "Audit DB Integrity Mismatch! Historical anchored record ID {} does not match stored anchor hash.",
+                        expected_id
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            _ => verify_anchor_snapshot(
+                snap.as_ref(),
+                Some(conn),
+                Some(genesis_hash),
+                current_id,
+                &current_hash,
+            ),
+        },
+        Err(e) => Err(e),
+    };
+    if let Err(anchor_err) = anchor_check {
         if fail_fast {
             return Err(anchor_err);
         }
@@ -417,6 +505,73 @@ fn verify_audit_chain_inner(
     })
 }
 
+/// Lists legacy untagged `[REDACTED]` / `GDPR_*` rows on a pre-v1.3 (`user_version == 0`) DB
+/// for operator dry-run inspection before running migration with `--confirm`.
+pub fn inspect_legacy_gdpr_tombstones(conn: &Connection) -> Result<Vec<LegacyGdprRow>, String> {
+    let schema_version = get_audit_schema_version(conn)?;
+    if schema_version >= AUDIT_SCHEMA_VERSION {
+        return Err(
+            "Database is already at v1.3 schema (user_version >= 1); untagged [REDACTED] records indicate tampering — refusing migration"
+                .into(),
+        );
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, timestamp, is_blocked, redactions_json, payload_hash, username \
+             FROM audit_reports ORDER BY id ASC",
+        )
+        .map_err(|e| format!("Failed to prepare legacy inspection query: {}", e))?;
+
+    let mut rows = stmt
+        .query([])
+        .map_err(|e| format!("Failed to query audit_reports for legacy inspection: {}", e))?;
+
+    let mut saw_v13_tombstone = false;
+    let mut legacy = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .map_err(|e| format!("Failed reading row during legacy inspection: {}", e))?
+    {
+        let id: i64 = row.get(0).map_err(|e| format!("Invalid id: {}", e))?;
+        let timestamp: String = row
+            .get(1)
+            .map_err(|e| format!("Invalid timestamp: {}", e))?;
+        let is_blocked: bool = row
+            .get(2)
+            .map_err(|e| format!("Invalid is_blocked: {}", e))?;
+        let redactions_json: String = row
+            .get(3)
+            .map_err(|e| format!("Invalid redactions_json: {}", e))?;
+        let payload_hash: String = row
+            .get(4)
+            .map_err(|e| format!("Invalid payload_hash: {}", e))?;
+        let username: String = row.get(5).map_err(|e| format!("Invalid username: {}", e))?;
+
+        if is_reserved_gdpr_username(&username) {
+            if payload_hash.starts_with(GDPR_TOMBSTONE_PREFIX) {
+                saw_v13_tombstone = true;
+            } else {
+                legacy.push(LegacyGdprRow {
+                    id,
+                    timestamp,
+                    is_blocked,
+                    redactions_json,
+                });
+            }
+        }
+    }
+
+    if saw_v13_tombstone && !legacy.is_empty() {
+        return Err(
+            "Mixed-era audit database detected (both GDPR_HMAC and untagged [REDACTED] rows present) — refusing migration"
+                .into(),
+        );
+    }
+
+    Ok(legacy)
+}
+
 /// Upgrades legacy pre-v1.3 `[REDACTED]` / `GDPR_*` rows (which kept a raw 64-char hex
 /// `payload_hash` and no `GDPR_HMAC:` tag) inside an atomic transaction after verifying every
 /// intact record and anchor in the chain.
@@ -430,7 +585,16 @@ pub fn migrate_legacy_gdpr_tombstones(
         .map_err(|e| format!("Failed to begin GDPR tombstone migration: {}", e))?;
 
     let migration_result: Result<usize, String> = (|| {
+        let schema_version = get_audit_schema_version(conn)?;
+        if schema_version >= AUDIT_SCHEMA_VERSION {
+            return Err(
+                "Database is already at v1.3 schema (user_version >= 1); untagged [REDACTED] records indicate tampering — refusing migration"
+                    .into(),
+            );
+        }
+        let anchor_snap = read_anchor_snapshot(db_path)?;
         let mut pending_updates: Vec<(i64, String)> = Vec::new();
+        let mut saw_v13_tombstone = false;
 
         {
             let mut stmt = conn
@@ -521,6 +685,7 @@ pub fn migrate_legacy_gdpr_tombstones(
                         ));
                     }
                     if payload_hash_str.starts_with(GDPR_TOMBSTONE_PREFIX) {
+                        saw_v13_tombstone = true;
                         verify_gdpr_tombstone_mac(
                             hmac_key,
                             &current_hash,
@@ -530,6 +695,7 @@ pub fn migrate_legacy_gdpr_tombstones(
                             &redactions_bin,
                             &stored_bytes,
                             &payload_hash_str,
+                            false,
                         )?;
                     } else {
                         let legacy_ph = hex::decode(payload_hash_str.trim())
@@ -550,6 +716,12 @@ pub fn migrate_legacy_gdpr_tombstones(
                             &stored_bytes,
                         )?;
                         pending_updates.push((id, tombstone));
+                    }
+                    if saw_v13_tombstone && !pending_updates.is_empty() {
+                        return Err(
+                            "Mixed-era audit database detected (both GDPR_HMAC and untagged [REDACTED] rows present) — refusing migration"
+                                .into(),
+                        );
                     }
                     current_hash = stored_bytes;
                     current_id = id;
@@ -608,8 +780,8 @@ pub fn migrate_legacy_gdpr_tombstones(
                 current_id = id;
             }
 
-            check_anchor_with_context(
-                db_path,
+            verify_anchor_snapshot(
+                anchor_snap.as_ref(),
                 Some(conn),
                 Some(genesis_hash),
                 current_id,
@@ -630,6 +802,7 @@ pub fn migrate_legacy_gdpr_tombstones(
                 )
             })?;
         }
+        set_audit_schema_version(conn, AUDIT_SCHEMA_VERSION)?;
         Ok(migrated_count)
     })();
 
@@ -674,7 +847,121 @@ pub fn update_anchor(db_path: &str, last_id: i64, last_hash: &[u8]) -> Result<()
             e
         )));
     }
+    #[cfg(unix)]
+    if let Some(parent) = std::path::Path::new(&anchor_path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        if let Ok(dir) = std::fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
     Ok(())
+}
+
+/// Reads `<db_path>.anchor` once prior to taking an audit DB read snapshot.
+pub fn read_anchor_snapshot(db_path: &str) -> Result<Option<AnchorSnapshot>, String> {
+    if db_path == ":memory:" || db_path == "file::memory:" || db_path.contains(":memory:") {
+        return Ok(None);
+    }
+    let anchor_path = format!("{}.anchor", db_path);
+    match std::fs::read_to_string(&anchor_path) {
+        Ok(content) => {
+            let trimmed = content.trim();
+            let parts: Vec<&str> = trimmed.split(':').collect();
+            if parts.len() != 2 {
+                return Err("Audit DB Anchor file is malformed!".into());
+            }
+            let expected_id: i64 = parts[0]
+                .parse()
+                .map_err(|_| "Audit DB Anchor file has invalid record ID!".to_string())?;
+            if expected_id < 0 {
+                return Err("Audit DB Anchor file has invalid record ID!".to_string());
+            }
+            let hash_result = hex::decode(parts[1].trim())
+                .map_err(|_| "Audit DB Anchor file has invalid hex hash!".to_string())
+                .and_then(|decoded| {
+                    decoded
+                        .try_into()
+                        .map_err(|_| "Audit DB Anchor file has invalid hash length!".to_string())
+                });
+            Ok(Some(AnchorSnapshot::Parsed {
+                expected_id,
+                hash_result,
+            }))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Some(AnchorSnapshot::Missing)),
+        Err(e) => Err(format!("Failed to read anchor file: {}", e)),
+    }
+}
+
+/// Verifies a previously captured [`AnchorSnapshot`] against an observed DB tail state.
+pub fn verify_anchor_snapshot(
+    snapshot: Option<&AnchorSnapshot>,
+    conn: Option<&Connection>,
+    genesis_hash: Option<&[u8; 32]>,
+    current_last_id: i64,
+    current_last_hash: &[u8],
+) -> Result<(), String> {
+    let Some(snap) = snapshot else {
+        return Ok(());
+    };
+    match snap {
+        AnchorSnapshot::Missing => {
+            if current_last_id > 0 {
+                return Err(
+                    "Audit DB Anchor missing but database contains records! Potential tampering."
+                        .into(),
+                );
+            }
+            Ok(())
+        }
+        AnchorSnapshot::Parsed {
+            expected_id,
+            hash_result,
+        } => {
+            let expected_id = *expected_id;
+            if current_last_id < expected_id {
+                return Err(format!(
+                    "Audit DB Truncation Detected! Expected last ID >= {}, but found {}",
+                    expected_id, current_last_id
+                ));
+            }
+            let expected_bytes = hash_result.as_ref().map_err(Clone::clone)?;
+            if expected_id == 0 {
+                if let Some(gen) = genesis_hash {
+                    if expected_bytes.as_slice() != gen.as_slice() {
+                        return Err(
+                            "Audit DB Integrity Mismatch! Anchor genesis hash does not match."
+                                .into(),
+                        );
+                    }
+                } else if current_last_id == 0
+                    && !current_last_hash.is_empty()
+                    && current_last_hash != expected_bytes.as_slice()
+                {
+                    return Err(
+                        "Audit DB Integrity Mismatch! Empty DB anchor does not match genesis hash."
+                            .into(),
+                    );
+                }
+            } else if current_last_id == expected_id {
+                if current_last_hash != expected_bytes.as_slice() {
+                    return Err(
+                        "Audit DB Integrity Mismatch! Last record does not match stored anchor hash."
+                            .into(),
+                    );
+                }
+            } else if let Some(c) = conn {
+                verify_historical_anchor_row(c, expected_id, expected_bytes.as_slice())?;
+            } else {
+                return Err(
+                    "Missing SQLite connection to verify historical audit anchor record.".into(),
+                );
+            }
+            Ok(())
+        }
+    }
 }
 
 /// Verifies the SQLite chain tail against the external `.anchor` file to catch truncation attacks.
@@ -683,7 +970,31 @@ pub fn check_anchor(
     current_last_id: i64,
     current_last_hash: &[u8],
 ) -> Result<(), String> {
-    check_anchor_with_context(db_path, None, None, current_last_id, current_last_hash)
+    let snap = read_anchor_snapshot(db_path)?;
+    match &snap {
+        Some(AnchorSnapshot::Parsed { expected_id, .. })
+            if *expected_id > 0 && current_last_id > *expected_id =>
+        {
+            let ro_conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|e| {
+                    format!("Failed to open Audit DB for historical anchor check: {}", e)
+                })?;
+            verify_anchor_snapshot(
+                snap.as_ref(),
+                Some(&ro_conn),
+                None,
+                current_last_id,
+                current_last_hash,
+            )
+        }
+        _ => verify_anchor_snapshot(
+            snap.as_ref(),
+            None,
+            None,
+            current_last_id,
+            current_last_hash,
+        ),
+    }
 }
 
 fn verify_historical_anchor_row(
@@ -713,89 +1024,4 @@ fn verify_historical_anchor_row(
         ));
     }
     Ok(())
-}
-
-fn check_anchor_with_context(
-    db_path: &str,
-    conn: Option<&Connection>,
-    genesis_hash: Option<&[u8; 32]>,
-    current_last_id: i64,
-    current_last_hash: &[u8],
-) -> Result<(), String> {
-    if db_path == ":memory:" || db_path == "file::memory:" || db_path.contains(":memory:") {
-        return Ok(());
-    }
-    let anchor_path = format!("{}.anchor", db_path);
-    match std::fs::read_to_string(&anchor_path) {
-        Ok(content) => {
-            let trimmed = content.trim();
-            let parts: Vec<&str> = trimmed.split(':').collect();
-            if parts.len() != 2 {
-                return Err("Audit DB Anchor file is malformed!".into());
-            }
-            let expected_id: i64 = parts[0]
-                .parse()
-                .map_err(|_| "Audit DB Anchor file has invalid record ID!".to_string())?;
-            if expected_id < 0 {
-                return Err("Audit DB Anchor file has invalid record ID!".to_string());
-            }
-            if current_last_id < expected_id {
-                return Err(format!(
-                    "Audit DB Truncation Detected! Expected last ID >= {}, but found {}",
-                    expected_id, current_last_id
-                ));
-            }
-            let expected_bytes = hex::decode(parts[1].trim())
-                .map_err(|_| "Audit DB Anchor file has invalid hex hash!".to_string())?;
-            if expected_bytes.len() != 32 {
-                return Err("Audit DB Anchor file has invalid hash length!".into());
-            }
-
-            if expected_id == 0 {
-                if let Some(gen) = genesis_hash {
-                    if expected_bytes.as_slice() != gen.as_slice() {
-                        return Err(
-                            "Audit DB Integrity Mismatch! Anchor genesis hash does not match."
-                                .into(),
-                        );
-                    }
-                } else if current_last_id == 0
-                    && !current_last_hash.is_empty()
-                    && current_last_hash != expected_bytes.as_slice()
-                {
-                    return Err(
-                        "Audit DB Integrity Mismatch! Empty DB anchor does not match genesis hash."
-                            .into(),
-                    );
-                }
-            } else if current_last_id == expected_id {
-                if current_last_hash != expected_bytes.as_slice() {
-                    return Err(
-                        "Audit DB Integrity Mismatch! Last record does not match stored anchor hash."
-                            .into(),
-                    );
-                }
-            } else if let Some(c) = conn {
-                verify_historical_anchor_row(c, expected_id, expected_bytes.as_slice())?;
-            } else {
-                let ro_conn =
-                    Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-                        .map_err(|e| {
-                            format!("Failed to open Audit DB for historical anchor check: {}", e)
-                        })?;
-                verify_historical_anchor_row(&ro_conn, expected_id, expected_bytes.as_slice())?;
-            }
-            Ok(())
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            if current_last_id > 0 {
-                return Err(
-                    "Audit DB Anchor missing but database contains records! Potential tampering."
-                        .into(),
-                );
-            }
-            Ok(())
-        }
-        Err(e) => Err(format!("Failed to read anchor file: {}", e)),
-    }
 }
