@@ -117,8 +117,10 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
 
     let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret().as_bytes());
     let mut hmac_key_bytes = [0u8; 32];
-    hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes)
-        .map_err(|_e| rusqlite::Error::InvalidQuery)?;
+    if hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes).is_err() {
+        hmac_key_bytes.zeroize();
+        return Err(rusqlite::Error::InvalidQuery);
+    }
 
     let mut genesis_hash = [0u8; 32];
     if hk.expand(KDF_SALT_GENESIS, &mut genesis_hash).is_err() {

@@ -11,10 +11,38 @@ static ANCHOR_TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 const GDPR_TOMBSTONE_PREFIX: &str = "GDPR_HMAC:";
 const GDPR_TOMBSTONE_DOMAIN: &[u8] = b"GDPR_TOMBSTONE_V1";
 
+fn feed_gdpr_tombstone_fields(
+    mac: &mut HmacSha256,
+    prev_hash: &[u8],
+    id: i64,
+    ts: &str,
+    is_blocked: bool,
+    redactions_bin: &[u8],
+    integrity_hash: &[u8],
+) -> Result<(), String> {
+    if prev_hash.len() != 32 {
+        return Err("Invalid predecessor hash length for GDPR tombstone".to_string());
+    }
+    if integrity_hash.len() != 32 {
+        return Err("Invalid integrity hash length for GDPR tombstone".to_string());
+    }
+    mac.update(GDPR_TOMBSTONE_DOMAIN);
+    mac.update(prev_hash);
+    mac.update(&id.to_le_bytes());
+    mac.update(&(ts.len() as u64).to_le_bytes());
+    mac.update(ts.as_bytes());
+    mac.update(&[u8::from(is_blocked)]);
+    mac.update(&(redactions_bin.len() as u64).to_le_bytes());
+    mac.update(redactions_bin);
+    mac.update(integrity_hash);
+    Ok(())
+}
+
 /// Computes a keyed HMAC tombstone tag stored in `payload_hash` when a row's username is
-/// shredded under GDPR, preventing unauthenticated tampering with `[REDACTED]` audit records.
+/// shredded under GDPR, binding both row metadata and the predecessor chain hash.
 pub fn compute_gdpr_tombstone_mac(
     hmac_key: &[u8],
+    prev_hash: &[u8],
     id: i64,
     ts: &str,
     is_blocked: bool,
@@ -23,12 +51,15 @@ pub fn compute_gdpr_tombstone_mac(
 ) -> Result<String, String> {
     let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key)
         .map_err(|_| "HMAC key initialization failure".to_string())?;
-    mac.update(GDPR_TOMBSTONE_DOMAIN);
-    mac.update(&id.to_le_bytes());
-    mac.update(ts.as_bytes());
-    mac.update(&[u8::from(is_blocked)]);
-    mac.update(redactions_bin);
-    mac.update(integrity_hash);
+    feed_gdpr_tombstone_fields(
+        &mut mac,
+        prev_hash,
+        id,
+        ts,
+        is_blocked,
+        redactions_bin,
+        integrity_hash,
+    )?;
     Ok(format!(
         "{}{}",
         GDPR_TOMBSTONE_PREFIX,
@@ -36,8 +67,10 @@ pub fn compute_gdpr_tombstone_mac(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_gdpr_tombstone_mac(
     hmac_key: &[u8],
+    prev_hash: &[u8],
     id: i64,
     ts: &str,
     is_blocked: bool,
@@ -54,12 +87,15 @@ fn verify_gdpr_tombstone_mac(
     }
     let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key)
         .map_err(|_| "HMAC key initialization failure".to_string())?;
-    mac.update(GDPR_TOMBSTONE_DOMAIN);
-    mac.update(&id.to_le_bytes());
-    mac.update(ts.as_bytes());
-    mac.update(&[u8::from(is_blocked)]);
-    mac.update(redactions_bin);
-    mac.update(integrity_hash);
+    feed_gdpr_tombstone_fields(
+        &mut mac,
+        prev_hash,
+        id,
+        ts,
+        is_blocked,
+        redactions_bin,
+        integrity_hash,
+    )?;
     mac.verify_slice(&tag_bytes)
         .map_err(|_| "GDPR tombstone HMAC verification failed".to_string())
 }
@@ -234,6 +270,7 @@ fn verify_audit_chain_inner(
         if is_gdpr_redacted {
             match verify_gdpr_tombstone_mac(
                 hmac_key,
+                &current_hash,
                 id,
                 &ts,
                 blocked,

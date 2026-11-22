@@ -55,13 +55,25 @@ impl AsyncAuditor {
         let hk = Hkdf::<Sha256>::new(None, pepper.expose_secret());
 
         let mut hmac_key_bytes = [0u8; 32];
-        hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes)
-            .map_err(|e| SovereignError::InternalError(format!("KDF Expansion Failure: {}", e)))?;
+        if let Err(e) = hk.expand(KDF_SALT_INTEGRITY, &mut hmac_key_bytes) {
+            hmac_key_bytes.zeroize();
+            return Err(SovereignError::InternalError(format!(
+                "KDF Expansion Failure: {}",
+                e
+            )));
+        }
 
         let mut genesis_hash = [0u8; 32];
-        hk.expand(KDF_SALT_GENESIS, &mut genesis_hash)
-            .map_err(|e| SovereignError::InternalError(format!("KDF Expansion Failure: {}", e)))?;
+        if let Err(e) = hk.expand(KDF_SALT_GENESIS, &mut genesis_hash) {
+            hmac_key_bytes.zeroize();
+            genesis_hash.zeroize();
+            return Err(SovereignError::InternalError(format!(
+                "KDF Expansion Failure: {}",
+                e
+            )));
+        }
 
+        let mut monitor_genesis = genesis_hash;
         let (init_tx, init_rx) = tokio::sync::oneshot::channel();
 
         let healthy_thread = is_healthy.clone();
@@ -86,6 +98,8 @@ impl AsyncAuditor {
                 Err(e) => {
                     error!("Audit DB anchoring failure: {}. Aborting startup.", e);
                     healthy_thread.store(false, std::sync::atomic::Ordering::SeqCst);
+                    hmac_key_bytes.zeroize();
+                    genesis_hash.zeroize();
                     let _ = init_tx.send(Err(format!("DB Init Failed: {}", e)));
                     return; // Terminate thread
                 }
@@ -272,8 +286,12 @@ impl AsyncAuditor {
                                 );
                                 // 2. Re-sign rows with keyed GDPR tombstone MAC in payload_hash
                                 //    and pseudonymize username in-place.
-                                let update_res =
-                                    Self::shred_user_audit_rows(c, &hmac_key_bytes, &username);
+                                let update_res = Self::shred_user_audit_rows(
+                                    c,
+                                    &genesis_hash,
+                                    &hmac_key_bytes,
+                                    &username,
+                                );
 
                                 if res1.is_err() || update_res.is_err() {
                                     let _ = c.execute("ROLLBACK", []);
@@ -332,13 +350,13 @@ impl AsyncAuditor {
                         }
                     }
                     AuditMessage::Shutdown(ack) => {
-                        let mut h = hmac_key_bytes;
-                        h.zeroize();
                         let _ = ack.send(());
                         break;
                     }
                 }
             }
+            hmac_key_bytes.zeroize();
+            genesis_hash.zeroize();
         });
 
         tokio::time::timeout(tokio::time::Duration::from_secs(10), init_rx)
@@ -433,7 +451,7 @@ impl AsyncAuditor {
                             }
                         }
                         Err(rusqlite::Error::QueryReturnedNoRows) => {
-                            if let Err(e) = Self::check_anchor(&path_monitor, 0, &genesis_hash) {
+                            if let Err(e) = Self::check_anchor(&path_monitor, 0, &monitor_genesis) {
                                 error!("HARD-STOP MONITOR: Anchor Mismatch (Empty DB): {}. Triggering Fail-Closed state.", e);
                                 healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
                             }
@@ -454,6 +472,7 @@ impl AsyncAuditor {
                     break;
                 }
             }
+            monitor_genesis.zeroize();
         });
 
         Ok(Self {
@@ -534,6 +553,7 @@ impl AsyncAuditor {
 
     fn shred_user_audit_rows(
         c: &Connection,
+        genesis_hash: &[u8; 32],
         hmac_key_bytes: &[u8; 32],
         username: &str,
     ) -> Result<(), String> {
@@ -548,7 +568,7 @@ impl AsyncAuditor {
         let mut stmt = c
             .prepare(
                 "SELECT id, timestamp, is_blocked, redactions_json, integrity_hash \
-                 FROM audit_reports WHERE username = ?1",
+                 FROM audit_reports WHERE username = ?1 ORDER BY id ASC",
             )
             .map_err(|e| e.to_string())?;
         let mapped = stmt
@@ -570,6 +590,26 @@ impl AsyncAuditor {
         drop(stmt);
 
         for row in rows {
+            let prev_bytes = if row.id == 1 {
+                genesis_hash.to_vec()
+            } else {
+                let prev_hex: String = c
+                    .query_row(
+                        "SELECT integrity_hash FROM audit_reports WHERE id = ?1",
+                        [row.id - 1],
+                        |r| r.get(0),
+                    )
+                    .map_err(|e| format!("Missing predecessor row for {}: {}", row.id, e))?;
+                let bytes = hex::decode(prev_hex.trim()).map_err(|e| e.to_string())?;
+                if bytes.len() != 32 {
+                    return Err(format!(
+                        "Invalid predecessor integrity_hash length on row {}",
+                        row.id - 1
+                    ));
+                }
+                bytes
+            };
+
             let redactions: Vec<Redaction> =
                 serde_json::from_str(&row.redactions_json).map_err(|e| e.to_string())?;
             let redactions_bin = bincode::serialize(&redactions).map_err(|e| e.to_string())?;
@@ -579,6 +619,7 @@ impl AsyncAuditor {
             }
             let tombstone = iw_core::audit::compute_gdpr_tombstone_mac(
                 hmac_key_bytes,
+                &prev_bytes,
                 row.id,
                 &row.ts,
                 row.is_blocked,

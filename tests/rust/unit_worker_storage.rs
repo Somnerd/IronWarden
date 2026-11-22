@@ -859,6 +859,116 @@ mod additional_audit_tests {
         let _ = std::fs::remove_file(format!("{}-wal", db_path));
         let _ = std::fs::remove_file(format!("{}.anchor", db_path));
     }
+
+    #[tokio::test]
+    async fn test_gdpr_tombstone_binds_predecessor_hash_against_splice_attack() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        let db_path = std::env::temp_dir()
+            .join(format!("audit_test_splice_{}.db", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x44u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        auditor
+            .log_report(report.clone(), "raw1".into(), "user1".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report.clone(), "raw2".into(), "user2".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "raw3".into(), "user3".into())
+            .await
+            .unwrap();
+        auditor.purge_user("user2").await.unwrap();
+        auditor.shutdown().await;
+
+        let hk = hkdf::Hkdf::<Sha256>::new(None, &pepper_bytes);
+        let mut hmac_key = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_INTEGRITY, &mut hmac_key)
+            .unwrap();
+        let mut genesis_hash = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_GENESIS, &mut genesis_hash)
+            .unwrap();
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let ok_summary =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).unwrap();
+        assert_eq!(ok_summary.gdpr_redacted_count, 1);
+        assert_eq!(ok_summary.verified_count, 2);
+
+        // Simulate splicing a replacement valid row 1 with a different `is_blocked` & recomputed HMAC:
+        // Row 1 itself passes Stage 1, Row 3 still chains from Row 2's stored hash,
+        // so ONLY Row 2's GDPR tombstone binding to `prev_hash` can detect the splice.
+        let (ts1, rj1, ph1): (String, String, String) = conn
+            .query_row(
+                "SELECT timestamp, redactions_json, payload_hash FROM audit_reports WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        let red_vec: Vec<iw_core::Redaction> = serde_json::from_str(&rj1).unwrap();
+        let red_bin = bincode::serialize(&red_vec).unwrap();
+        let ph_bytes = hex::decode(ph1).unwrap();
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&hmac_key).unwrap();
+        mac.update(&genesis_hash);
+        mac.update(ts1.as_bytes());
+        mac.update(b"user1");
+        mac.update(&[1u8]); // flipped is_blocked
+        mac.update(&red_bin);
+        mac.update(&ph_bytes);
+        let forged_h1 = hex::encode(mac.finalize().into_bytes());
+
+        conn.execute(
+            "UPDATE audit_reports SET is_blocked = 1, integrity_hash = ?1 WHERE id = 1",
+            [&forged_h1],
+        )
+        .unwrap();
+
+        let err = iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+            .unwrap_err();
+        assert!(
+            err.contains("Forged or unverified GDPR tombstone MAC"),
+            "Expected row 2 GDPR tombstone to reject spliced predecessor hash, got: {}",
+            err
+        );
+
+        let diag = iw_core::audit::verify_audit_chain_diagnostic(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key,
+        )
+        .unwrap();
+        assert!(
+            diag.failures
+                .iter()
+                .any(|f| f.contains("Record ID 2: Forged or unverified GDPR tombstone MAC")),
+            "Diagnostic mode must blame Record ID 2 predecessor splice, got: {:?}",
+            diag.failures
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
 }
 
 #[cfg(test)]
