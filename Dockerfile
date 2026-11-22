@@ -1,15 +1,13 @@
 # --- Build Stage ---
-FROM rust:1.97-bookworm AS builder
+FROM rust:1.100-trixie AS builder
 
 WORKDIR /usr/src/ironwarden
 
-# Install build tools and dependencies (Tesseract OCR dev libs, OpenSSL, pkg-config)
+# Install build tools and dependencies (OpenSSL, pkg-config, clang)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     libssl-dev \
-    libtesseract-dev \
-    libleptonica-dev \
     clang \
     && rm -rf /var/lib/apt/lists/*
 
@@ -33,22 +31,30 @@ RUN cargo build --release -p app -p iw-cli
 # --- Runtime Stage ---
 FROM debian:trixie-slim AS runner
 
+# Install OCR/TLS runtime packages and ONNX Runtime 1.21.0 (with SHA-256 verification) in one clean layer
+ARG ORT_NUPKG_SHA256=359b4782cfa2e288e6c4bbb9da1c231b085fb8e0d149faf8c3c843f54576559b
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
-    libtesseract5 \
+    tesseract-ocr-grc \
+    tesseract-ocr-ell \
+    poppler-utils \
     ca-certificates \
     libssl3 \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    unzip \
+    && curl -fsSL "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/1.21.0" -o /tmp/ort.nupkg \
+    && echo "${ORT_NUPKG_SHA256}  /tmp/ort.nupkg" | sha256sum -c - \
+    && unzip -q -j /tmp/ort.nupkg "runtimes/linux-x64/native/libonnxruntime*.so" -d /usr/lib/x86_64-linux-gnu/ \
+    && rm -f /tmp/ort.nupkg \
+    && apt-get purge -y --auto-remove unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && chmod 0755 /usr/lib/x86_64-linux-gnu/libonnxruntime*.so* \
+    && ldconfig
 
-# Install ONNX Runtime 1.21.0 (required by ort crate with load-dynamic feature)
-RUN curl -fsSL \
-    "https://github.com/microsoft/onnxruntime/releases/download/v1.21.0/onnxruntime-linux-x64-1.21.0.tgz" \
-    -o /tmp/ort.tgz \
-    && tar -xzf /tmp/ort.tgz -C /tmp \
-    && cp -a /tmp/onnxruntime-linux-x64-1.21.0/lib/libonnxruntime.so* /usr/lib/x86_64-linux-gnu/ \
-    && rm -rf /tmp/ort.tgz /tmp/onnxruntime-linux-x64-1.21.0
+# Create unprivileged service account
+RUN groupadd -g 10001 ironwarden \
+    && useradd -u 10001 -g 10001 -m -d /app -s /usr/sbin/nologin ironwarden
 
 WORKDIR /app
 
@@ -57,10 +63,9 @@ COPY --from=builder /usr/src/ironwarden/target/release/app /usr/local/bin/ironwa
 COPY --from=builder /usr/src/ironwarden/target/release/iw-cli /usr/local/bin/iw-cli
 COPY --from=builder /usr/src/ironwarden/config /app/config
 
-# Default configuration mounts & data directories
-RUN mkdir -p /app/data/models /app/logs
-
-EXPOSE 8080 14141
+# Default configuration mounts & data directories owned by unprivileged user
+RUN mkdir -p /app/data/models /app/logs \
+    && chown -R ironwarden:ironwarden /app
 
 ENV WARDEN_ENV=production \
     WARDEN_MODE=bridge \
@@ -68,8 +73,15 @@ ENV WARDEN_ENV=production \
     BRIDGE_PORT=8080 \
     BRIDGE_ADDR=0.0.0.0 \
     LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu \
-    ALLOW_FALLBACK=true \
-    RUST_LOG=info \
-    WARDEN_MCP_SECRET=default_mcp_secret_change_in_production
+    ORT_DYLIB_PATH=/usr/lib/x86_64-linux-gnu/libonnxruntime.so \
+    ALLOW_FALLBACK=false \
+    RUST_LOG=info
+
+USER ironwarden
+
+EXPOSE 8080 14141
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${BRIDGE_PORT:-8080}/health" || exit 1
 
 CMD ["ironwarden"]

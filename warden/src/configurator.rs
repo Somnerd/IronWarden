@@ -110,12 +110,35 @@ impl GlobalConfig {
     }
 
     pub fn resolve_with_path(custom_config_path: Option<&Path>) -> Result<Self, SovereignError> {
-        let env_allow_fallback = match std::env::var("ALLOW_FALLBACK") {
-            Ok(v) => v.trim().to_lowercase() == "true",
-            Err(_) => std::env::var("WARDEN_ENV")
-                .map(|v| v == "test" || v == "ephemeral")
-                .unwrap_or(false),
+        let explicit_allow_fallback = match std::env::var("ALLOW_FALLBACK") {
+            Ok(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    None
+                } else if trimmed.eq_ignore_ascii_case("true") {
+                    Some(true)
+                } else if trimmed.eq_ignore_ascii_case("false") {
+                    Some(false)
+                } else {
+                    return Err(SovereignError::ConfigError(format!(
+                        "Invalid ALLOW_FALLBACK value '{}': expected 'true' or 'false'.",
+                        raw
+                    )));
+                }
+            }
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                return Err(SovereignError::ConfigError(
+                    "Invalid ALLOW_FALLBACK value: non-UTF-8 string; expected 'true' or 'false'."
+                        .into(),
+                ));
+            }
         };
+        let env_allow_fallback = explicit_allow_fallback.unwrap_or_else(|| {
+            std::env::var("WARDEN_ENV")
+                .map(|v| v == "test" || v == "ephemeral")
+                .unwrap_or(false)
+        });
 
         let default_path = Path::new("config/config.yaml");
         let config_file = custom_config_path.unwrap_or(default_path);
@@ -145,7 +168,9 @@ impl GlobalConfig {
             GlobalConfig::default()
         };
 
-        if env_allow_fallback {
+        if let Some(val) = explicit_allow_fallback {
+            config.allow_fallback = val;
+        } else if env_allow_fallback {
             config.allow_fallback = true;
         }
 

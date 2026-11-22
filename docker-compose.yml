@@ -15,17 +15,17 @@ services:
       - WARDEN_ENV=production
       - WARDEN_MODE=bridge
       - RUST_LOG=info
-      - WARDEN_PEPPER=${WARDEN_PEPPER:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
-      - WARDEN_MCP_SECRET=${WARDEN_MCP_SECRET:-default_mcp_secret_change_in_production}
-      - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}
+      - WARDEN_PEPPER=${WARDEN_PEPPER:?WARDEN_PEPPER must be set to a >=32-byte secret}
+      - WARDEN_MCP_SECRET=${WARDEN_MCP_SECRET:?WARDEN_MCP_SECRET must be set}
+      - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY:?JWT_PUBLIC_KEY must be set in production}
       - WARDEN_JWT_AUDIENCE=${WARDEN_JWT_AUDIENCE:-ironwarden}
       - WARDEN_JWT_ISSUER=${WARDEN_JWT_ISSUER:-ironwarden}
       # Connect to external Redis (e.g. SearchBoost's Redis) or local Redis service:
       # If SearchBoost is not installed, it safely falls back to the local Redis container included below.
       # If installed later, simply set REDIS_URL to point to SearchBoost's instance.
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
-      - UPSTREAM_OPENAI_URL=${UPSTREAM_OPENAI_URL:-https://api.openai.com}
-      - UPSTREAM_ANTHROPIC_URL=${UPSTREAM_ANTHROPIC_URL:-https://api.anthropic.com}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1/chat/completions}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-https://api.anthropic.com/v1/messages}
       - IGNORE_HA_ENFORCEMENT=true
       # ONNX Runtime shared library — installed in runner image
       - LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
@@ -39,9 +39,9 @@ services:
       # 1 NER worker on this host; increase on multi-core Linux
       - WARDEN_NER_POOL_SIZE=1
     volumes:
-      - ./config:/app/config
-      - ./logs:/app/logs
-      - ./data:/app/data
+      - ./config:/app/config:ro
+      - ironwarden_logs:/app/logs
+      - ironwarden_data:/app/data
     networks:
       - default
       # Uncomment if connecting directly to an existing SearchBoost Docker network:
@@ -62,6 +62,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  ironwarden_data:
+  ironwarden_logs:
   redis_data:
 
 networks:
