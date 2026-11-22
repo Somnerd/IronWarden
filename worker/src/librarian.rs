@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::TransactionBehavior;
+use rusqlite::{Transaction, TransactionBehavior};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs;
@@ -7,6 +7,8 @@ use std::path::Path;
 use tokio_rusqlite::Connection;
 use tracing::info;
 use unicode_normalization::UnicodeNormalization;
+
+const MAX_QUERY_TERMS: usize = 32;
 
 fn normalize_text(s: &str) -> String {
     s.nfd()
@@ -30,25 +32,90 @@ pub struct LocalLibrarian {
     db: Connection,
 }
 
-static STOP_WORDS: std::sync::LazyLock<std::collections::HashSet<&'static str>> =
-    std::sync::LazyLock::new(|| {
-        [
-            "the", "a", "an", "and", "or", "but", "if", "then", "else", "to", "of", "in", "on",
-            "at", "by", "for", "with", "about", "against", "between", "into", "through", "during",
-            "before", "after", "above", "below", "from", "up", "down", "out", "over", "under",
-            "again", "further", "once", "here", "there", "when", "where", "why", "how", "all",
-            "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
-            "not", "only", "own", "same", "so", "than", "too", "very", "can", "will", "just",
-            "should", "now", "me", "tell", "who", "is", "it", "what", "which", "whom", "whose",
-            "this", "that", "these", "those", "am", "are", "was", "were", "be", "been", "being",
-            "have", "has", "had", "do", "does", "did", "shall", "would", "could", "may", "might",
-            "must", "i", "you", "he", "she", "we", "they", "my", "your", "his", "her", "its",
-            "our", "their", "please",
-        ]
-        .iter()
-        .cloned()
-        .collect()
-    });
+static STOP_WORDS: std::sync::LazyLock<HashSet<&'static str>> = std::sync::LazyLock::new(|| {
+    HashSet::from([
+        "the", "a", "an", "and", "or", "but", "if", "then", "else", "to", "of", "in", "on", "at",
+        "by", "for", "with", "about", "against", "between", "into", "through", "during", "before",
+        "after", "above", "below", "from", "up", "down", "out", "over", "under", "again",
+        "further", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both",
+        "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own",
+        "same", "so", "than", "too", "very", "can", "will", "just", "should", "now", "me", "tell",
+        "who", "is", "it", "what", "which", "whom", "whose", "this", "that", "these", "those",
+        "am", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does",
+        "did", "shall", "would", "could", "may", "might", "must", "i", "you", "he", "she", "we",
+        "they", "my", "your", "his", "her", "its", "our", "their", "please",
+    ])
+});
+
+struct ScoredCand {
+    id: i64,
+    dl: usize,
+    tfs: Vec<u32>,
+    overlap: usize,
+    score: f64,
+}
+
+fn extract_query_terms(query: &str) -> Vec<String> {
+    let norm = normalize_text(query);
+    let dedup = |skip_stop: bool| {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for tok in norm
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+        {
+            if skip_stop && STOP_WORDS.contains(tok) {
+                continue;
+            }
+            if seen.insert(tok) {
+                out.push(tok.to_string());
+                if out.len() == MAX_QUERY_TERMS {
+                    break;
+                }
+            }
+        }
+        out
+    };
+    let terms = dedup(true);
+    if terms.is_empty() {
+        dedup(false)
+    } else {
+        terms
+    }
+}
+
+fn ensure_column(tx: &Transaction<'_>, col: &str, ddl: &str) -> rusqlite::Result<()> {
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('documents') WHERE name = ?1)",
+        [col],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        tx.execute(ddl, [])?;
+    }
+    Ok(())
+}
+
+fn score_bm25(candidates: &mut [ScoredCand], df_counts: &[usize], n_tenant: f64) {
+    let avg_dl = (candidates.iter().map(|c| c.dl.max(1)).sum::<usize>() as f64
+        / candidates.len() as f64)
+        .max(1.0);
+    let (k1, b) = (1.2, 0.75);
+    for cand in candidates {
+        let dl = cand.dl.max(1) as f64;
+        let mut score = 0.0;
+        for (idx, &tf_u32) in cand.tfs.iter().enumerate() {
+            if tf_u32 == 0 {
+                continue;
+            }
+            let tf = tf_u32 as f64;
+            let df = (df_counts[idx] as f64).min(n_tenant);
+            let idf = ((n_tenant - df + 0.5) / (df + 0.5) + 1.0).ln().max(0.0);
+            score += idf * (tf * (k1 + 1.0)) / (tf + k1 * (1.0 - b + b * (dl / avg_dl)));
+        }
+        cand.score = score;
+    }
+}
 
 impl LocalLibrarian {
     pub async fn new(path: &str) -> Result<Self> {
@@ -98,28 +165,16 @@ impl LocalLibrarian {
                  );
                  CREATE INDEX IF NOT EXISTS idx_documents_username ON documents(username);",
             )?;
-            let has_search_text: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('documents') WHERE name='search_text')",
-                [],
-                |row| row.get(0),
+            ensure_column(
+                &tx,
+                "search_text",
+                "ALTER TABLE documents ADD COLUMN search_text TEXT NOT NULL DEFAULT ''",
             )?;
-            if !has_search_text {
-                tx.execute(
-                    "ALTER TABLE documents ADD COLUMN search_text TEXT NOT NULL DEFAULT ''",
-                    [],
-                )?;
-            }
-            let has_tenant_key: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('documents') WHERE name='tenant_key')",
-                [],
-                |row| row.get(0),
+            ensure_column(
+                &tx,
+                "tenant_key",
+                "ALTER TABLE documents ADD COLUMN tenant_key TEXT NOT NULL DEFAULT ''",
             )?;
-            if !has_tenant_key {
-                tx.execute(
-                    "ALTER TABLE documents ADD COLUMN tenant_key TEXT NOT NULL DEFAULT ''",
-                    [],
-                )?;
-            }
             tx.execute(
                 "CREATE INDEX IF NOT EXISTS idx_documents_tenant_key ON documents(tenant_key)",
                 [],
@@ -217,33 +272,7 @@ impl LocalLibrarian {
         username: &str,
         limit: usize,
     ) -> Result<Vec<String>> {
-        let query_norm = normalize_text(query);
-        let query_terms: Vec<String> = query_norm
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|s| !s.is_empty() && !STOP_WORDS.contains(s))
-            .map(|s| s.to_string())
-            .collect();
-
-        let raw_terms: Vec<String> = if query_terms.is_empty() {
-            query_norm
-                .split(|c: char| !c.is_alphanumeric())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect()
-        } else {
-            query_terms
-        };
-
-        // Deduplicate query terms preserving order so repeated query words never inflate `overlap`
-        // or double-count BM25 weights.
-        let mut seen_terms = HashSet::with_capacity(raw_terms.len());
-        let mut unique_terms = Vec::with_capacity(raw_terms.len());
-        for t in raw_terms {
-            if seen_terms.insert(t.clone()) {
-                unique_terms.push(t);
-            }
-        }
-
+        let unique_terms = extract_query_terms(query);
         if unique_terms.is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
@@ -251,12 +280,10 @@ impl LocalLibrarian {
         // Scope via deterministic ASCII `tenant_key` so punctuation-only or prefix-overlapping
         // usernames always form an exact single-token FTS5 filter, paired with `d.username = ?2`.
         let tkey = tenant_key(username);
-        let scope_expr =
-            |inner: String| -> String { format!("tenant_key : {} AND ({})", tkey, inner) };
-
+        let scope_expr = |inner: String| format!("tenant_key : {tkey} AND ({inner})");
         let quoted_terms: Vec<String> = unique_terms
             .iter()
-            .map(|t| format!("search_text : \"{}\"*", t))
+            .map(|t| format!("search_text : \"{t}\"*"))
             .collect();
         let single_term_queries: Vec<String> = quoted_terms
             .iter()
@@ -266,43 +293,29 @@ impl LocalLibrarian {
         let or_query = (quoted_terms.len() > 1).then(|| scope_expr(quoted_terms.join(" OR ")));
 
         let username = username.to_string();
-        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
-        let candidate_cap = limit_i64.saturating_mul(200).max(50_000);
-        let results = self
-            .db
-            .call(move |conn| {
-                // Use FTS5 strictly as a tenant-scoped inverted-index filter (no global corpus BM25 ORDER BY)
-                // so one tenant's document frequencies never leak into or perturb another tenant's ranking.
-                let sql = "SELECT d.id, d.search_text \
-                           FROM documents_fts f \
-                           JOIN documents d ON d.id = f.rowid \
-                           WHERE documents_fts MATCH ?1 AND d.username = ?2 \
-                           LIMIT ?3";
-                let mut stmt = conn.prepare(sql)?;
-
-                struct ScoredCand {
-                    id: i64,
-                    dl: usize,
-                    tfs: Vec<u32>,
-                    overlap: usize,
-                    score: f64,
-                }
+        let candidate_cap = i64::try_from(limit)
+            .unwrap_or(i64::MAX)
+            .saturating_mul(200)
+            .max(50_000);
+        self.db
+            .call(move |conn| -> rusqlite::Result<Vec<String>> {
+                // FTS5 acts only as a tenant-scoped filter; BM25 IDF uses tenant-local DF below.
+                let mut stmt = conn.prepare(
+                    "SELECT d.id, d.search_text \
+                     FROM documents_fts f \
+                     JOIN documents d ON d.id = f.rowid \
+                     WHERE documents_fts MATCH ?1 AND d.username = ?2 \
+                     LIMIT ?3",
+                )?;
 
                 let term_count = unique_terms.len();
-                let collect_candidates = |fts_q: &str,
-                                          s: &mut rusqlite::Statement<'_>|
-                 -> rusqlite::Result<Vec<ScoredCand>> {
-                    let mut seen = HashSet::new();
+                let collect = |fts_q: &str, s: &mut rusqlite::Statement<'_>| {
                     let mut out = Vec::new();
                     let mut rows = s.query((fts_q, &username, candidate_cap))?;
                     while let Some(row) = rows.next()? {
                         let id: i64 = row.get(0)?;
-                        if !seen.insert(id) {
-                            continue;
-                        }
                         let search_text: String = row.get(1)?;
-                        let mut dl = 0usize;
-                        let mut tfs = vec![0u32; term_count];
+                        let (mut dl, mut tfs) = (0usize, vec![0u32; term_count]);
                         for tok in search_text
                             .split(|c: char| !c.is_alphanumeric())
                             .filter(|t| !t.is_empty())
@@ -323,66 +336,42 @@ impl LocalLibrarian {
                             score: 0.0,
                         });
                     }
-                    Ok(out)
+                    Ok::<_, rusqlite::Error>(out)
                 };
 
-                let mut candidates = collect_candidates(&and_query, &mut stmt)?;
+                let mut candidates = collect(&and_query, &mut stmt)?;
                 if candidates.is_empty() {
                     if let Some(ref oq) = or_query {
-                        candidates = collect_candidates(oq, &mut stmt)?;
+                        candidates = collect(oq, &mut stmt)?;
                         if candidates.iter().any(|c| c.overlap >= 2) {
                             candidates.retain(|c| c.overlap >= 2);
                         }
                     }
                 }
-
                 if candidates.is_empty() {
-                    return Ok::<Vec<String>, rusqlite::Error>(Vec::new());
+                    return Ok(Vec::new());
                 }
 
-                let total_docs_i64: i64 = conn.query_row(
+                let total_docs: i64 = conn.query_row(
                     "SELECT COUNT(*) FROM documents WHERE username = ?1",
                     [&username],
                     |r| r.get(0),
                 )?;
-                let n_tenant = (total_docs_i64.max(1)) as f64;
-                let avg_dl = (candidates.iter().map(|c| c.dl.max(1)).sum::<usize>() as f64
-                    / candidates.len() as f64)
-                    .max(1.0);
+                let mut df_stmt = conn
+                    .prepare("SELECT COUNT(*) FROM documents_fts WHERE documents_fts MATCH ?1")?;
+                let df_counts = single_term_queries
+                    .iter()
+                    .map(|tq| {
+                        df_stmt
+                            .query_row([tq], |r| r.get(0))
+                            .map(|d: i64| d.max(0) as usize)
+                    })
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
 
-                // Compute exact tenant-local document frequencies directly via FTS5 so AND queries
-                // preserve genuine rarity weighting across the tenant's corpus.
-                let mut df_stmt = conn.prepare(
-                    "SELECT COUNT(*) FROM documents_fts f \
-                     JOIN documents d ON d.id = f.rowid \
-                     WHERE documents_fts MATCH ?1 AND d.username = ?2",
-                )?;
-                let mut df_counts = Vec::with_capacity(term_count);
-                for tq in &single_term_queries {
-                    let df: i64 = df_stmt.query_row((tq, &username), |r| r.get(0))?;
-                    df_counts.push(df.max(0) as usize);
-                }
-
-                for cand in &mut candidates {
-                    let dl = (cand.dl.max(1)) as f64;
-                    let mut score = 0.0;
-                    for (idx, &tf_u32) in cand.tfs.iter().enumerate() {
-                        if tf_u32 == 0 {
-                            continue;
-                        }
-                        let tf = tf_u32 as f64;
-                        let df = (df_counts[idx] as f64).min(n_tenant);
-                        let idf = ((n_tenant - df + 0.5) / (df + 0.5) + 1.0).ln().max(0.0);
-                        let k1 = 1.2;
-                        let b = 0.75;
-                        score +=
-                            idf * (tf * (k1 + 1.0)) / (tf + k1 * (1.0 - b + b * (dl / avg_dl)));
-                    }
-                    cand.score = score;
-                }
-
+                score_bm25(&mut candidates, &df_counts, total_docs.max(1) as f64);
                 candidates
                     .sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+
                 let mut fetch_stmt =
                     conn.prepare("SELECT text FROM documents WHERE id = ?1 AND username = ?2")?;
                 let mut matched_docs = Vec::with_capacity(limit.min(candidates.len()));
@@ -391,13 +380,10 @@ impl LocalLibrarian {
                         matched_docs.push(text);
                     }
                 }
-
-                Ok::<Vec<String>, rusqlite::Error>(matched_docs)
+                Ok(matched_docs)
             })
             .await
-            .context("Failed to retrieve policy context from Librarian SQLite FTS5 DB")?;
-
-        Ok(results)
+            .context("Failed to retrieve policy context from Librarian SQLite FTS5 DB")
     }
 
     /// GDPR Compliance: Purges all documents associated with a user from the store.
@@ -406,12 +392,12 @@ impl LocalLibrarian {
         // Triggers (`documents_ad`) automatically purge matching entries from `documents_fts`.
         let username_owned = username.to_string();
         self.db
-            .call(move |conn| {
+            .call(move |conn| -> rusqlite::Result<()> {
                 conn.execute(
                     "DELETE FROM documents WHERE username = ?1",
                     [&username_owned],
                 )?;
-                Ok::<(), rusqlite::Error>(())
+                Ok(())
             })
             .await
             .context("Failed to delete user documents from Librarian SQLite DB")?;
@@ -438,12 +424,12 @@ impl LocalLibrarian {
         let tkey = tenant_key(username);
         let username = username.to_string();
         self.db
-            .call(move |conn| {
+            .call(move |conn| -> rusqlite::Result<()> {
                 conn.execute(
                     "INSERT INTO documents (text, search_text, tenant_key, username) VALUES (?1, ?2, ?3, ?4)",
                     [&text, &search_text, &tkey, &username],
                 )?;
-                Ok::<(), rusqlite::Error>(())
+                Ok(())
             })
             .await
             .context("Failed to add document")?;

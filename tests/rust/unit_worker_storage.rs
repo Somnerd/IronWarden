@@ -1336,6 +1336,24 @@ mod librarian_tests {
             .unwrap();
         assert_eq!(punct_hits, vec!["punctuation secret policy".to_string()]);
 
+        // 5. 200-word prompts are capped cleanly without FTS5 overflow/errors and still match.
+        librarian
+            .add_document("longpromptanchor policy document", "tenant_long")
+            .await
+            .unwrap();
+        let long_query = std::iter::once("longpromptanchor".to_string())
+            .chain((0..199).map(|i| format!("term{}", i)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let long_hits = librarian
+            .retrieve_policy_context(&long_query, "tenant_long", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            long_hits,
+            vec!["longpromptanchor policy document".to_string()]
+        );
+
         fs::remove_dir_all(&kb_path).ok();
     }
 }

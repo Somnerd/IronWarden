@@ -54,3 +54,7 @@ harness = false
 name = "proxy_benchmark"
 harness = false
 
+[[bench]]
+name = "librarian_benchmark"
+harness = false
+
