@@ -348,7 +348,7 @@ where
             line_buffer.push_str(&String::from_utf8_lossy(&utf8_tail));
         }
         let mut eof_output = String::new();
-        if !line_buffer.is_empty() {
+        if !line_buffer.is_empty() || state.in_overflow_line {
             state.process_line(line_buffer.trim_end_matches('\r'), &mut eof_output);
         }
         state.push_tail_delta(state.is_anthropic, state.last_block_idx, &mut eof_output);

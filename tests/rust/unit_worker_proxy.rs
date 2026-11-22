@@ -885,6 +885,34 @@ mod sse_proxy_tests {
             done_str
         );
 
+        // 2c. Abrupt EOF immediately after >1 MiB overflow chunk ending with `[PER` (no `\n`)
+        //     must flush `[PER\n` raw without synthesizing a finish_reason JSON frame mid-line
+        let eof_over_chunk = format!(
+            "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{} [PER",
+            big_pad
+        );
+        let eof_over_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> =
+            vec![Ok(axum::body::Bytes::from(eof_over_chunk))];
+        let eof_over_resp = stream_sse_bytes(futures::stream::iter(eof_over_chunks), map.clone());
+        let eof_over_str = String::from_utf8(
+            eof_over_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            eof_over_str.ends_with(" [PER\n"),
+            "Mid-overflow abrupt EOF must flush buffered tail raw without wrapping in synthetic JSON"
+        );
+        assert!(
+            !eof_over_str.contains("finish_reason"),
+            "Mid-overflow abrupt EOF must not emit synthetic delta JSON mid-line"
+        );
+
         // 3. Invalid UTF-8 byte in chunk 2 must not reorder ahead of incomplete line_buffer from chunk 1
         let inv_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
             Ok(axum::body::Bytes::from_static(
