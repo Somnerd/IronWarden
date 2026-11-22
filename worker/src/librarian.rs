@@ -20,7 +20,11 @@ static STOP_WORDS: std::sync::LazyLock<std::collections::HashSet<&'static str>> 
             "again", "further", "once", "here", "there", "when", "where", "why", "how", "all",
             "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
             "not", "only", "own", "same", "so", "than", "too", "very", "can", "will", "just",
-            "should", "now", "me", "tell", "who", "is", "it",
+            "should", "now", "me", "tell", "who", "is", "it", "what", "which", "whom", "whose",
+            "this", "that", "these", "those", "am", "are", "was", "were", "be", "been", "being",
+            "have", "has", "had", "do", "does", "did", "shall", "would", "could", "may", "might",
+            "must", "i", "you", "he", "she", "we", "they", "my", "your", "his", "her", "its",
+            "our", "their", "please",
         ]
         .iter()
         .cloned()
@@ -197,21 +201,51 @@ impl LocalLibrarian {
                            ORDER BY bm25(documents_fts, 0.0, 1.0) \
                            LIMIT ?3";
                 let mut stmt = conn.prepare(sql)?;
-                let mut seen_ids = std::collections::HashSet::new();
                 let mut matched_docs = Vec::new();
 
-                for q in std::iter::once(&and_query).chain(or_query.iter()) {
-                    if !matched_docs.is_empty() {
-                        break;
-                    }
-                    let mut rows = stmt.query((q, &username, limit_i64))?;
+                {
+                    let mut rows = stmt.query((&and_query, &username, limit_i64))?;
                     while let Some(row) = rows.next()? {
-                        let id: i64 = row.get(0)?;
-                        let text: String = row.get(1)?;
-                        if seen_ids.insert(id) {
-                            matched_docs.push(text);
-                            if matched_docs.len() >= limit {
-                                break;
+                        matched_docs.push(row.get::<_, String>(1)?);
+                        if matched_docs.len() >= limit {
+                            break;
+                        }
+                    }
+                }
+
+                if matched_docs.is_empty() {
+                    if let Some(ref oq) = or_query {
+                        let mut seen_ids = std::collections::HashSet::new();
+                        let mut candidates: Vec<(String, usize)> = Vec::new();
+                        let mut rows = stmt.query((oq, &username, limit_i64))?;
+                        while let Some(row) = rows.next()? {
+                            let id: i64 = row.get(0)?;
+                            let text: String = row.get(1)?;
+                            if !seen_ids.insert(id) {
+                                continue;
+                            }
+                            let lower = text.to_lowercase();
+                            let doc_tokens: Vec<&str> = lower
+                                .split(|c: char| !c.is_alphanumeric())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                            let overlap = terms_to_use
+                                .iter()
+                                .filter(|t| doc_tokens.iter().any(|dt| dt.starts_with(t.as_str())))
+                                .count();
+                            candidates.push((text, overlap));
+                        }
+                        let min_overlap = if candidates.iter().any(|(_, c)| *c >= 2) {
+                            2
+                        } else {
+                            1
+                        };
+                        for (text, overlap) in candidates {
+                            if overlap >= min_overlap {
+                                matched_docs.push(text);
+                                if matched_docs.len() >= limit {
+                                    break;
+                                }
                             }
                         }
                     }

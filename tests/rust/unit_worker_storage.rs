@@ -1106,6 +1106,23 @@ mod librarian_tests {
             user_token_hits
         );
 
+        // Conversational natural-language query falling back to OR must filter out 1-term noise when >= 2-term hit exists
+        let conv_hits = librarian
+            .retrieve_policy_context(
+                "Please summarize our strict compliance mandate",
+                "tenant_alpha",
+                5,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            conv_hits.len(),
+            1,
+            "Conversational OR fallback must exclude single-term noise when multi-term match exists: {:?}",
+            conv_hits
+        );
+        assert!(conv_hits[0].contains("Strict compliance mandate"));
+
         fs::remove_dir_all(&kb_path).ok();
     }
 }
