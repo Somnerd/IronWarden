@@ -1256,4 +1256,51 @@ mod sse_proxy_tests {
             "Upstream read error must abort stream with error rather than clean EOF"
         );
     }
+
+    #[tokio::test]
+    async fn test_sse_keepalive_immediate_and_pending_lines_bounded() {
+        use futures::SinkExt;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        let map = HashMap::from([("[PERSON_1]".to_string(), "Alice".to_string())]);
+        let (mut tx, rx) =
+            futures::channel::mpsc::channel::<Result<axum::body::Bytes, std::io::Error>>(8);
+        let resp = stream_sse_bytes(rx, map);
+        let mut body = resp.into_body();
+
+        tx.send(Ok(axum::body::Bytes::from(": keepalive\n")))
+            .await
+            .unwrap();
+        let first = tokio::time::timeout(std::time::Duration::from_secs(2), body.frame())
+            .await
+            .expect("Keepalive comment must flush immediately without waiting for blank line")
+            .unwrap()
+            .unwrap()
+            .into_data()
+            .unwrap();
+        assert_eq!(std::str::from_utf8(&first).unwrap(), ": keepalive\n");
+
+        // Flood 40 id: lines (> MAX_PENDING_LINES=32) and verify stream bounds & delivers final data
+        let flood: String = (0..40).map(|i| format!("id: {i}\n")).collect();
+        tx.send(Ok(axum::body::Bytes::from(format!(
+            "{flood}data: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"hi [PERSON_1]\"}}}}]}}\n\n"
+        ))))
+        .await
+        .unwrap();
+        drop(tx);
+
+        let mut rest = Vec::new();
+        while let Some(frame) = body.frame().await {
+            if let Ok(d) = frame.unwrap().into_data() {
+                rest.extend_from_slice(&d);
+            }
+        }
+        let rest_str = String::from_utf8(rest).unwrap();
+        assert!(
+            rest_str.contains("hi Alice"),
+            "Missing rehydrated payload: {rest_str}"
+        );
+        assert!(rest_str.contains("id: 39\n"));
+    }
 }
