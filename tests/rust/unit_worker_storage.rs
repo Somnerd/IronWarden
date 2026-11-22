@@ -934,4 +934,426 @@ mod librarian_tests {
 
         fs::remove_dir_all(&kb_path).ok();
     }
+
+    #[tokio::test]
+    async fn test_librarian_fts5_bm25_ranking_and_gdpr_trigger_sync() {
+        let kb_path = std::env::temp_dir()
+            .join(format!("librarian_fts5_{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let librarian = LocalLibrarian::new(&kb_path).await.unwrap();
+
+        // Insert docs with differing sovereign policy term density and FTS5 operator words ("OR", "NOT")
+        librarian
+            .add_document(
+                "General company handbook mentioning unrelated items.",
+                "tenant1",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document(
+                "Compliance guideline OR quarterly review for internal systems.",
+                "tenant1",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document(
+                "Compliance policy for sovereignty: strict compliance rules under compliance mandate.",
+                "tenant1",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document("Other tenant compliance secret.", "tenant2")
+            .await
+            .unwrap();
+
+        // BM25 must rank the dense compliance document first
+        let ranked = librarian
+            .retrieve_policy_context("compliance", "tenant1", 5)
+            .await
+            .unwrap();
+        assert_eq!(ranked.len(), 2);
+        assert!(
+            ranked[0].contains("strict compliance rules"),
+            "Expected BM25 highest-density doc first, got: {:?}",
+            ranked
+        );
+
+        // Query containing FTS5 keyword 'OR' (both standalone fallback and mixed) must match safely without syntax errors
+        let keyword_only_res = librarian
+            .retrieve_policy_context("OR", "tenant1", 5)
+            .await
+            .unwrap();
+        assert_eq!(keyword_only_res.len(), 1);
+        assert!(keyword_only_res[0].contains("quarterly review"));
+
+        let keyword_res = librarian
+            .retrieve_policy_context("OR review", "tenant1", 5)
+            .await
+            .unwrap();
+        assert_eq!(keyword_res.len(), 1);
+        assert!(keyword_res[0].contains("quarterly review"));
+
+        // Conversational natural-language query with extra non-stopword verbs must still match via OR BM25 fallback
+        let conversational_res = librarian
+            .retrieve_policy_context("Please summarize strict compliance mandate", "tenant1", 5)
+            .await
+            .unwrap();
+        assert!(
+            !conversational_res.is_empty() && conversational_res[0].contains("strict compliance rules"),
+            "Expected conversational query to retrieve compliance policy via OR fallback, got: {:?}",
+            conversational_res
+        );
+
+        // GDPR delete must trigger FTS5 row deletion while preserving tenant2
+        librarian.delete_user_documents("tenant1").await.unwrap();
+        let after_delete = librarian
+            .retrieve_policy_context("compliance", "tenant1", 5)
+            .await
+            .unwrap();
+        assert!(after_delete.is_empty());
+
+        let tenant2_docs = librarian
+            .retrieve_policy_context("compliance", "tenant2", 5)
+            .await
+            .unwrap();
+        assert_eq!(tenant2_docs.len(), 1);
+
+        // Pre-FTS5 legacy database migration: one-time guarded 'rebuild' indexes existing rows
+        let legacy_dir =
+            std::env::temp_dir().join(format!("librarian_legacy_{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&legacy_dir).unwrap();
+        {
+            let conn = rusqlite::Connection::open(legacy_dir.join("librarian.db")).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE documents (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     text TEXT NOT NULL,
+                     username TEXT NOT NULL
+                 );
+                 INSERT INTO documents (text, username) VALUES (
+                     'Legacy sovereign policy record before FTS5 upgrade.',
+                     'legacy_user'
+                 );",
+            )
+            .unwrap();
+        }
+        let migrated = LocalLibrarian::new(legacy_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        let legacy_docs = migrated
+            .retrieve_policy_context("legacy sovereign", "legacy_user", 5)
+            .await
+            .unwrap();
+        assert_eq!(legacy_docs.len(), 1);
+        assert!(legacy_docs[0].contains("Legacy sovereign policy record"));
+
+        fs::remove_dir_all(&kb_path).ok();
+        fs::remove_dir_all(&legacy_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_librarian_no_or_padding_when_and_matches_and_username_not_matched_as_text() {
+        let kb_path = std::env::temp_dir()
+            .join(format!("librarian_no_pad_{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let librarian = LocalLibrarian::new(&kb_path).await.unwrap();
+
+        librarian
+            .add_document(
+                "Strict compliance mandate for production keys.",
+                "tenant_alpha",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document(
+                "Compliance calendar reminder for vacation requests.",
+                "tenant_alpha",
+            )
+            .await
+            .unwrap();
+        librarian
+            .add_document("Other unrelated note.", "tenant_alpha")
+            .await
+            .unwrap();
+
+        // Exact AND match exists -> OR fallback must NOT pad limit=5 with the single-term doc
+        let strict_hits = librarian
+            .retrieve_policy_context("strict compliance mandate", "tenant_alpha", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            strict_hits.len(),
+            1,
+            "OR fallback must not pad unrelated single-term matches when AND succeeded: {:?}",
+            strict_hits
+        );
+        assert!(strict_hits[0].contains("Strict compliance mandate"));
+
+        // Searching for a username token that is absent from `text` must return empty
+        let user_token_hits = librarian
+            .retrieve_policy_context("alpha", "tenant_alpha", 5)
+            .await
+            .unwrap();
+        assert!(
+            user_token_hits.is_empty(),
+            "Query matching only indexed username column must not leak into text hits: {:?}",
+            user_token_hits
+        );
+
+        // Conversational natural-language query falling back to OR must filter out 1-term noise when >= 2-term hit exists
+        let conv_hits = librarian
+            .retrieve_policy_context(
+                "Please summarize our strict compliance mandate",
+                "tenant_alpha",
+                5,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            conv_hits.len(),
+            1,
+            "Conversational OR fallback must exclude single-term noise when multi-term match exists: {:?}",
+            conv_hits
+        );
+        assert!(conv_hits[0].contains("Strict compliance mandate"));
+
+        // High-TF single-term noise document must not starve multi-term hit under small limit=1
+        librarian
+            .add_document(
+                "Compliance compliance compliance compliance compliance compliance note.",
+                "tenant_alpha",
+            )
+            .await
+            .unwrap();
+        let small_limit_hits = librarian
+            .retrieve_policy_context(
+                "Please summarize our strict compliance mandate",
+                "tenant_alpha",
+                1,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            small_limit_hits.len(),
+            1,
+            "OR candidate window must still return the multi-term match under limit=1: {:?}",
+            small_limit_hits
+        );
+        assert!(
+            small_limit_hits[0].contains("Strict compliance mandate"),
+            "High-TF single-term noise starved multi-term hit: {:?}",
+            small_limit_hits
+        );
+
+        fs::remove_dir_all(&kb_path).ok();
+    }
+
+    #[tokio::test]
+    async fn test_librarian_greek_diacritics_and_tenant_local_bm25_idf_isolation() {
+        let kb_path = std::env::temp_dir()
+            .join(format!("librarian_greek_bm25_{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let librarian = LocalLibrarian::new(&kb_path).await.unwrap();
+
+        // 1. Greek diacritic-insensitive OR fallback (unaccented query vs accented stored doc)
+        librarian
+            .add_document("Αυστηρή σύμβαση ασφαλείας για κλειδιά.", "tenant_gr")
+            .await
+            .unwrap();
+        let greek_hits = librarian
+            .retrieve_policy_context("συνοψη αυστηρη συμβαση", "tenant_gr", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            greek_hits.len(),
+            1,
+            "Unaccented Greek OR query must match accented Greek doc: {:?}",
+            greek_hits
+        );
+        assert!(greek_hits[0].contains("Αυστηρή σύμβαση"));
+
+        // 2. Zero cross-tenant BM25 IDF leakage:
+        //    Make "beta" rarer in tenant_iso by giving tenant_iso two "alpha" docs and one "beta" doc.
+        librarian
+            .add_document("alpha policy alpha rule", "tenant_iso")
+            .await
+            .unwrap();
+        librarian
+            .add_document("alpha second handbook", "tenant_iso")
+            .await
+            .unwrap();
+        librarian
+            .add_document("beta critical policy", "tenant_iso")
+            .await
+            .unwrap();
+
+        let before_ranking = librarian
+            .retrieve_policy_context("alpha beta", "tenant_iso", 5)
+            .await
+            .unwrap();
+        assert_eq!(before_ranking.len(), 3);
+        assert!(
+            before_ranking[0].contains("beta critical policy"),
+            "Rarer tenant-local term 'beta' should rank first before noise: {:?}",
+            before_ranking
+        );
+
+        // Ingest 50 docs heavily containing "beta" into an unrelated tenant
+        for i in 0..50 {
+            librarian
+                .add_document(
+                    &format!("beta beta beta beta noisy document {}", i),
+                    "tenant_noisy",
+                )
+                .await
+                .unwrap();
+        }
+
+        let after_ranking = librarian
+            .retrieve_policy_context("alpha beta", "tenant_iso", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            before_ranking, after_ranking,
+            "Other tenant's corpus frequencies must NOT alter tenant_iso BM25 ranking"
+        );
+
+        fs::remove_dir_all(&kb_path).ok();
+    }
+
+    #[tokio::test]
+    async fn test_librarian_no_starvation_past_200_docs_true_tenant_idf_and_dedup_query() {
+        let kb_path = std::env::temp_dir()
+            .join(format!("librarian_scale_idf_{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let librarian = LocalLibrarian::new(&kb_path).await.unwrap();
+
+        // 1. Zero starvation past 200 docs: ingest 220 noisy docs first, then high-relevance doc #221.
+        for i in 0..220 {
+            librarian
+                .add_document(&format!("compliance note number {}", i), "tenant_scale")
+                .await
+                .unwrap();
+        }
+        librarian
+            .add_document(
+                "compliance strict mandate strict compliance mandate",
+                "tenant_scale",
+            )
+            .await
+            .unwrap();
+        let scale_hits = librarian
+            .retrieve_policy_context(
+                "Please summarize compliance strict mandate",
+                "tenant_scale",
+                1,
+            )
+            .await
+            .unwrap();
+        assert_eq!(scale_hits.len(), 1);
+        assert!(
+            scale_hits[0].contains("strict compliance mandate"),
+            "Newer doc #221 was starved past 200 oldest rows: {:?}",
+            scale_hits
+        );
+
+        // 2. AND query true tenant-local IDF: `policy` appears in 32 docs, `rarekey` in only 2.
+        //    Doc repeating `rarekey` twice must beat doc repeating common `policy` three times.
+        for i in 0..30 {
+            librarian
+                .add_document(&format!("policy handbook item {}", i), "tenant_idf")
+                .await
+                .unwrap();
+        }
+        librarian
+            .add_document("policy policy policy rarekey", "tenant_idf")
+            .await
+            .unwrap();
+        librarian
+            .add_document("policy rarekey rarekey", "tenant_idf")
+            .await
+            .unwrap();
+        let idf_hits = librarian
+            .retrieve_policy_context("policy rarekey", "tenant_idf", 5)
+            .await
+            .unwrap();
+        assert_eq!(idf_hits.len(), 2);
+        assert_eq!(
+            idf_hits[0], "policy rarekey rarekey",
+            "True tenant-local IDF must weight rarer term 'rarekey' higher than ubiquitous 'policy': {:?}",
+            idf_hits
+        );
+
+        // 3. Duplicate query terms must not inflate overlap >= 2 to include single-term noise.
+        librarian
+            .add_document("compliance single term noise", "tenant_dedup")
+            .await
+            .unwrap();
+        librarian
+            .add_document("compliance mandate pair", "tenant_dedup")
+            .await
+            .unwrap();
+        let dedup_hits = librarian
+            .retrieve_policy_context("compliance compliance mandate", "tenant_dedup", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            dedup_hits,
+            vec!["compliance mandate pair".to_string()],
+            "Duplicate query token bypassed overlap >= 2 filter: {:?}",
+            dedup_hits
+        );
+
+        // 4. Prefix-overlapping and punctuation-only usernames are strictly isolated.
+        librarian
+            .add_document("alice primary policy", "alice")
+            .await
+            .unwrap();
+        librarian
+            .add_document("alice secondary secret policy", "alice_2")
+            .await
+            .unwrap();
+        librarian
+            .add_document("punctuation secret policy", "---")
+            .await
+            .unwrap();
+        let alice_hits = librarian
+            .retrieve_policy_context("policy", "alice", 10)
+            .await
+            .unwrap();
+        assert_eq!(alice_hits, vec!["alice primary policy".to_string()]);
+        let punct_hits = librarian
+            .retrieve_policy_context("policy", "---", 10)
+            .await
+            .unwrap();
+        assert_eq!(punct_hits, vec!["punctuation secret policy".to_string()]);
+
+        // 5. 200-word prompts are capped cleanly without FTS5 overflow/errors and still match.
+        librarian
+            .add_document("longpromptanchor policy document", "tenant_long")
+            .await
+            .unwrap();
+        let long_query = std::iter::once("longpromptanchor".to_string())
+            .chain((0..199).map(|i| format!("term{}", i)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let long_hits = librarian
+            .retrieve_policy_context(&long_query, "tenant_long", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            long_hits,
+            vec!["longpromptanchor policy document".to_string()]
+        );
+
+        fs::remove_dir_all(&kb_path).ok();
+    }
 }

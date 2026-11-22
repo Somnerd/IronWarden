@@ -21,6 +21,7 @@ hkdf.workspace = true
 hex.workspace = true
 chrono.workspace = true
 serde.workspace = true
+unicode-normalization.workspace = true
 zeroize.workspace = true
 libc.workspace = true
 
@@ -51,5 +52,9 @@ harness = false
 
 [[bench]]
 name = "proxy_benchmark"
+harness = false
+
+[[bench]]
+name = "librarian_benchmark"
 harness = false
 

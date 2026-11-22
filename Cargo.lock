@@ -1846,6 +1846,7 @@ dependencies = [
  "tokio-stream",
  "tower_governor",
  "tracing",
+ "unicode-normalization",
  "uuid",
  "zeroize",
  "zip",
