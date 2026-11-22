@@ -11,6 +11,12 @@ static ANCHOR_TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 const GDPR_TOMBSTONE_PREFIX: &str = "GDPR_HMAC:";
 const GDPR_TOMBSTONE_DOMAIN: &[u8] = b"GDPR_TOMBSTONE_V1";
 
+/// Returns `true` if `username` is reserved for GDPR-redacted audit tombstones.
+pub fn is_reserved_gdpr_username(username: &str) -> bool {
+    let trimmed = username.trim();
+    trimmed == "[REDACTED]" || trimmed.starts_with("GDPR_")
+}
+
 fn feed_gdpr_tombstone_fields(
     mac: &mut HmacSha256,
     prev_hash: &[u8],
@@ -219,7 +225,7 @@ fn verify_audit_chain_inner(
 
         // Cryptographic shredding support: if username was purged/redacted under GDPR,
         // ephemeral payload must be absent, and we later require a valid keyed tombstone MAC.
-        let is_gdpr_redacted = username == "[REDACTED]" || username.starts_with("GDPR_");
+        let is_gdpr_redacted = is_reserved_gdpr_username(&username);
         if is_gdpr_redacted && (encrypted_data.is_some() || nonce.is_some()) {
             let msg = format!(
                 "GDPR SHREDDING VIOLATION at Log ID {}! Redacted record retains unshredded ephemeral payload.",

@@ -120,6 +120,14 @@ impl AsyncAuditor {
                             continue;
                         }
 
+                        if iw_core::audit::is_reserved_gdpr_username(&username) {
+                            let _ = ack_tx.send(Err(SovereignError::StorageError(
+                                "Reserved GDPR tombstone username cannot be used for live audit logging".into(),
+                            )));
+                            raw_input.zeroize();
+                            continue;
+                        }
+
                         if let Some(ref c) = conn {
                             let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
                             let redactions_json =
@@ -271,6 +279,12 @@ impl AsyncAuditor {
                         raw_input.zeroize();
                     }
                     AuditMessage::PurgeUser(username, ack_tx) => {
+                        if iw_core::audit::is_reserved_gdpr_username(&username) {
+                            let _ = ack_tx.send(Err(SovereignError::StorageError(
+                                "Cannot purge reserved GDPR tombstone username".into(),
+                            )));
+                            continue;
+                        }
                         let res = if let Some(ref c) = conn {
                             if let Err(e) = c.execute("BEGIN IMMEDIATE TRANSACTION", []) {
                                 Err(SovereignError::StorageError(format!(
@@ -435,7 +449,10 @@ impl AsyncAuditor {
                     break;
                 }
 
-                if let Ok(conn) = Connection::open(&path_monitor) {
+                if let Ok(conn) = Connection::open_with_flags(
+                    &path_monitor,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                ) {
                     let res: rusqlite::Result<(i64, String)> = conn.query_row(
                         "SELECT id, integrity_hash FROM audit_reports ORDER BY id DESC LIMIT 1",
                         [],

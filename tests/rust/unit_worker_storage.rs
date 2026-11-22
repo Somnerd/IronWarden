@@ -558,6 +558,25 @@ mod additional_audit_tests {
             .await
             .unwrap();
 
+        assert!(
+            auditor2
+                .log_report(report.clone(), "raw".into(), "[REDACTED]".into())
+                .await
+                .is_err(),
+            "Reserved '[REDACTED]' username must be rejected during live logging"
+        );
+        assert!(
+            auditor2
+                .log_report(report.clone(), "raw".into(), "GDPR_spoof".into())
+                .await
+                .is_err(),
+            "Reserved 'GDPR_*' username must be rejected during live logging"
+        );
+        assert!(
+            auditor2.purge_user("[REDACTED]").await.is_err(),
+            "Reserved '[REDACTED]' username must be rejected by purge_user"
+        );
+
         auditor2.shutdown().await;
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(format!("{}-shm", db_path));
