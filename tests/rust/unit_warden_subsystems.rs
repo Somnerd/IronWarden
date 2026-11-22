@@ -1,5 +1,8 @@
 extern crate warden as iw_warden;
 
+static ENV_MUTEX: std::sync::LazyLock<std::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
+
 mod shadow_ner_tests {
     use iw_warden::shadow_ner::*;
 
@@ -238,17 +241,13 @@ mod configurator_tests {
     use std::env;
     use std::fs;
     use std::path::Path;
-    use std::sync::LazyLock;
-    use std::sync::Mutex;
-
-    static ENV_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     // A helper to run tests sequentially when modifying environment variables
     fn run_with_env<F>(setup: F)
     where
         F: FnOnce(),
     {
-        let _guard = match ENV_MUTEX.lock() {
+        let _guard = match super::ENV_MUTEX.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
@@ -622,12 +621,109 @@ mod configurator_tests {
             env::remove_var("WARDEN_PEPPER");
         });
     }
+
+    #[test]
+    fn test_invalid_allow_fallback_value_rejected() {
+        run_with_env(|| {
+            for bad in ["yes", "1", "0", "tru"] {
+                env::set_var("ALLOW_FALLBACK", bad);
+                let err = GlobalConfig::resolve_with_path(Some(Path::new(
+                    "non_existent_path_config.yaml",
+                )))
+                .unwrap_err();
+                assert!(
+                    err.to_string().contains("Invalid ALLOW_FALLBACK"),
+                    "Expected Invalid ALLOW_FALLBACK error for '{}', got: {}",
+                    bad,
+                    err
+                );
+            }
+
+            // Whitespace-only ALLOW_FALLBACK behaves as unset (strict when WARDEN_ENV unset)
+            env::set_var("ALLOW_FALLBACK", "   ");
+            let err_ws =
+                GlobalConfig::resolve_with_path(Some(Path::new("non_existent_path_config.yaml")))
+                    .unwrap_err();
+            assert!(
+                err_ws.to_string().contains("Strict mode violation"),
+                "Expected Strict mode violation for whitespace ALLOW_FALLBACK, got: {}",
+                err_ws
+            );
+        });
+    }
 }
 
 mod ai_tests {
     use iw_warden::ai::*;
+    use std::env;
     use std::path::Path;
     use std::sync::Arc;
+
+    #[test]
+    fn test_hybrid_ner_honors_warden_model_path_env() {
+        let _guard = match super::ENV_MUTEX.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        let orig_model = env::var("WARDEN_MODEL_PATH");
+        let orig_mode = env::var("WARDEN_NER_MODE");
+        let orig_disable = env::var("WARDEN_DISABLE_ONNX");
+        let orig_env = env::var("WARDEN_ENV");
+
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env::set_var("WARDEN_NER_MODE", "require_hybrid");
+            env::remove_var("WARDEN_DISABLE_ONNX");
+            env::remove_var("WARDEN_ENV");
+
+            let custom_dir = "/tmp/iw_custom_nonexistent_model_dir_test";
+            env::set_var("WARDEN_MODEL_PATH", custom_dir);
+            let err_dir = HybridNer::new(0.85).expect_err(
+                "RequireHybrid with nonexistent custom dir must error instead of falling back to data/models",
+            );
+            assert!(
+                err_dir.contains(custom_dir),
+                "Expected error referencing WARDEN_MODEL_PATH dir '{}', got: {}",
+                custom_dir,
+                err_dir
+            );
+
+            let custom_onnx = "/tmp/iw_custom_nonexistent_model/custom_model.onnx";
+            env::set_var("WARDEN_MODEL_PATH", custom_onnx);
+            let err_file = HybridNer::new(0.85)
+                .expect_err("RequireHybrid with nonexistent custom .onnx file must error");
+            assert!(
+                err_file.contains(custom_onnx),
+                "Expected error referencing WARDEN_MODEL_PATH file '{}', got: {}",
+                custom_onnx,
+                err_file
+            );
+        }));
+
+        if let Ok(v) = orig_model {
+            env::set_var("WARDEN_MODEL_PATH", v);
+        } else {
+            env::remove_var("WARDEN_MODEL_PATH");
+        }
+        if let Ok(v) = orig_mode {
+            env::set_var("WARDEN_NER_MODE", v);
+        } else {
+            env::remove_var("WARDEN_NER_MODE");
+        }
+        if let Ok(v) = orig_disable {
+            env::set_var("WARDEN_DISABLE_ONNX", v);
+        } else {
+            env::remove_var("WARDEN_DISABLE_ONNX");
+        }
+        if let Ok(v) = orig_env {
+            env::set_var("WARDEN_ENV", v);
+        } else {
+            env::remove_var("WARDEN_ENV");
+        }
+
+        if let Err(e) = res {
+            std::panic::resume_unwind(e);
+        }
+    }
 
     #[ignore = "ORT rc.12 global allocator races Tokio multi-thread shutdown (teardown SIGSEGV); concurrency logic covered by pool integration via engine tests"]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -1,6 +1,6 @@
 use ort::session::Session;
 use ort::value::Tensor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tokenizers::Tokenizer;
 use tracing::{error, info, warn};
@@ -310,6 +310,39 @@ pub struct HybridNer {
     mode: NerMode,
 }
 
+fn resolve_onnx_paths() -> (PathBuf, PathBuf) {
+    if let Ok(raw) = std::env::var("WARDEN_MODEL_PATH") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let p = PathBuf::from(trimmed);
+            if p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("onnx"))
+            {
+                let tokenizer_path = p
+                    .parent()
+                    .filter(|d| !d.as_os_str().is_empty())
+                    .map(|d| d.join("tokenizer.json"))
+                    .unwrap_or_else(|| PathBuf::from("tokenizer.json"));
+                return (p, tokenizer_path);
+            }
+            return (p.join("model_quantized.onnx"), p.join("tokenizer.json"));
+        }
+    }
+
+    let model_path = if Path::new("data/models/distilbert-ner/model_quantized.onnx").exists() {
+        PathBuf::from("data/models/distilbert-ner/model_quantized.onnx")
+    } else {
+        PathBuf::from("../data/models/distilbert-ner/model_quantized.onnx")
+    };
+    let tokenizer_path = if Path::new("data/models/distilbert-ner/tokenizer.json").exists() {
+        PathBuf::from("data/models/distilbert-ner/tokenizer.json")
+    } else {
+        PathBuf::from("../data/models/distilbert-ner/tokenizer.json")
+    };
+    (model_path, tokenizer_path)
+}
+
 impl HybridNer {
     pub fn requested_mode(&self) -> &'static str {
         self.mode.as_str()
@@ -345,18 +378,9 @@ impl HybridNer {
         }
 
         // Attempt ONNX (the only supported path post-V1.3)
-        let model_path = if Path::new("data/models/distilbert-ner/model_quantized.onnx").exists() {
-            Path::new("data/models/distilbert-ner/model_quantized.onnx")
-        } else {
-            Path::new("../data/models/distilbert-ner/model_quantized.onnx")
-        };
-        let tokenizer_path = if Path::new("data/models/distilbert-ner/tokenizer.json").exists() {
-            Path::new("data/models/distilbert-ner/tokenizer.json")
-        } else {
-            Path::new("../data/models/distilbert-ner/tokenizer.json")
-        };
+        let (model_path, tokenizer_path) = resolve_onnx_paths();
 
-        Self::new_with_paths(threshold, mode, model_path, tokenizer_path)
+        Self::new_with_paths(threshold, mode, &model_path, &tokenizer_path)
     }
 
     pub fn new_with_paths(

@@ -110,9 +110,30 @@ impl GlobalConfig {
     }
 
     pub fn resolve_with_path(custom_config_path: Option<&Path>) -> Result<Self, SovereignError> {
-        let explicit_allow_fallback = std::env::var("ALLOW_FALLBACK")
-            .ok()
-            .map(|v| v.trim().eq_ignore_ascii_case("true"));
+        let explicit_allow_fallback = match std::env::var("ALLOW_FALLBACK") {
+            Ok(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    None
+                } else if trimmed.eq_ignore_ascii_case("true") {
+                    Some(true)
+                } else if trimmed.eq_ignore_ascii_case("false") {
+                    Some(false)
+                } else {
+                    return Err(SovereignError::ConfigError(format!(
+                        "Invalid ALLOW_FALLBACK value '{}': expected 'true' or 'false'.",
+                        raw
+                    )));
+                }
+            }
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                return Err(SovereignError::ConfigError(
+                    "Invalid ALLOW_FALLBACK value: non-UTF-8 string; expected 'true' or 'false'."
+                        .into(),
+                ));
+            }
+        };
         let env_allow_fallback = explicit_allow_fallback.unwrap_or_else(|| {
             std::env::var("WARDEN_ENV")
                 .map(|v| v == "test" || v == "ephemeral")

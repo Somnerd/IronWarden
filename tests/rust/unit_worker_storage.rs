@@ -885,6 +885,106 @@ mod ocr_tests {
             env::remove_var("RUST_ENV");
         }
     }
+
+    #[tokio::test]
+    async fn test_ocr_temp_dir_cleaned_up_on_error_and_pdf_missing_pdftoppm() {
+        let _guard = TEST_ENV_MUTEX.lock().await;
+
+        let orig_warden = env::var("WARDEN_ENV");
+        let orig_prod = env::var("IRONWARDEN_ENV");
+        let orig_rust_env = env::var("RUST_ENV");
+        let orig_path = env::var("PATH");
+
+        let snapshot_iw_ocr = || -> std::collections::BTreeSet<String> {
+            std::fs::read_dir(std::env::temp_dir())
+                .ok()
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|name| name.starts_with("iw_ocr_"))
+                .collect()
+        };
+
+        let before = snapshot_iw_ocr();
+
+        env::set_var("WARDEN_ENV", "production");
+        env::remove_var("IRONWARDEN_ENV");
+        env::remove_var("RUST_ENV");
+        env::set_var("PATH", "");
+
+        let ocr = TesseractOcr;
+        let pdf_res = ocr.extract_text(b"%PDF-1.4\n", "application/pdf").await;
+        assert!(
+            pdf_res.is_err(),
+            "PDF OCR must fail closed in production when pdftoppm is missing"
+        );
+        let pdf_err = pdf_res.unwrap_err().to_string();
+        assert!(
+            pdf_err.contains("pdftoppm"),
+            "Expected pdftoppm error message, got: {}",
+            pdf_err
+        );
+        assert_eq!(
+            snapshot_iw_ocr(),
+            before,
+            "iw_ocr_* temp dir leaked after missing pdftoppm error"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let bin_dir = tempfile::tempdir().unwrap();
+            let fake_tess = bin_dir.path().join("tesseract");
+            std::fs::write(
+                &fake_tess,
+                "#!/bin/sh\nprintf 'partial secret' > \"$2.txt\"\necho 'simulated failure' >&2\nexit 1\n",
+            )
+            .unwrap();
+            let mut perms = std::fs::metadata(&fake_tess).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&fake_tess, perms).unwrap();
+
+            env::set_var("PATH", bin_dir.path());
+            let img_res = ocr.extract_text(b"fake png bytes", "image/png").await;
+            assert!(
+                img_res.is_err(),
+                "Expected Tesseract error when binary exits 1"
+            );
+            let img_err = img_res.unwrap_err().to_string();
+            assert!(
+                img_err.contains("Tesseract Error"),
+                "Expected 'Tesseract Error', got: {}",
+                img_err
+            );
+            assert_eq!(
+                snapshot_iw_ocr(),
+                before,
+                "iw_ocr_* temp dir (and partial .txt) leaked after tesseract failure"
+            );
+        }
+
+        if let Ok(val) = orig_path {
+            env::set_var("PATH", val);
+        } else {
+            env::remove_var("PATH");
+        }
+        if let Ok(val) = orig_warden {
+            env::set_var("WARDEN_ENV", val);
+        } else {
+            env::remove_var("WARDEN_ENV");
+        }
+        if let Ok(val) = orig_prod {
+            env::set_var("IRONWARDEN_ENV", val);
+        } else {
+            env::remove_var("IRONWARDEN_ENV");
+        }
+        if let Ok(val) = orig_rust_env {
+            env::set_var("RUST_ENV", val);
+        } else {
+            env::remove_var("RUST_ENV");
+        }
+    }
 }
 
 #[cfg(test)]

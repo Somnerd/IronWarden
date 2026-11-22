@@ -1,9 +1,9 @@
 # --- Build Stage ---
-FROM rust:1.100-bookworm AS builder
+FROM rust:1.100-trixie AS builder
 
 WORKDIR /usr/src/ironwarden
 
-# Install build tools and dependencies (Tesseract OCR dev libs, OpenSSL, pkg-config)
+# Install build tools and dependencies (OpenSSL, pkg-config, clang)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-eng \
     tesseract-ocr-grc \
     tesseract-ocr-ell \
-    libtesseract5 \
+    poppler-utils \
     ca-certificates \
     libssl3 \
     curl \
@@ -80,5 +80,8 @@ ENV WARDEN_ENV=production \
 USER ironwarden
 
 EXPOSE 8080 14141
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8080/health || exit 1
 
 CMD ["ironwarden"]
