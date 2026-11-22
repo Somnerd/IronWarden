@@ -161,6 +161,61 @@ pub(crate) fn process_and_audit_content_value<'a>(
     })
 }
 
+fn restore_json_strings_recursive(
+    shield: &dyn iw_core::PiiShield,
+    token_map: &TokenMap,
+    val: &mut serde_json::Value,
+) {
+    match val {
+        serde_json::Value::String(s) => {
+            if let Ok(restored) = shield.restore_prompt(s, token_map) {
+                *s = restored;
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                restore_json_strings_recursive(shield, token_map, item);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                restore_json_strings_recursive(shield, token_map, v);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn restore_string_slot(
+    shield: &dyn iw_core::PiiShield,
+    token_map: &TokenMap,
+    slot: &mut serde_json::Value,
+) {
+    if let Some(text) = slot.as_str() {
+        if let Ok(restored) = shield.restore_prompt(text, token_map) {
+            *slot = serde_json::Value::String(restored);
+        }
+    }
+}
+
+fn restore_json_encoded_string_slot(
+    shield: &dyn iw_core::PiiShield,
+    token_map: &TokenMap,
+    slot: &mut serde_json::Value,
+) {
+    let Some(raw) = slot.as_str() else {
+        return;
+    };
+    if let Ok(mut parsed) = serde_json::from_str::<serde_json::Value>(raw) {
+        restore_json_strings_recursive(shield, token_map, &mut parsed);
+        if let Ok(reserialized) = serde_json::to_string(&parsed) {
+            *slot = serde_json::Value::String(reserialized);
+            return;
+        }
+    }
+    restore_string_slot(shield, token_map, slot);
+}
+
 pub async fn handle_openai_chat_completions(
     State(state): State<Arc<BridgeState>>,
     headers: HeaderMap,
@@ -270,9 +325,22 @@ pub async fn handle_openai_chat_completions(
     if let Some(choices) = res_json.get_mut("choices").and_then(|c| c.as_array_mut()) {
         for choice in choices.iter_mut() {
             if let Some(content) = choice.pointer_mut("/message/content") {
-                if let Some(text) = content.as_str() {
-                    if let Ok(restored) = state.shield.restore_prompt(text, &full_token_map) {
-                        *content = serde_json::Value::String(restored);
+                restore_string_slot(state.shield.as_ref(), &full_token_map, content);
+            }
+            if let Some(reasoning) = choice.pointer_mut("/message/reasoning_content") {
+                restore_string_slot(state.shield.as_ref(), &full_token_map, reasoning);
+            }
+            if let Some(tool_calls) = choice
+                .pointer_mut("/message/tool_calls")
+                .and_then(|tc| tc.as_array_mut())
+            {
+                for tc in tool_calls.iter_mut() {
+                    if let Some(args) = tc.pointer_mut("/function/arguments") {
+                        restore_json_encoded_string_slot(
+                            state.shield.as_ref(),
+                            &full_token_map,
+                            args,
+                        );
                     }
                 }
             }
@@ -545,11 +613,13 @@ pub async fn handle_anthropic_messages(
     if let Some(blocks) = res_json.get_mut("content").and_then(|c| c.as_array_mut()) {
         for block in blocks.iter_mut() {
             if let Some(text_val) = block.get_mut("text") {
-                if let Some(text) = text_val.as_str() {
-                    if let Ok(restored) = state.shield.restore_prompt(text, &full_token_map) {
-                        *text_val = serde_json::Value::String(restored);
-                    }
-                }
+                restore_string_slot(state.shield.as_ref(), &full_token_map, text_val);
+            }
+            if let Some(thinking_val) = block.get_mut("thinking") {
+                restore_string_slot(state.shield.as_ref(), &full_token_map, thinking_val);
+            }
+            if let Some(input_val) = block.get_mut("input") {
+                restore_json_strings_recursive(state.shield.as_ref(), &full_token_map, input_val);
             }
         }
     }

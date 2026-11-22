@@ -1048,4 +1048,212 @@ mod sse_proxy_tests {
             split_str
         );
     }
+
+    #[tokio::test]
+    async fn test_sse_reasoning_tool_calls_multichoice_escaping_and_upstream_errors() {
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        let map = HashMap::from([("[PERSON_1]".to_string(), "Alice \"Ace\"\nLine2".to_string())]);
+        let simple_map = HashMap::from([("[PERSON_1]".to_string(), "Alice".to_string())]);
+
+        // 1. OpenAI reasoning_content + tool_calls.function.arguments split-token rehydration
+        //    + JSON-escaped replacement for quotes/newlines inside tool arguments.
+        let oai_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"think [PER\"}}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"SON_1] done\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"name\\\":\\\"[PER\"}}]}}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"SON_1]\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from("data: [DONE]\n\n")),
+        ];
+        let oai_resp = stream_sse_bytes(futures::stream::iter(oai_chunks), map.clone());
+        let oai_str = String::from_utf8(
+            oai_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(!oai_str.contains("[PERSON_1]"), "Leaked token: {}", oai_str);
+        // Reconstruct streamed reasoning_content and tool_calls arguments across frames
+        let mut rebuilt_reasoning = String::new();
+        let mut rebuilt_args = String::new();
+        for line in oai_str.lines() {
+            if let Some(d) = line.strip_prefix("data: ") {
+                if d != "[DONE]" {
+                    let v: serde_json::Value = serde_json::from_str(d).unwrap();
+                    if let Some(r) = v
+                        .pointer("/choices/0/delta/reasoning_content")
+                        .and_then(|s| s.as_str())
+                    {
+                        rebuilt_reasoning.push_str(r);
+                    }
+                    if let Some(a) = v
+                        .pointer("/choices/0/delta/tool_calls/0/function/arguments")
+                        .and_then(|s| s.as_str())
+                    {
+                        rebuilt_args.push_str(a);
+                    }
+                }
+            }
+        }
+        assert_eq!(rebuilt_reasoning, "think Alice \"Ace\"\nLine2 done");
+        let parsed_args: serde_json::Value = serde_json::from_str(&rebuilt_args).expect(
+            "Tool call arguments must remain valid JSON after quote/newline PII replacement",
+        );
+        assert_eq!(parsed_args["name"], "Alice \"Ace\"\nLine2");
+
+        // 2. Anthropic thinking_delta + input_json_delta split-token + content_block_stop flush
+        let anth_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"[PER\"}}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"SON_1] ok\"}}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"u\\\":\\\"[PER\"}}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"SON_1]\\\"}\"}}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"tail [PER\"}}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+            )),
+        ];
+        let anth_resp = stream_sse_bytes(futures::stream::iter(anth_chunks), simple_map.clone());
+        let anth_str = String::from_utf8(
+            anth_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            !anth_str.contains("[PERSON_1]"),
+            "Anthropic leaked token: {}",
+            anth_str
+        );
+        assert!(
+            anth_str.contains("\"thinking\":\"Alice ok\""),
+            "Thinking delta not rehydrated: {}",
+            anth_str
+        );
+        assert!(
+            anth_str.contains("Alice\\\"}"),
+            "partial_json not rehydrated: {}",
+            anth_str
+        );
+        let tail_pos = anth_str.find("tail ").unwrap();
+        let block_stop_pos = anth_str.find("\"content_block_stop\"").unwrap();
+        assert!(tail_pos < block_stop_pos);
+
+        // 3. Multi-choice isolation: choices[1] finishing early must not flush choices[0]'s buffered `[PER`
+        let mc_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi [PER\"}}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"index\":1,\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"SON_1]\"}}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from("data: [DONE]\n\n")),
+        ];
+        let mc_resp = stream_sse_bytes(futures::stream::iter(mc_chunks), simple_map.clone());
+        let mc_str = String::from_utf8(
+            mc_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            mc_str.contains("Alice") && !mc_str.contains("[PER"),
+            "Multi-choice premature flush corrupted split token: {}",
+            mc_str
+        );
+
+        // 4. Orphan `event:` + `id:` headers preceding a suppressed delta must NOT leak onto next event;
+        //    and >1 MiB overflow + malformed data lines escape quotes/newlines safely.
+        let orphan_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(
+                "event: custom_suppressed\nid: evt-1\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"[PER\"}}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"SON_1]\"}}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from("data: non_json_[PERSON_1]_tail\n\n")),
+            Ok(axum::body::Bytes::from(format!(
+                "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{} [PERSON_1]\"}}}}]}}\n\n",
+                "x".repeat(1_050_000)
+            ))),
+        ];
+        let orphan_resp = stream_sse_bytes(futures::stream::iter(orphan_chunks), map);
+        let orphan_str = String::from_utf8(
+            orphan_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            !orphan_str.contains("custom_suppressed"),
+            "Orphan event header leaked: {}",
+            orphan_str
+        );
+        assert!(
+            !orphan_str.contains("evt-1"),
+            "Orphan id header leaked: {}",
+            orphan_str
+        );
+        assert!(
+            orphan_str.contains("non_json_Alice \"Ace\" Line2_tail"),
+            "Malformed line injected newline: {}",
+            orphan_str
+        );
+        assert!(
+            orphan_str.contains("Alice \\\"Ace\\\"\\nLine2"),
+            "Overflow JSON line failed escaping: {}",
+            &orphan_str[orphan_str.len().saturating_sub(200)..]
+        );
+
+        // 5. Upstream stream error must propagate an HTTP body error rather than clean EOF.
+        let err_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",
+            )),
+            Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionReset,
+                "boom",
+            )),
+        ];
+        let err_resp = stream_sse_bytes(futures::stream::iter(err_chunks), simple_map);
+        let err_collect = err_resp.into_body().collect().await;
+        assert!(
+            err_collect.is_err(),
+            "Upstream read error must abort stream with error rather than clean EOF"
+        );
+    }
 }
