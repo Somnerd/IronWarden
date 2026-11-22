@@ -109,29 +109,88 @@ fn verify_audit_chain_inner(
             failures.push(msg);
         }
 
-        let redactions_vec: Vec<Redaction> = serde_json::from_str(&redactions).unwrap_or_default();
-        let redactions_bin = bincode::serialize(&redactions_vec).unwrap_or_default();
-        let payload_hash = hex::decode(&payload_hash_str).unwrap_or_default();
-        let stored_bytes = hex::decode(&stored_hash).unwrap_or_default();
-
-        // Cryptographic shredding support: if username was purged/redacted under GDPR,
-        // the raw identity is deleted but the proof-of-history hash chain link remains unbroken.
-        if username == "[REDACTED]" || username.starts_with("GDPR_") {
-            if stored_bytes.is_empty() && !stored_hash.is_empty() {
-                let msg = format!("Invalid integrity_hash hex at redacted record {}", id);
+        let stored_bytes = match hex::decode(&stored_hash) {
+            Ok(b) if b.len() == 32 => b,
+            _ => {
+                let msg = format!("AUDIT CORRUPTION: Invalid integrity_hash at Log ID {}", id);
                 if fail_fast {
                     return Err(msg);
                 }
                 failures.push(msg);
+                current_hash = Vec::new();
+                current_id = id;
+                continue;
+            }
+        };
+
+        // Cryptographic shredding support: if username was purged/redacted under GDPR,
+        // the raw identity is deleted, ephemeral payload must be absent, and hash chain links stay intact.
+        if username == "[REDACTED]" || username.starts_with("GDPR_") {
+            if encrypted_data.is_some() || nonce.is_some() {
+                let msg = format!(
+                    "GDPR SHREDDING VIOLATION at Log ID {}! Redacted record retains unshredded ephemeral payload.",
+                    id
+                );
+                if fail_fast {
+                    return Err(msg);
+                }
+                failures.push(msg);
+            } else {
+                archived_count += 1;
+                gdpr_redacted_count += 1;
             }
             current_hash = stored_bytes;
             current_id = id;
-            archived_count += 1;
-            gdpr_redacted_count += 1;
             continue;
         }
 
-        // Stage 1: Verify HMAC Chain (Metadata + Username + Payload Hash)
+        let redactions_vec: Vec<Redaction> = match serde_json::from_str(&redactions) {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = format!(
+                    "AUDIT CORRUPTION: Invalid redactions_json at Log ID {}: {}",
+                    id, e
+                );
+                if fail_fast {
+                    return Err(msg);
+                }
+                failures.push(msg);
+                current_hash = stored_bytes;
+                current_id = id;
+                continue;
+            }
+        };
+        let redactions_bin = match bincode::serialize(&redactions_vec) {
+            Ok(b) => b,
+            Err(e) => {
+                let msg = format!(
+                    "AUDIT CORRUPTION: Failed redactions serialization at Log ID {}: {}",
+                    id, e
+                );
+                if fail_fast {
+                    return Err(msg);
+                }
+                failures.push(msg);
+                current_hash = stored_bytes;
+                current_id = id;
+                continue;
+            }
+        };
+        let payload_hash = match hex::decode(&payload_hash_str) {
+            Ok(b) if b.len() == 32 => b,
+            _ => {
+                let msg = format!("AUDIT CORRUPTION: Invalid payload_hash at Log ID {}", id);
+                if fail_fast {
+                    return Err(msg);
+                }
+                failures.push(msg);
+                current_hash = stored_bytes;
+                current_id = id;
+                continue;
+            }
+        };
+
+        // Stage 1: Verify HMAC Chain (Metadata + Username + Payload Hash) in constant time
         let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key)
             .map_err(|_| "HMAC key initialization failure".to_string())?;
         mac.update(&current_hash);
@@ -141,14 +200,11 @@ fn verify_audit_chain_inner(
         mac.update(&redactions_bin);
         mac.update(&payload_hash);
 
-        let computed_hash = mac.finalize().into_bytes().to_vec();
-
-        if hex::encode(&computed_hash) != stored_hash {
+        if mac.clone().verify_slice(&stored_bytes).is_err() {
+            let computed_hex = hex::encode(mac.finalize().into_bytes());
             let msg = format!(
                 "CHAIN TAMPER DETECTED at Log ID {}!\n   Expected Hash: {}\n   Stored Hash  : {}",
-                id,
-                hex::encode(&computed_hash),
-                stored_hash
+                id, computed_hex, stored_hash
             );
             if fail_fast {
                 return Err(format!(
@@ -161,6 +217,7 @@ fn verify_audit_chain_inner(
             current_id = id;
             continue;
         }
+        let computed_hash = stored_bytes;
 
         // Stage 2: Verify Payload Binding (if ephemeral log still exists)
         match (encrypted_data, nonce) {
@@ -245,25 +302,33 @@ pub fn check_anchor(
     let anchor_path = format!("{}.anchor", db_path);
     match std::fs::read_to_string(&anchor_path) {
         Ok(content) => {
-            let parts: Vec<&str> = content.split(':').collect();
-            if parts.len() == 2 {
-                let expected_id: i64 = parts[0].parse().unwrap_or(0);
-                let expected_hash = parts[1];
-                if current_last_id < expected_id {
-                    return Err(format!(
-                        "Audit DB Truncation Detected! Expected last ID >= {}, but found {}",
-                        expected_id, current_last_id
-                    ));
-                }
-                if current_last_id > 0
-                    && current_last_id == expected_id
-                    && hex::encode(current_last_hash) != expected_hash
-                {
-                    return Err(
-                        "Audit DB Integrity Mismatch! Last record does not match stored anchor hash."
-                            .into(),
-                    );
-                }
+            let trimmed = content.trim();
+            let parts: Vec<&str> = trimmed.split(':').collect();
+            if parts.len() != 2 {
+                return Err("Audit DB Anchor file is malformed!".into());
+            }
+            let expected_id: i64 = parts[0]
+                .parse()
+                .map_err(|_| "Audit DB Anchor file has invalid record ID!".to_string())?;
+            if current_last_id < expected_id {
+                return Err(format!(
+                    "Audit DB Truncation Detected! Expected last ID >= {}, but found {}",
+                    expected_id, current_last_id
+                ));
+            }
+            let expected_bytes = hex::decode(parts[1].trim())
+                .map_err(|_| "Audit DB Anchor file has invalid hex hash!".to_string())?;
+            if expected_bytes.len() != 32 {
+                return Err("Audit DB Anchor file has invalid hash length!".into());
+            }
+            if current_last_id > 0
+                && current_last_id == expected_id
+                && current_last_hash != expected_bytes.as_slice()
+            {
+                return Err(
+                    "Audit DB Integrity Mismatch! Last record does not match stored anchor hash."
+                        .into(),
+                );
             }
             Ok(())
         }

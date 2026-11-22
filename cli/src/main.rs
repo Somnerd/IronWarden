@@ -7,6 +7,7 @@ use hkdf::Hkdf;
 use iw_core::{KDF_SALT_GENESIS, KDF_SALT_INTEGRITY};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
+use zeroize::Zeroize;
 
 #[derive(Parser)]
 #[command(name = "iw-cli")]
@@ -39,15 +40,20 @@ fn main() {
         Commands::Report { db } => {
             if let Err(e) = generate_report(db) {
                 eprintln!("Error generating report: {}", e);
+                std::process::exit(1);
             }
         }
         Commands::Verify { db } => {
-            let pepper_env = std::env::var("WARDEN_PEPPER").expect(
-                "WARDEN_PEPPER environment variable is missing. This is required for verification.",
-            );
+            let pepper_env = std::env::var("WARDEN_PEPPER").unwrap_or_else(|_| {
+                eprintln!(
+                    "WARDEN_PEPPER environment variable is missing. This is required for verification."
+                );
+                std::process::exit(1);
+            });
             let secret_pepper = SecretString::from(pepper_env);
             if let Err(e) = verify_integrity(db, &secret_pepper) {
                 eprintln!("Error verifying integrity: {}", e);
+                std::process::exit(1);
             }
         }
     }
@@ -115,19 +121,26 @@ fn verify_integrity(db_path: &str, pepper: &SecretString) -> rusqlite::Result<()
         .map_err(|_e| rusqlite::Error::InvalidQuery)?;
 
     let mut genesis_hash = [0u8; 32];
-    hk.expand(KDF_SALT_GENESIS, &mut genesis_hash)
-        .map_err(|_e| rusqlite::Error::InvalidQuery)?;
+    if hk.expand(KDF_SALT_GENESIS, &mut genesis_hash).is_err() {
+        hmac_key_bytes.zeroize();
+        genesis_hash.zeroize();
+        return Err(rusqlite::Error::InvalidQuery);
+    }
 
     println!("\n=============================================");
     println!("⛓️  IRONWARDEN TAMPER-CHECK INTEGRITY TOOL ⛓️");
     println!("=============================================\n");
 
-    match iw_core::audit::verify_audit_chain_diagnostic(
+    let verification = iw_core::audit::verify_audit_chain_diagnostic(
         &conn,
         db_path,
         &genesis_hash,
         &hmac_key_bytes,
-    ) {
+    );
+    hmac_key_bytes.zeroize();
+    genesis_hash.zeroize();
+
+    match verification {
         Ok(summary) => {
             for failure in &summary.failures {
                 println!("❌ {}", failure);

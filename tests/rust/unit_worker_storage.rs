@@ -676,6 +676,57 @@ mod additional_audit_tests {
             anchor_err
         );
 
+        // Malformed .anchor without ':' must fail closed in both fail-fast and diagnostic modes
+        std::fs::write(format!("{}.anchor", db_path), "corrupted_anchor_payload").unwrap();
+        let malformed_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            malformed_err.contains("malformed"),
+            "Expected malformed anchor error, got: {}",
+            malformed_err
+        );
+        let malformed_diag = iw_core::audit::verify_audit_chain_diagnostic(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key,
+        )
+        .unwrap();
+        assert!(
+            malformed_diag
+                .failures
+                .iter()
+                .any(|f| f.contains("malformed")),
+            "Expected malformed anchor failure in diagnostic mode, got: {:?}",
+            malformed_diag.failures
+        );
+
+        // Restore valid anchor hash, then re-insert ephemeral payload on the GDPR [REDACTED] record
+        let last_hex: String = conn
+            .query_row(
+                "SELECT integrity_hash FROM audit_reports WHERE id = 2",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let last_bytes = hex::decode(last_hex).unwrap();
+        iw_core::audit::update_anchor(&db_path, 2, &last_bytes).unwrap();
+        conn.execute(
+            "INSERT INTO ephemeral_raw_logs (id, timestamp, username, nonce, encrypted_data, siem_acked) \
+             VALUES (1, '2026-01-01 00:00:00', '[REDACTED]', x'000000000000000000000000', x'deadbeef', 0)",
+            [],
+        )
+        .unwrap();
+        let gdpr_violation =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            gdpr_violation.contains("GDPR SHREDDING VIOLATION"),
+            "Expected GDPR violation error, got: {}",
+            gdpr_violation
+        );
+
         drop(conn);
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(format!("{}-shm", db_path));
