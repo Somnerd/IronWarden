@@ -46,7 +46,9 @@ impl AsyncAuditor {
             summary.last_id
         );
 
-        let _ = Self::update_anchor(path, summary.last_id, &summary.last_hash);
+        if let Err(e) = Self::update_anchor(path, summary.last_id, &summary.last_hash) {
+            error!("Failed to initialize audit anchor: {}", e);
+        }
 
         Ok((conn, summary.last_hash, summary.last_id))
     }

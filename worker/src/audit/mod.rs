@@ -6,7 +6,7 @@ pub use forwarder::*;
 use chrono::{Duration, Utc};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use iw_core::{AadCipher, ScrubbingReport, SovereignError};
+use iw_core::{AadCipher, Redaction, ScrubbingReport, SovereignError};
 use iw_core::{KDF_SALT_ENCRYPTION, KDF_SALT_GENESIS, KDF_SALT_INTEGRITY};
 use rusqlite::{Connection, ErrorCode};
 use secrecy::{ExposeSecret, SecretVec};
@@ -270,13 +270,12 @@ impl AsyncAuditor {
                                     "DELETE FROM ephemeral_raw_logs WHERE username = ?1",
                                     [&username],
                                 );
-                                // 2. Redact username in audit_reports to preserve row IDs and cryptographic chain
-                                let res2 = c.execute(
-                                    "UPDATE audit_reports SET username = '[REDACTED]' WHERE username = ?1",
-                                    [&username],
-                                );
+                                // 2. Re-sign rows with keyed GDPR tombstone MAC in payload_hash
+                                //    and pseudonymize username in-place.
+                                let update_res =
+                                    Self::shred_user_audit_rows(c, &hmac_key_bytes, &username);
 
-                                if res1.is_err() || res2.is_err() {
+                                if res1.is_err() || update_res.is_err() {
                                     let _ = c.execute("ROLLBACK", []);
                                     Err(SovereignError::StorageError(
                                         "Failed to purge user audit data".into(),
@@ -434,7 +433,7 @@ impl AsyncAuditor {
                             }
                         }
                         Err(rusqlite::Error::QueryReturnedNoRows) => {
-                            if let Err(e) = Self::check_anchor(&path_monitor, 0, &[]) {
+                            if let Err(e) = Self::check_anchor(&path_monitor, 0, &genesis_hash) {
                                 error!("HARD-STOP MONITOR: Anchor Mismatch (Empty DB): {}. Triggering Fail-Closed state.", e);
                                 healthy_monitor.store(false, std::sync::atomic::Ordering::SeqCst);
                             }
@@ -531,5 +530,67 @@ impl AsyncAuditor {
         if self.sender.send(AuditMessage::Shutdown(tx)).await.is_ok() {
             let _ = rx.await;
         }
+    }
+
+    fn shred_user_audit_rows(
+        c: &Connection,
+        hmac_key_bytes: &[u8; 32],
+        username: &str,
+    ) -> Result<(), String> {
+        struct PurgeRow {
+            id: i64,
+            ts: String,
+            is_blocked: bool,
+            redactions_json: String,
+            integrity_hex: String,
+        }
+
+        let mut stmt = c
+            .prepare(
+                "SELECT id, timestamp, is_blocked, redactions_json, integrity_hash \
+                 FROM audit_reports WHERE username = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let mapped = stmt
+            .query_map([username], |r| {
+                Ok(PurgeRow {
+                    id: r.get(0)?,
+                    ts: r.get(1)?,
+                    is_blocked: r.get(2)?,
+                    redactions_json: r.get(3)?,
+                    integrity_hex: r.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut rows = Vec::new();
+        for item in mapped {
+            rows.push(item.map_err(|e| e.to_string())?);
+        }
+        drop(stmt);
+
+        for row in rows {
+            let redactions: Vec<Redaction> =
+                serde_json::from_str(&row.redactions_json).map_err(|e| e.to_string())?;
+            let redactions_bin = bincode::serialize(&redactions).map_err(|e| e.to_string())?;
+            let stored_bytes = hex::decode(row.integrity_hex.trim()).map_err(|e| e.to_string())?;
+            if stored_bytes.len() != 32 {
+                return Err(format!("Invalid integrity_hash length on row {}", row.id));
+            }
+            let tombstone = iw_core::audit::compute_gdpr_tombstone_mac(
+                hmac_key_bytes,
+                row.id,
+                &row.ts,
+                row.is_blocked,
+                &redactions_bin,
+                &stored_bytes,
+            )?;
+            c.execute(
+                "UPDATE audit_reports SET username = '[REDACTED]', payload_hash = ?1 WHERE id = ?2",
+                (&tombstone, row.id),
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 }

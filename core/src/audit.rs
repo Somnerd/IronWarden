@@ -1,10 +1,68 @@
 use crate::error::SovereignError;
 use crate::traits::Redaction;
 use hmac::{Hmac, Mac};
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 use sha2::{Digest, Sha256};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 type HmacSha256 = Hmac<Sha256>;
+
+static ANCHOR_TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+const GDPR_TOMBSTONE_PREFIX: &str = "GDPR_HMAC:";
+const GDPR_TOMBSTONE_DOMAIN: &[u8] = b"GDPR_TOMBSTONE_V1";
+
+/// Computes a keyed HMAC tombstone tag stored in `payload_hash` when a row's username is
+/// shredded under GDPR, preventing unauthenticated tampering with `[REDACTED]` audit records.
+pub fn compute_gdpr_tombstone_mac(
+    hmac_key: &[u8],
+    id: i64,
+    ts: &str,
+    is_blocked: bool,
+    redactions_bin: &[u8],
+    integrity_hash: &[u8],
+) -> Result<String, String> {
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key)
+        .map_err(|_| "HMAC key initialization failure".to_string())?;
+    mac.update(GDPR_TOMBSTONE_DOMAIN);
+    mac.update(&id.to_le_bytes());
+    mac.update(ts.as_bytes());
+    mac.update(&[u8::from(is_blocked)]);
+    mac.update(redactions_bin);
+    mac.update(integrity_hash);
+    Ok(format!(
+        "{}{}",
+        GDPR_TOMBSTONE_PREFIX,
+        hex::encode(mac.finalize().into_bytes())
+    ))
+}
+
+fn verify_gdpr_tombstone_mac(
+    hmac_key: &[u8],
+    id: i64,
+    ts: &str,
+    is_blocked: bool,
+    redactions_bin: &[u8],
+    integrity_hash: &[u8],
+    payload_hash: &str,
+) -> Result<(), String> {
+    let tag_hex = payload_hash
+        .strip_prefix(GDPR_TOMBSTONE_PREFIX)
+        .ok_or_else(|| "Missing GDPR_HMAC tombstone tag".to_string())?;
+    let tag_bytes = hex::decode(tag_hex).map_err(|_| "Invalid GDPR tombstone hex".to_string())?;
+    if tag_bytes.len() != 32 {
+        return Err("Invalid GDPR tombstone tag length".to_string());
+    }
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(hmac_key)
+        .map_err(|_| "HMAC key initialization failure".to_string())?;
+    mac.update(GDPR_TOMBSTONE_DOMAIN);
+    mac.update(&id.to_le_bytes());
+    mac.update(ts.as_bytes());
+    mac.update(&[u8::from(is_blocked)]);
+    mac.update(redactions_bin);
+    mac.update(integrity_hash);
+    mac.verify_slice(&tag_bytes)
+        .map_err(|_| "GDPR tombstone HMAC verification failed".to_string())
+}
 
 /// Verification summary returned by [`verify_audit_chain`] and [`verify_audit_chain_diagnostic`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,21 +182,17 @@ fn verify_audit_chain_inner(
         };
 
         // Cryptographic shredding support: if username was purged/redacted under GDPR,
-        // the raw identity is deleted, ephemeral payload must be absent, and hash chain links stay intact.
-        if username == "[REDACTED]" || username.starts_with("GDPR_") {
-            if encrypted_data.is_some() || nonce.is_some() {
-                let msg = format!(
-                    "GDPR SHREDDING VIOLATION at Log ID {}! Redacted record retains unshredded ephemeral payload.",
-                    id
-                );
-                if fail_fast {
-                    return Err(msg);
-                }
-                failures.push(msg);
-            } else {
-                archived_count += 1;
-                gdpr_redacted_count += 1;
+        // ephemeral payload must be absent, and we later require a valid keyed tombstone MAC.
+        let is_gdpr_redacted = username == "[REDACTED]" || username.starts_with("GDPR_");
+        if is_gdpr_redacted && (encrypted_data.is_some() || nonce.is_some()) {
+            let msg = format!(
+                "GDPR SHREDDING VIOLATION at Log ID {}! Redacted record retains unshredded ephemeral payload.",
+                id
+            );
+            if fail_fast {
+                return Err(msg);
             }
+            failures.push(msg);
             current_hash = stored_bytes;
             current_id = id;
             continue;
@@ -176,6 +230,36 @@ fn verify_audit_chain_inner(
                 continue;
             }
         };
+
+        if is_gdpr_redacted {
+            match verify_gdpr_tombstone_mac(
+                hmac_key,
+                id,
+                &ts,
+                blocked,
+                &redactions_bin,
+                &stored_bytes,
+                &payload_hash_str,
+            ) {
+                Ok(()) => {
+                    archived_count += 1;
+                    gdpr_redacted_count += 1;
+                }
+                Err(e) => {
+                    let msg = format!(
+                        "Record ID {}: Forged or unverified GDPR tombstone MAC ({})",
+                        id, e
+                    );
+                    if fail_fast {
+                        return Err(msg);
+                    }
+                    failures.push(msg);
+                }
+            }
+            current_hash = stored_bytes;
+            current_id = id;
+            continue;
+        }
         let payload_hash = match hex::decode(&payload_hash_str) {
             Ok(b) if b.len() == 32 => b,
             _ => {
@@ -258,7 +342,13 @@ fn verify_audit_chain_inner(
         current_id = id;
     }
 
-    if let Err(anchor_err) = check_anchor(db_path, current_id, &current_hash) {
+    if let Err(anchor_err) = check_anchor_with_context(
+        db_path,
+        Some(conn),
+        Some(genesis_hash),
+        current_id,
+        &current_hash,
+    ) {
         if fail_fast {
             return Err(anchor_err);
         }
@@ -281,18 +371,73 @@ pub fn update_anchor(db_path: &str, last_id: i64, last_hash: &[u8]) -> Result<()
         return Ok(());
     }
     let anchor_path = format!("{}.anchor", db_path);
-    let tmp_path = format!("{}.tmp.{}", anchor_path, std::process::id());
+    let seq = ANCHOR_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = format!("{}.tmp.{}.{}", anchor_path, std::process::id(), seq);
     let content = format!("{}:{}", last_id, hex::encode(last_hash));
-    std::fs::write(&tmp_path, content)
-        .map_err(|e| SovereignError::StorageError(format!("Anchor write failure: {}", e)))?;
-    std::fs::rename(&tmp_path, &anchor_path)
-        .map_err(|e| SovereignError::StorageError(format!("Anchor rename failure: {}", e)))?;
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&tmp_path)
+            .map_err(|e| SovereignError::StorageError(format!("Anchor write failure: {}", e)))?;
+        if let Err(e) = f.write_all(content.as_bytes()).and_then(|_| f.sync_all()) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(SovereignError::StorageError(format!(
+                "Anchor write failure: {}",
+                e
+            )));
+        }
+    }
+    if let Err(e) = std::fs::rename(&tmp_path, &anchor_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(SovereignError::StorageError(format!(
+            "Anchor rename failure: {}",
+            e
+        )));
+    }
     Ok(())
 }
 
 /// Verifies the SQLite chain tail against the external `.anchor` file to catch truncation attacks.
 pub fn check_anchor(
     db_path: &str,
+    current_last_id: i64,
+    current_last_hash: &[u8],
+) -> Result<(), String> {
+    check_anchor_with_context(db_path, None, None, current_last_id, current_last_hash)
+}
+
+fn verify_historical_anchor_row(
+    conn: &Connection,
+    expected_id: i64,
+    expected_bytes: &[u8],
+) -> Result<(), String> {
+    let stored_hex: String = conn
+        .query_row(
+            "SELECT integrity_hash FROM audit_reports WHERE id = ?1",
+            [expected_id],
+            |r| r.get(0),
+        )
+        .map_err(|_| {
+            format!(
+                "Audit DB Integrity Mismatch! Anchored record ID {} missing from database.",
+                expected_id
+            )
+        })?;
+    let stored_bytes = hex::decode(stored_hex.trim()).map_err(|_| {
+        "Audit DB Integrity Mismatch! Invalid integrity_hash hex at anchor ID.".to_string()
+    })?;
+    if stored_bytes.as_slice() != expected_bytes {
+        return Err(format!(
+            "Audit DB Integrity Mismatch! Historical anchored record ID {} does not match stored anchor hash.",
+            expected_id
+        ));
+    }
+    Ok(())
+}
+
+fn check_anchor_with_context(
+    db_path: &str,
+    conn: Option<&Connection>,
+    genesis_hash: Option<&[u8; 32]>,
     current_last_id: i64,
     current_last_hash: &[u8],
 ) -> Result<(), String> {
@@ -310,6 +455,9 @@ pub fn check_anchor(
             let expected_id: i64 = parts[0]
                 .parse()
                 .map_err(|_| "Audit DB Anchor file has invalid record ID!".to_string())?;
+            if expected_id < 0 {
+                return Err("Audit DB Anchor file has invalid record ID!".to_string());
+            }
             if current_last_id < expected_id {
                 return Err(format!(
                     "Audit DB Truncation Detected! Expected last ID >= {}, but found {}",
@@ -321,14 +469,40 @@ pub fn check_anchor(
             if expected_bytes.len() != 32 {
                 return Err("Audit DB Anchor file has invalid hash length!".into());
             }
-            if current_last_id > 0
-                && current_last_id == expected_id
-                && current_last_hash != expected_bytes.as_slice()
-            {
-                return Err(
-                    "Audit DB Integrity Mismatch! Last record does not match stored anchor hash."
-                        .into(),
-                );
+
+            if expected_id == 0 {
+                if let Some(gen) = genesis_hash {
+                    if expected_bytes.as_slice() != gen.as_slice() {
+                        return Err(
+                            "Audit DB Integrity Mismatch! Anchor genesis hash does not match."
+                                .into(),
+                        );
+                    }
+                } else if current_last_id == 0
+                    && !current_last_hash.is_empty()
+                    && current_last_hash != expected_bytes.as_slice()
+                {
+                    return Err(
+                        "Audit DB Integrity Mismatch! Empty DB anchor does not match genesis hash."
+                            .into(),
+                    );
+                }
+            } else if current_last_id == expected_id {
+                if current_last_hash != expected_bytes.as_slice() {
+                    return Err(
+                        "Audit DB Integrity Mismatch! Last record does not match stored anchor hash."
+                            .into(),
+                    );
+                }
+            } else if let Some(c) = conn {
+                verify_historical_anchor_row(c, expected_id, expected_bytes.as_slice())?;
+            } else {
+                let ro_conn =
+                    Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                        .map_err(|e| {
+                            format!("Failed to open Audit DB for historical anchor check: {}", e)
+                        })?;
+                verify_historical_anchor_row(&ro_conn, expected_id, expected_bytes.as_slice())?;
             }
             Ok(())
         }

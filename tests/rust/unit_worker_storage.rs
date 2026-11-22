@@ -727,6 +727,132 @@ mod additional_audit_tests {
             gdpr_violation
         );
 
+        // Clean up ephemeral payload so row 1 is properly shredded again
+        conn.execute("DELETE FROM ephemeral_raw_logs WHERE id = 1", [])
+            .unwrap();
+        assert!(
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key).is_ok(),
+            "Chain with legitimate GDPR_HMAC tombstone should verify cleanly"
+        );
+
+        // Adversarial Attack 1: Attacker mutates a GDPR [REDACTED] record without pepper
+        conn.execute("UPDATE audit_reports SET is_blocked = 1 WHERE id = 1", [])
+            .unwrap();
+        let forged_tombstone_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            forged_tombstone_err.contains("Forged or unverified GDPR tombstone MAC"),
+            "Expected GDPR tombstone MAC rejection, got: {}",
+            forged_tombstone_err
+        );
+
+        // Adversarial Attack 2: Attacker leaves ephemeral logs deleted and rewrites a regular row to [REDACTED]
+        conn.execute("UPDATE audit_reports SET is_blocked = 0 WHERE id = 1", [])
+            .unwrap();
+        conn.execute("DELETE FROM ephemeral_raw_logs WHERE id = 2", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE audit_reports SET username = '[REDACTED]', is_blocked = 1 WHERE id = 2",
+            [],
+        )
+        .unwrap();
+        let spoof_diag = iw_core::audit::verify_audit_chain_diagnostic(
+            &conn,
+            &db_path,
+            &genesis_hash,
+            &hmac_key,
+        )
+        .unwrap();
+        assert!(
+            spoof_diag
+                .failures
+                .iter()
+                .any(|f| f.contains("Forged or unverified GDPR tombstone MAC")),
+            "Diagnostic mode must report spoofed [REDACTED] row, got: {:?}",
+            spoof_diag.failures
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
+
+    #[tokio::test]
+    async fn test_stale_anchor_mismatch_detected_when_db_has_newer_rows() {
+        let db_path = std::env::temp_dir()
+            .join(format!(
+                "audit_test_stale_anchor_{}.db",
+                uuid::Uuid::new_v4()
+            ))
+            .to_string_lossy()
+            .to_string();
+        let pepper_bytes = vec![0x33u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper_bytes.clone()), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+
+        auditor
+            .log_report(report.clone(), "raw1".into(), "user1".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "raw2".into(), "user2".into())
+            .await
+            .unwrap();
+        auditor.shutdown().await;
+
+        let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, &pepper_bytes);
+        let mut hmac_key = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_INTEGRITY, &mut hmac_key)
+            .unwrap();
+        let mut genesis_hash = [0u8; 32];
+        hk.expand(iw_core::KDF_SALT_GENESIS, &mut genesis_hash)
+            .unwrap();
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let last_hex: String = conn
+            .query_row(
+                "SELECT integrity_hash FROM audit_reports WHERE id = 2",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let last_bytes = hex::decode(last_hex).unwrap();
+
+        // Write a stale anchor pointing to expected_id=1 with a mismatched 32-byte hash
+        let wrong_hash = hex::encode([0xAAu8; 32]);
+        std::fs::write(format!("{}.anchor", db_path), format!("1:{}", wrong_hash)).unwrap();
+
+        // Direct check_anchor must catch historical hash mismatch even though current_last_id (2) > expected_id (1)
+        let direct_err = iw_core::audit::check_anchor(&db_path, 2, &last_bytes).unwrap_err();
+        assert!(
+            direct_err.contains("Historical anchored record ID 1"),
+            "Expected stale anchor historical mismatch, got: {}",
+            direct_err
+        );
+
+        // Full chain verification must also reject it
+        let chain_err =
+            iw_core::audit::verify_audit_chain(&conn, &db_path, &genesis_hash, &hmac_key)
+                .unwrap_err();
+        assert!(
+            chain_err.contains("Historical anchored record ID 1"),
+            "Expected stale anchor mismatch in verify_audit_chain, got: {}",
+            chain_err
+        );
+
         drop(conn);
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(format!("{}-shm", db_path));
