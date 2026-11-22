@@ -1227,4 +1227,115 @@ mod librarian_tests {
 
         fs::remove_dir_all(&kb_path).ok();
     }
+
+    #[tokio::test]
+    async fn test_librarian_no_starvation_past_200_docs_true_tenant_idf_and_dedup_query() {
+        let kb_path = std::env::temp_dir()
+            .join(format!("librarian_scale_idf_{}", uuid::Uuid::new_v4()))
+            .to_string_lossy()
+            .to_string();
+        let librarian = LocalLibrarian::new(&kb_path).await.unwrap();
+
+        // 1. Zero starvation past 200 docs: ingest 220 noisy docs first, then high-relevance doc #221.
+        for i in 0..220 {
+            librarian
+                .add_document(&format!("compliance note number {}", i), "tenant_scale")
+                .await
+                .unwrap();
+        }
+        librarian
+            .add_document(
+                "compliance strict mandate strict compliance mandate",
+                "tenant_scale",
+            )
+            .await
+            .unwrap();
+        let scale_hits = librarian
+            .retrieve_policy_context(
+                "Please summarize compliance strict mandate",
+                "tenant_scale",
+                1,
+            )
+            .await
+            .unwrap();
+        assert_eq!(scale_hits.len(), 1);
+        assert!(
+            scale_hits[0].contains("strict compliance mandate"),
+            "Newer doc #221 was starved past 200 oldest rows: {:?}",
+            scale_hits
+        );
+
+        // 2. AND query true tenant-local IDF: `policy` appears in 32 docs, `rarekey` in only 2.
+        //    Doc repeating `rarekey` twice must beat doc repeating common `policy` three times.
+        for i in 0..30 {
+            librarian
+                .add_document(&format!("policy handbook item {}", i), "tenant_idf")
+                .await
+                .unwrap();
+        }
+        librarian
+            .add_document("policy policy policy rarekey", "tenant_idf")
+            .await
+            .unwrap();
+        librarian
+            .add_document("policy rarekey rarekey", "tenant_idf")
+            .await
+            .unwrap();
+        let idf_hits = librarian
+            .retrieve_policy_context("policy rarekey", "tenant_idf", 5)
+            .await
+            .unwrap();
+        assert_eq!(idf_hits.len(), 2);
+        assert_eq!(
+            idf_hits[0], "policy rarekey rarekey",
+            "True tenant-local IDF must weight rarer term 'rarekey' higher than ubiquitous 'policy': {:?}",
+            idf_hits
+        );
+
+        // 3. Duplicate query terms must not inflate overlap >= 2 to include single-term noise.
+        librarian
+            .add_document("compliance single term noise", "tenant_dedup")
+            .await
+            .unwrap();
+        librarian
+            .add_document("compliance mandate pair", "tenant_dedup")
+            .await
+            .unwrap();
+        let dedup_hits = librarian
+            .retrieve_policy_context("compliance compliance mandate", "tenant_dedup", 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            dedup_hits,
+            vec!["compliance mandate pair".to_string()],
+            "Duplicate query token bypassed overlap >= 2 filter: {:?}",
+            dedup_hits
+        );
+
+        // 4. Prefix-overlapping and punctuation-only usernames are strictly isolated.
+        librarian
+            .add_document("alice primary policy", "alice")
+            .await
+            .unwrap();
+        librarian
+            .add_document("alice secondary secret policy", "alice_2")
+            .await
+            .unwrap();
+        librarian
+            .add_document("punctuation secret policy", "---")
+            .await
+            .unwrap();
+        let alice_hits = librarian
+            .retrieve_policy_context("policy", "alice", 10)
+            .await
+            .unwrap();
+        assert_eq!(alice_hits, vec!["alice primary policy".to_string()]);
+        let punct_hits = librarian
+            .retrieve_policy_context("policy", "---", 10)
+            .await
+            .unwrap();
+        assert_eq!(punct_hits, vec!["punctuation secret policy".to_string()]);
+
+        fs::remove_dir_all(&kb_path).ok();
+    }
 }
