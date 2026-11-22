@@ -153,6 +153,7 @@ impl SseState {
     fn process_line(&mut self, line: &str, output: &mut String) {
         if self.in_overflow_line {
             self.in_overflow_line = false;
+            self.suppress_next_empty_line = false;
             let rehydrated = self.rehydrator.feed(line);
             let flushed = self.rehydrator.flush_all();
             output.push_str(&rehydrated);
@@ -181,8 +182,8 @@ impl SseState {
         };
         let data = raw_data.strip_prefix(' ').unwrap_or(raw_data);
         if data.trim() == "[DONE]" {
+            self.push_tail_delta(self.is_anthropic, self.last_block_idx, output);
             self.flush_pending(output);
-            self.push_tail_delta(false, 0, output);
             output.push_str("data: [DONE]\n\n");
             self.suppress_next_empty_line = true;
             return;
@@ -329,10 +330,14 @@ where
             }
             if line_buffer.len() > MAX_SSE_LINE_BYTES {
                 let overflow = std::mem::take(&mut line_buffer);
-                state.flush_pending(&mut output);
+                if !state.in_overflow_line {
+                    state.push_tail_delta(state.is_anthropic, state.last_block_idx, &mut output);
+                    state.flush_pending(&mut output);
+                    state.suppress_next_empty_line = false;
+                    state.in_overflow_line = true;
+                }
                 let rehydrated = state.rehydrator.feed(&overflow);
                 output.push_str(&rehydrated);
-                state.in_overflow_line = true;
             }
             if !output.is_empty() && tx.send(Ok(Bytes::from(output))).await.is_err() {
                 return;
@@ -346,8 +351,8 @@ where
         if !line_buffer.is_empty() {
             state.process_line(line_buffer.trim_end_matches('\r'), &mut eof_output);
         }
-        state.flush_pending(&mut eof_output);
         state.push_tail_delta(state.is_anthropic, state.last_block_idx, &mut eof_output);
+        state.flush_pending(&mut eof_output);
         if !eof_output.is_empty() {
             let _ = tx.send(Ok(Bytes::from(eof_output))).await;
         }

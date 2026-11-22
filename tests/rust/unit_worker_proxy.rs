@@ -820,14 +820,18 @@ mod sse_proxy_tests {
             malformed_str
         );
 
-        // 2. Oversized (> 1 MiB) single line split across two TCP chunks must not inject \n\n mid-JSON or leak [PERSON_1]
+        // 2. Oversized (> 1 MiB) single line preceded by a normal event holding `[PER` must preserve
+        //    event boundaries (\n\n after overflow) and flush `[PER` cleanly before the oversized line
         let big_pad = "a".repeat(1_050_000);
+        let prior_event =
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hi [PER\"}}]}\n\n".to_string();
         let chunk1 = format!(
             "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{} [PER",
             big_pad
         );
-        let chunk2 = "SON_1]\"}}]}\n\n".to_string();
+        let chunk2 = "SON_1]\"}}]}\n\ndata: [DONE]\n\n".to_string();
         let big_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(prior_event)),
             Ok(axum::body::Bytes::from(chunk1)),
             Ok(axum::body::Bytes::from(chunk2)),
         ];
@@ -847,8 +851,38 @@ mod sse_proxy_tests {
             "Oversized split line failed to rehydrate token"
         );
         assert!(
-            !big_str.contains("Alice\"\n\n") && !big_str.contains("\n\nSON_1"),
-            "Oversized split line injected spurious newlines mid-JSON"
+            !big_str.contains("[PERdata:"),
+            "Buffered prior prefix bled into oversized data: line"
+        );
+        assert!(
+            big_str.ends_with("Alice\"}}]}\n\ndata: [DONE]\n\n"),
+            "Oversized line must preserve double-newline boundary before next frame"
+        );
+
+        // 2b. `event: done\ndata: [DONE]` preceded by partial token `[PER` must flush delta before `event: done`
+        let done_chunks: Vec<Result<axum::body::Bytes, std::io::Error>> = vec![
+            Ok(axum::body::Bytes::from(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"wait [PER\"}}]}\n\n",
+            )),
+            Ok(axum::body::Bytes::from("event: done\ndata: [DONE]\n\n")),
+        ];
+        let done_resp = stream_sse_bytes(futures::stream::iter(done_chunks), map.clone());
+        let done_str = String::from_utf8(
+            done_resp
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        let tail_pos = done_str.find("\"[PER\"").unwrap();
+        let event_done_pos = done_str.find("event: done\ndata: [DONE]").unwrap();
+        assert!(
+            tail_pos < event_done_pos,
+            "Flushed delta must precede `event: done\\ndata: [DONE]`: {}",
+            done_str
         );
 
         // 3. Invalid UTF-8 byte in chunk 2 must not reorder ahead of incomplete line_buffer from chunk 1
