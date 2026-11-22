@@ -1,5 +1,5 @@
 # --- Build Stage ---
-FROM rust:1-bookworm AS builder
+FROM rust:1.100-bookworm AS builder
 
 WORKDIR /usr/src/ironwarden
 
@@ -8,8 +8,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     libssl-dev \
-    libtesseract-dev \
-    libleptonica-dev \
     clang \
     && rm -rf /var/lib/apt/lists/*
 

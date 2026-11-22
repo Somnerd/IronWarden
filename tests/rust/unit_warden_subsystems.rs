@@ -565,6 +565,63 @@ mod configurator_tests {
             }
         });
     }
+
+    #[test]
+    fn test_env_allow_fallback_false_overrides_config_yaml_true() {
+        use std::io::Write;
+        use tempfile::{NamedTempFile, TempDir};
+
+        run_with_env(|| {
+            let temp_dir = TempDir::new().unwrap();
+            let rules_dir = temp_dir.path().join("rules");
+            fs::create_dir_all(&rules_dir).unwrap();
+
+            let manifest_path = temp_dir.path().join("manifest.yaml");
+            fs::write(
+                &manifest_path,
+                format!(
+                    "version: \"1.0\"\nrules_dir: \"{}\"\n",
+                    rules_dir.to_string_lossy().replace('\\', "/")
+                ),
+            )
+            .unwrap();
+
+            let mut cfg_file = NamedTempFile::new().unwrap();
+            writeln!(
+                cfg_file,
+                "allow_fallback: true\nwarden_manifest_path: \"{}\"",
+                manifest_path.to_string_lossy().replace('\\', "/")
+            )
+            .unwrap();
+
+            env::set_var("ALLOW_FALLBACK", "false");
+            env::set_var("WARDEN_ENV", "test");
+            env::remove_var("WARDEN_PEPPER");
+
+            // Strict mode overridden via ALLOW_FALLBACK=false must refuse ephemeral pepper generation
+            let err = GlobalConfig::resolve_with_path(Some(cfg_file.path())).unwrap_err();
+            assert!(
+                err.to_string().contains("WARDEN_PEPPER"),
+                "Expected fail-closed WARDEN_PEPPER error when ALLOW_FALLBACK=false overrides allow_fallback: true, got: {}",
+                err
+            );
+
+            // Even with a valid pepper, resolved config must carry allow_fallback == false
+            env::set_var(
+                "WARDEN_PEPPER",
+                "0123456789abcdef0123456789abcdef0123456789abcdef",
+            );
+            let cfg = GlobalConfig::resolve_with_path(Some(cfg_file.path())).unwrap();
+            assert!(
+                !cfg.allow_fallback,
+                "ALLOW_FALLBACK=false must override config.yaml allow_fallback: true"
+            );
+
+            env::remove_var("ALLOW_FALLBACK");
+            env::remove_var("WARDEN_ENV");
+            env::remove_var("WARDEN_PEPPER");
+        });
+    }
 }
 
 mod ai_tests {

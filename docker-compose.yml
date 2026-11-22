@@ -15,8 +15,8 @@ services:
       - WARDEN_ENV=production
       - WARDEN_MODE=bridge
       - RUST_LOG=info
-      - WARDEN_PEPPER=${WARDEN_PEPPER:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
-      - WARDEN_MCP_SECRET=${WARDEN_MCP_SECRET:-default_mcp_secret_change_in_production}
+      - WARDEN_PEPPER=${WARDEN_PEPPER:?WARDEN_PEPPER must be set to a >=32-byte secret}
+      - WARDEN_MCP_SECRET=${WARDEN_MCP_SECRET:?WARDEN_MCP_SECRET must be set}
       - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}
       - WARDEN_JWT_AUDIENCE=${WARDEN_JWT_AUDIENCE:-ironwarden}
       - WARDEN_JWT_ISSUER=${WARDEN_JWT_ISSUER:-ironwarden}

@@ -27,11 +27,11 @@ impl OcrProvider for TesseractOcr {
             SovereignError::InternalError(format!("Failed to write OCR temp file: {}", e))
         })?;
 
-        // Tesseract command: tesseract [input] [output_base] -l eng+grc
+        // Tesseract command: tesseract [input] [output_base] -l eng+ell+grc
         let mut cmd = Command::new("tesseract");
         cmd.arg(&input_path);
         cmd.arg(&output_base);
-        cmd.arg("-l").arg("eng+grc"); // Support English and Greek
+        cmd.arg("-l").arg("eng+ell+grc"); // Support English, Modern Greek, and Polytonic Greek
 
         match cmd.output().await {
             Ok(output) if output.status.success() => {
