@@ -1123,6 +1123,34 @@ mod librarian_tests {
         );
         assert!(conv_hits[0].contains("Strict compliance mandate"));
 
+        // High-TF single-term noise document must not starve multi-term hit under small limit=1
+        librarian
+            .add_document(
+                "Compliance compliance compliance compliance compliance compliance note.",
+                "tenant_alpha",
+            )
+            .await
+            .unwrap();
+        let small_limit_hits = librarian
+            .retrieve_policy_context(
+                "Please summarize our strict compliance mandate",
+                "tenant_alpha",
+                1,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            small_limit_hits.len(),
+            1,
+            "OR candidate window must still return the multi-term match under limit=1: {:?}",
+            small_limit_hits
+        );
+        assert!(
+            small_limit_hits[0].contains("Strict compliance mandate"),
+            "High-TF single-term noise starved multi-term hit: {:?}",
+            small_limit_hits
+        );
+
         fs::remove_dir_all(&kb_path).ok();
     }
 }

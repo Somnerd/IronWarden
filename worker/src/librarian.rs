@@ -215,9 +215,10 @@ impl LocalLibrarian {
 
                 if matched_docs.is_empty() {
                     if let Some(ref oq) = or_query {
+                        let or_candidate_limit = limit_i64.saturating_mul(5).max(25);
                         let mut seen_ids = std::collections::HashSet::new();
                         let mut candidates: Vec<(String, usize)> = Vec::new();
-                        let mut rows = stmt.query((oq, &username, limit_i64))?;
+                        let mut rows = stmt.query((oq, &username, or_candidate_limit))?;
                         while let Some(row) = rows.next()? {
                             let id: i64 = row.get(0)?;
                             let text: String = row.get(1)?;
