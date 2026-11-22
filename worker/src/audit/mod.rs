@@ -5,7 +5,7 @@ pub use forwarder::*;
 
 use chrono::{Duration, Utc};
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use hmac::Hmac;
 use iw_core::{AadCipher, Redaction, ScrubbingReport, SovereignError};
 use iw_core::{KDF_SALT_ENCRYPTION, KDF_SALT_GENESIS, KDF_SALT_INTEGRITY};
 use rusqlite::{Connection, ErrorCode};
@@ -159,28 +159,25 @@ impl AsyncAuditor {
                                     hasher.update(nonce_bytes);
                                     let payload_hash = hasher.finalize();
 
-                                    let mut mac = match <HmacSha256 as Mac>::new_from_slice(
+                                    let current_hash = match iw_core::audit::compute_row_hmac(
                                         &hmac_key_bytes,
+                                        &last_hash,
+                                        &iw_core::audit::AuditRowMac {
+                                            ts: &timestamp,
+                                            username: &username,
+                                            is_blocked: report.is_blocked,
+                                            redactions_bin: &redactions_bin,
+                                            payload_hash: &payload_hash,
+                                        },
                                     ) {
-                                        Ok(m) => m,
+                                        Ok(h) => h.to_vec(),
                                         Err(e) => {
                                             let _ =
-                                                ack_tx.send(Err(SovereignError::InternalError(
-                                                    format!("HMAC Key Failure: {}", e),
-                                                )));
+                                                ack_tx.send(Err(SovereignError::InternalError(e)));
                                             raw_input.zeroize();
                                             continue;
                                         }
                                     };
-
-                                    mac.update(&last_hash);
-                                    mac.update(timestamp.as_bytes());
-                                    mac.update(username.as_bytes()); // Bind username to integrity chain
-                                    mac.update(&[report.is_blocked as u8]);
-                                    mac.update(&redactions_bin);
-                                    mac.update(&payload_hash); // Bind payload to chain
-
-                                    let current_hash = mac.finalize().into_bytes().to_vec();
 
                                     let mut write_success = false;
                                     let has_forwarder = remote_forwarder.is_some();
@@ -282,6 +279,12 @@ impl AsyncAuditor {
                         raw_input.zeroize();
                     }
                     AuditMessage::PurgeUser(username, ack_tx) => {
+                        if !healthy_thread.load(std::sync::atomic::Ordering::SeqCst) {
+                            let _ = ack_tx.send(Err(SovereignError::InternalError(
+                                "Auditor in Panic State: Health check failed".into(),
+                            )));
+                            continue;
+                        }
                         if iw_core::audit::is_reserved_gdpr_username(&username) {
                             let _ = ack_tx.send(Err(SovereignError::StorageError(
                                 "Cannot purge reserved GDPR tombstone username".into(),
@@ -296,35 +299,40 @@ impl AsyncAuditor {
                                 )))
                             } else {
                                 // Cryptographic shredding under GDPR:
-                                // 1. Wipe ephemeral raw logs & encryption keys/nonces
-                                let res1 = c.execute(
-                                    "DELETE FROM ephemeral_raw_logs WHERE username = ?1",
-                                    [&username],
-                                );
-                                // 2. Re-sign rows with keyed GDPR tombstone MAC in payload_hash
-                                //    and pseudonymize username in-place.
+                                // 1. Verify Stage-1 HMAC and re-sign rows with keyed GDPR tombstone MAC
                                 let update_res = Self::shred_user_audit_rows(
                                     c,
                                     &genesis_hash,
                                     &hmac_key_bytes,
                                     &username,
                                 );
+                                // 2. Wipe ephemeral raw logs only if verification + signing succeeded
+                                let res1 = if update_res.is_ok() {
+                                    c.execute(
+                                        "DELETE FROM ephemeral_raw_logs WHERE username = ?1",
+                                        [&username],
+                                    )
+                                } else {
+                                    Ok(0)
+                                };
 
-                                if let Err(e) = res1 {
+                                if let Err(e) = update_res {
+                                    error!(
+                                        "GDPR Purge audit_reports verification/shredding failed: {}",
+                                        e
+                                    );
+                                    healthy_thread
+                                        .store(false, std::sync::atomic::Ordering::SeqCst);
+                                    let _ = c.execute("ROLLBACK", []);
+                                    Err(SovereignError::StorageError(format!(
+                                        "Failed to shred audit records for user {}: {}",
+                                        username, e
+                                    )))
+                                } else if let Err(e) = res1 {
                                     error!("GDPR Purge ephemeral_raw_logs delete failed: {}", e);
                                     let _ = c.execute("ROLLBACK", []);
                                     Err(SovereignError::StorageError(format!(
                                         "Failed to delete ephemeral raw logs for user {}: {}",
-                                        username, e
-                                    )))
-                                } else if let Err(e) = update_res {
-                                    error!(
-                                        "GDPR Purge audit_reports tombstone signing failed: {}",
-                                        e
-                                    );
-                                    let _ = c.execute("ROLLBACK", []);
-                                    Err(SovereignError::StorageError(format!(
-                                        "Failed to shred audit records for user {}: {}",
                                         username, e
                                     )))
                                 } else if let Err(e) = c.execute("COMMIT", []) {
@@ -619,12 +627,13 @@ impl AsyncAuditor {
             ts: String,
             is_blocked: bool,
             redactions_json: String,
+            payload_hex: String,
             integrity_hex: String,
         }
 
         let mut stmt = c
             .prepare(
-                "SELECT id, timestamp, is_blocked, redactions_json, integrity_hash \
+                "SELECT id, timestamp, is_blocked, redactions_json, payload_hash, integrity_hash \
                  FROM audit_reports WHERE username = ?1 ORDER BY id ASC",
             )
             .map_err(|e| e.to_string())?;
@@ -635,7 +644,8 @@ impl AsyncAuditor {
                     ts: r.get(1)?,
                     is_blocked: r.get(2)?,
                     redactions_json: r.get(3)?,
-                    integrity_hex: r.get(4)?,
+                    payload_hex: r.get(4)?,
+                    integrity_hex: r.get(5)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -670,10 +680,29 @@ impl AsyncAuditor {
             let redactions: Vec<Redaction> =
                 serde_json::from_str(&row.redactions_json).map_err(|e| e.to_string())?;
             let redactions_bin = bincode::serialize(&redactions).map_err(|e| e.to_string())?;
+            let payload_bytes = hex::decode(row.payload_hex.trim()).map_err(|e| e.to_string())?;
             let stored_bytes = hex::decode(row.integrity_hex.trim()).map_err(|e| e.to_string())?;
-            if stored_bytes.len() != 32 {
-                return Err(format!("Invalid integrity_hash length on row {}", row.id));
+            if payload_bytes.len() != 32 || stored_bytes.len() != 32 {
+                return Err(format!("Invalid hash length on tampered row {}", row.id));
             }
+            iw_core::audit::verify_row_hmac(
+                hmac_key_bytes,
+                &prev_bytes,
+                &iw_core::audit::AuditRowMac {
+                    ts: &row.ts,
+                    username,
+                    is_blocked: row.is_blocked,
+                    redactions_bin: &redactions_bin,
+                    payload_hash: &payload_bytes,
+                },
+                &stored_bytes,
+            )
+            .map_err(|e| {
+                format!(
+                    "Refusing GDPR tombstone signing for tampered record ID {}: {}",
+                    row.id, e
+                )
+            })?;
             let tombstone = iw_core::audit::compute_gdpr_tombstone_mac(
                 hmac_key_bytes,
                 &prev_bytes,

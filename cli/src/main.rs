@@ -103,7 +103,7 @@ fn main() {
 }
 
 fn generate_report(db_path: &str) -> rusqlite::Result<()> {
-    let conn = Connection::open(db_path)?;
+    let conn = open_existing_db(db_path, true)?;
 
     let mut total_requests = 0;
     let mut total_blocked = 0;

@@ -1326,6 +1326,88 @@ mod additional_audit_tests {
         let _ = std::fs::remove_file(format!("{}-wal", db_path));
         let _ = std::fs::remove_file(format!("{}.anchor", db_path));
     }
+
+    #[tokio::test]
+    async fn test_purge_user_rejects_tampered_row_instead_of_laundering() {
+        let db_path = std::env::temp_dir()
+            .join(format!(
+                "audit_test_purge_tamper_{}.db",
+                uuid::Uuid::new_v4()
+            ))
+            .to_string_lossy()
+            .to_string();
+        let pepper = vec![0x99u8; 32];
+        let auditor = AsyncAuditor::spawn(&db_path, SecretVec::from(pepper), None)
+            .await
+            .unwrap();
+
+        let report = ScrubbingReport {
+            sanitized_text: "sanitized".into(),
+            is_blocked: false,
+            redactions: vec![],
+            token_map: TokenMap::new(),
+            execution_time_ms: 1,
+            potential_misses: vec![],
+        };
+        auditor
+            .log_report(report.clone(), "raw1".into(), "alice".into())
+            .await
+            .unwrap();
+        auditor
+            .log_report(report, "raw2".into(), "bob".into())
+            .await
+            .unwrap();
+
+        // Attacker flips `is_blocked` on alice's row without recomputing integrity_hash
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute("UPDATE audit_reports SET is_blocked = 1 WHERE id = 1", [])
+            .unwrap();
+        drop(conn);
+
+        let err = auditor
+            .purge_user("alice")
+            .await
+            .expect_err("PurgeUser must refuse to sign tampered row into GDPR_HMAC tombstone");
+        assert!(
+            err.to_string().contains("tampered"),
+            "Expected tampered refusal error, got: {}",
+            err
+        );
+        assert!(
+            auditor.check_health().is_err(),
+            "Auditor must trip fail-closed after detecting tampered row during PurgeUser"
+        );
+
+        let ro = rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let (uname, ph): (String, String) = ro
+            .query_row(
+                "SELECT username, payload_hash FROM audit_reports WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(uname, "alice");
+        assert!(!ph.starts_with("GDPR_HMAC:"));
+        let erl_count: i64 = ro
+            .query_row(
+                "SELECT COUNT(*) FROM ephemeral_raw_logs WHERE username = 'alice'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(erl_count, 1, "Rollback must preserve ephemeral row");
+        drop(ro);
+
+        auditor.shutdown().await;
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-shm", db_path));
+        let _ = std::fs::remove_file(format!("{}-wal", db_path));
+        let _ = std::fs::remove_file(format!("{}.anchor", db_path));
+    }
 }
 
 #[cfg(test)]
